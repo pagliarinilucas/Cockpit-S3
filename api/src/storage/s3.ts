@@ -145,6 +145,32 @@ export const s3 = {
     return { url, disposition };
   },
 
+  /**
+   * Stream an object back through the API as a Response. Used so the browser never
+   * has to reach Garage directly — avoids mixed-content (HTTPS page → HTTP Garage)
+   * and keeps the S3 endpoint private. `preview` sets inline + the right MIME.
+   */
+  async object(cid: string, bucket: string, key: string, mode: 'download' | 'preview'): Promise<Response> {
+    const out = await client(cid).send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    const ext = (key.toLowerCase().split('.').pop() || '');
+    const inline = mode === 'preview' && INLINE.has(ext);
+    const filename = key.split('/').pop() || 'file';
+    const contentType = (inline && MIME[ext]) ? MIME[ext] : (out.ContentType || 'application/octet-stream');
+
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      'Cache-Control': 'private, max-age=60',
+    };
+    if (out.ContentLength != null) headers['Content-Length'] = String(out.ContentLength);
+
+    const body = out.Body as { transformToWebStream?: () => ReadableStream; transformToByteArray?: () => Promise<Uint8Array> };
+    const stream = typeof body?.transformToWebStream === 'function'
+      ? body.transformToWebStream()
+      : await body.transformToByteArray!();
+    return new Response(stream, { headers });
+  },
+
   async put(cid: string, bucket: string, key: string, data: Uint8Array, contentType?: string): Promise<void> {
     await client(cid).send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: data, ContentType: contentType }));
   },

@@ -78,6 +78,22 @@ async function req<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** Authenticated fetch that returns a Blob (with the same 401→refresh→retry flow). */
+async function fetchBlob(path: string, params: Record<string, string>, retry = false): Promise<Blob> {
+  const url = BASE + path + '?' + new URLSearchParams(params).toString();
+  const headers: Record<string, string> = {};
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  let res: Response;
+  try { res = await fetch(url, { credentials: 'include', headers }); }
+  catch { throw new ApiError(0, 'network'); }
+  if (res.status === 401 && !retry) {
+    if (await doRefresh()) return fetchBlob(path, params, true);
+    accessToken = null; onUnauthorized?.();
+  }
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return res.blob();
+}
+
 interface AuthResponse { accessToken: string; expiresIn: number; user: Me }
 
 export const api = {
@@ -108,6 +124,12 @@ export const api = {
   list: (bucketId: string, path = '', token?: string) => req<ObjectListing>('GET', `/buckets/${encodeURIComponent(bucketId)}/objects`, { params: token ? { path, token } : { path } }),
   download: (bucketId: string, key: string) => req<PresignedUrl>('GET', `/buckets/${encodeURIComponent(bucketId)}/download`, { params: { key } }),
   preview: (bucketId: string, key: string) => req<PresignedUrl>('GET', `/buckets/${encodeURIComponent(bucketId)}/preview`, { params: { key } }),
+  /** Object streamed through the API as a local blob URL (works over HTTPS regardless
+   *  of the Garage endpoint). Caller must URL.revokeObjectURL() when done. */
+  async objectUrl(bucketId: string, key: string, mode: 'preview' | 'download' = 'preview'): Promise<string> {
+    const blob = await fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/raw`, { key, mode });
+    return URL.createObjectURL(blob);
+  },
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
   deleteObjects: (bucketId: string, keys: string[]) => req('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 

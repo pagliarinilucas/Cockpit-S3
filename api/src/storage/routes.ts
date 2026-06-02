@@ -88,6 +88,26 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       return s3.presign(ref.cid, ref.bucket, key, 'preview');
     })
 
+    // Stream the object through the API (same origin) — used by preview/download so
+    // the browser never hits Garage directly (no mixed-content, endpoint stays private).
+    .get('/buckets/:id/raw', async ({ user, params, query, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      if (!canRead(usersStore.permFor(user!.username, params.id))) { set.status = 403; return { error: 'forbidden' }; }
+      const q = query as Record<string, string>;
+      const key = q['key'];
+      if (!key) { set.status = 400; return { error: 'missing_key' }; }
+      const mode = q['mode'] === 'download' ? 'download' : 'preview';
+      try {
+        const res = await s3.object(ref.cid, ref.bucket, key, mode);
+        if (mode === 'download') audit.log('download', user!.username, params.id, key);
+        return res;
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+    })
+
     .post('/buckets/:id/objects', async ({ user, params, body, set }) => {
       const ref = parse(params.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }

@@ -110,10 +110,11 @@ const previewable = (it: ObjectItem) => it.kind === 'file' && isPreviewable(it.t
 async function downloadItem(it: ObjectItem) {
   if (it.kind !== 'file') return;
   try {
-    const { url } = await api.download(props.bucket.id, it.key);
+    const url = await api.objectUrl(props.bucket.id, it.key, 'download');  // streamed via API (works over HTTPS)
     const a = document.createElement('a');
     a.href = url; a.download = it.name;
     document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
   } catch { toast.error('Falha ao gerar download'); }
 }
 async function copyLink(it: ObjectItem) {

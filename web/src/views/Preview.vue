@@ -20,11 +20,13 @@ const wave = Array.from({ length: 64 }, (_, i) => 12 + Math.round((Math.sin(i * 
 
 const item = computed<ObjectItem | null>(() => props.items[idx.value] ?? null);
 
+function revoke() { if (url.value) { URL.revokeObjectURL(url.value); url.value = null; } }
+
 async function load() {
   const it = item.value;
   if (!it) return;
-  loading.value = true; failed.value = false; url.value = null;
-  try { url.value = (await api.preview(props.bucketId, it.key)).url; }
+  loading.value = true; failed.value = false; revoke();
+  try { url.value = await api.objectUrl(props.bucketId, it.key, 'preview'); }
   catch { failed.value = true; }
   finally { loading.value = false; }
 }
@@ -46,7 +48,7 @@ const onKey = (e: KeyboardEvent) => {
   else if (e.key === 'ArrowLeft') go(-1);
 };
 onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); revoke(); });
 
 const fullPath = (it: ObjectItem) => props.bucketId + '/' + (props.path ? props.path : '') + it.name;
 const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
