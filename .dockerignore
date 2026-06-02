@@ -1,0 +1,19 @@
+# deps & build artifacts (rebuilt inside the image)
+**/node_modules
+web/dist
+api/data
+**/*.sqlite
+**/*.sqlite-*
+
+# local env / secrets — set these in Dokploy instead
+**/.env
+**/.env.*
+!**/.env.example
+
+# vcs / editor / misc
+.git
+.gitignore
+**/.idea
+**/.vscode
+**/*.tsbuildinfo
+**/.DS_Store

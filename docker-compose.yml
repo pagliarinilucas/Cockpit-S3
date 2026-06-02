@@ -1,0 +1,30 @@
+services:
+  cockpit-s3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cockpit-s3:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # ── auth (CRITICAL) ── generate with: openssl rand -hex 32
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-2592000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}        # true behind HTTPS (Dokploy/Traefik)
+      # ── initial admin (created on first boot only) ──
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}          # blank → random, printed in logs
+      # ── paths (inside the container) ──
+      DB_PATH: /data/cockpit.sqlite
+      WEB_DIR: /app/public
+      # CORS_ORIGIN unused in single-container (same origin); set if you split web/api.
+    volumes:
+      - cockpit_data:/data
+    # Dokploy routes your domain to this port via its built-in proxy.
+    # For a plain `docker compose up`, this also publishes it on the host:
+    ports:
+      - "${PORT:-3000}:3000"
+
+volumes:
+  cockpit_data:

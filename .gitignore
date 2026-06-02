@@ -1,0 +1,21 @@
+# deps
+**/node_modules
+
+# build output
+web/dist
+**/.vite
+**/*.tsbuildinfo
+
+# runtime data & secrets
+api/data
+**/*.sqlite
+**/*.sqlite-*
+.env
+**/.env
+!**/.env.example
+
+# editor / os
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
