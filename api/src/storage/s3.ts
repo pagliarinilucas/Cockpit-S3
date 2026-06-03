@@ -130,6 +130,35 @@ export const s3 = {
     return { items, nextToken: res.IsTruncated ? res.NextContinuationToken : undefined };
   },
 
+  /**
+   * Recursive search under `prefix` (no delimiter): scans all pages, returns files
+   * whose path (relative to prefix) matches `q` (case-insensitive substring).
+   * Bounded by `limit` matches and a hard scan cap so it can't run forever.
+   */
+  async search(cid: string, bucket: string, prefix: string, q: string, limit = 200): Promise<S3Item[]> {
+    const needle = q.toLowerCase();
+    const out: S3Item[] = [];
+    const SCAN_CAP = 50000;
+    let token: string | undefined;
+    let scanned = 0;
+    do {
+      const res = await client(cid).send(new ListObjectsV2Command({
+        Bucket: bucket, Prefix: prefix, ContinuationToken: token, MaxKeys: 1000,
+      }));
+      for (const o of res.Contents ?? []) {
+        if (!o.Key || o.Key.endsWith('/')) continue;            // skip folder markers
+        const rel = o.Key.slice(prefix.length);
+        if (rel.toLowerCase().includes(needle)) {
+          out.push({ kind: 'file', name: o.Key.split('/').pop() || o.Key, key: o.Key, size: o.Size, modified: o.LastModified?.toISOString() });
+          if (out.length >= limit) return out;
+        }
+      }
+      scanned += res.Contents?.length ?? 0;
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token && scanned < SCAN_CAP);
+    return out;
+  },
+
   async presign(cid: string, bucket: string, key: string, mode: 'download' | 'preview'): Promise<{ url: string; disposition: 'inline' | 'attachment' }> {
     const ext = (key.toLowerCase().split('.').pop() || '');
     const disposition: 'inline' | 'attachment' = mode === 'preview' && INLINE.has(ext) ? 'inline' : 'attachment';

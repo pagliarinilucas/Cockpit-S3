@@ -122,6 +122,8 @@ export const api = {
 
   // objects
   list: (bucketId: string, path = '', token?: string) => req<ObjectListing>('GET', `/buckets/${encodeURIComponent(bucketId)}/objects`, { params: token ? { path, token } : { path } }),
+  /** Recursive search under `path` across the whole bucket (server-side, all pages). */
+  search: (bucketId: string, path: string, q: string) => req<ObjectListing>('GET', `/buckets/${encodeURIComponent(bucketId)}/search`, { params: { path, q } }),
   download: (bucketId: string, key: string) => req<PresignedUrl>('GET', `/buckets/${encodeURIComponent(bucketId)}/download`, { params: { key } }),
   preview: (bucketId: string, key: string) => req<PresignedUrl>('GET', `/buckets/${encodeURIComponent(bucketId)}/preview`, { params: { key } }),
   /** Object streamed through the API as a Blob (same origin, works over HTTPS). */

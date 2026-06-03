@@ -108,7 +108,7 @@ const onKey = (e: KeyboardEvent) => {
 onMounted(() => window.addEventListener('keydown', onKey));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); revoke(); });
 
-const fullPath = (it: ObjectItem) => props.bucketId + '/' + (props.path ? props.path : '') + it.name;
+const fullPath = (it: ObjectItem) => props.bucketId + '/' + it.key;
 const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
 </script>
 

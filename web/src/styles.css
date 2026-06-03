@@ -368,6 +368,7 @@ input:checked + .cbox .ic { opacity: 1; color: var(--bg-0); }
 .fcard-thumb { height: 76px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 12px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
 .fcard-name { font-size: 13px; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fcard-meta { font-family: var(--mono); font-size: 10px; color: var(--text-3); margin-top: 4px; }
+.fcard-dir { display: flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .fcard-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 2px; opacity: 0; transition: opacity .14s; }
 .fcard:hover .fcard-actions { opacity: 1; }
 .fcard-actions .iconbtn { width: 28px; height: 28px; background: var(--bg-0); border: 1px solid var(--line-2); }

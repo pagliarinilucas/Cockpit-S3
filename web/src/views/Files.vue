@@ -70,11 +70,44 @@ async function loadMore() {
   }
 }
 
+// ── search (server-side, recursive across the whole bucket under this prefix) ──
+const results = ref<ObjectItem[]>([]);
+const searching = ref(false);
+const isSearch = computed(() => query.value.trim().length > 0);
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+let searchSeq = 0;
+
+watch(query, (q) => {
+  if (searchTimer) clearTimeout(searchTimer);
+  const term = q.trim();
+  if (!term) { results.value = []; searching.value = false; return; }
+  searching.value = true;
+  searchTimer = setTimeout(() => runSearch(term), 300);
+});
+
+async function runSearch(term: string) {
+  const seq = ++searchSeq;
+  try {
+    const res = await api.search(props.bucket.id, prefix.value, term);
+    if (seq !== searchSeq) return;                 // a newer search superseded this one
+    results.value = mapItems(res.items ?? []);
+  } catch (e) {
+    if (seq === searchSeq) { results.value = []; toast.error(apiErrMsg(e, 'buscar')); }
+  } finally {
+    if (seq === searchSeq) searching.value = false;
+  }
+}
+
+/** Folder of a search hit, relative to the current prefix (for display). */
+function relDir(it: ObjectItem): string {
+  const rel = it.key.startsWith(prefix.value) ? it.key.slice(prefix.value.length) : it.key;
+  const i = rel.lastIndexOf('/');
+  return i >= 0 ? rel.slice(0, i + 1) : '';
+}
+
 const ordered = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  let list = items.value;
-  if (q) list = list.filter((i) => i.name.toLowerCase().includes(q));
-  return [...list.filter((i) => i.kind === 'folder'), ...list.filter((i) => i.kind === 'file')];
+  if (isSearch.value) return results.value;        // recursive server results (files)
+  return [...items.value.filter((i) => i.kind === 'folder'), ...items.value.filter((i) => i.kind === 'file')];
 });
 const previewItems = computed(() => ordered.value.filter((i) => i.kind === 'file' && isPreviewable(i.type || 'file')));
 const allSel = computed(() => ordered.value.length > 0 && ordered.value.every((i) => selection.value.has(i.key)));
@@ -242,10 +275,11 @@ defineExpose({ reload });
       <div class="errbox-sub">{{ error }}</div>
       <button class="btn" @click="reload"><Icon name="refresh" :size="15" />Tentar de novo</button>
     </div>
+    <div v-else-if="searching && ordered.length === 0" class="loading"><div class="spinner"></div>BUSCANDO EM TODO O BUCKET…</div>
     <div v-else-if="ordered.length === 0" class="empty empty-files">
-      <Icon :name="query ? 'search' : 'folder'" :size="30" />
-      <p>{{ query ? 'Nada encontrado.' : 'Pasta vazia.' }}</p>
-      <button v-if="canWrite && !query" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Enviar arquivos</button>
+      <Icon :name="isSearch ? 'search' : 'folder'" :size="30" />
+      <p>{{ isSearch ? 'Nada encontrado.' : 'Pasta vazia.' }}</p>
+      <button v-if="canWrite && !isSearch" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Enviar arquivos</button>
     </div>
 
     <!-- list -->
@@ -269,6 +303,7 @@ defineExpose({ reload });
           <div class="frow-name">
             <span class="frow-title">{{ it.name }}</span>
             <span v-if="it.kind === 'folder'" class="frow-meta">pasta</span>
+            <span v-else-if="isSearch && relDir(it)" class="frow-meta"><Icon name="folder" :size="12" /> {{ relDir(it) }} · {{ tp(it) }}</span>
             <span v-else class="frow-meta">{{ tp(it) }}{{ it.by ? ' · por ' + it.by : '' }}</span>
           </div>
           <div class="frow-size">{{ it.kind === 'folder' ? '—' : fmtBytes(it.size) }}</div>
@@ -292,7 +327,8 @@ defineExpose({ reload });
           <input type="checkbox" :checked="selection.has(it.key)" @change="toggle(it)" /><span class="cbox"><Icon name="check" :size="12" /></span>
         </label>
         <div :class="iconBoxClass(it, 'fcard-thumb')"><Icon :name="it.kind === 'folder' ? 'folder' : iconFor(it)" :size="34" /></div>
-        <div class="fcard-name" :title="it.name">{{ it.name }}</div>
+        <div class="fcard-name" :title="isSearch && relDir(it) ? relDir(it) + it.name : it.name">{{ it.name }}</div>
+        <div v-if="isSearch && relDir(it)" class="fcard-meta fcard-dir" :title="relDir(it)"><Icon name="folder" :size="11" /> {{ relDir(it) }}</div>
         <div class="fcard-meta">{{ it.kind === 'folder' ? 'pasta' : fmtBytes(it.size) }}<span class="dot-sep">·</span>{{ timeAgo(it.modified) }}</div>
         <div class="fcard-actions" @click.stop>
           <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
@@ -302,8 +338,8 @@ defineExpose({ reload });
       </div>
     </div>
 
-    <!-- carregar mais (paginação) -->
-    <div v-if="!loading && !error && nextToken" class="loadmore">
+    <!-- carregar mais (paginação) — só na navegação normal, não na busca -->
+    <div v-if="!loading && !error && !isSearch && nextToken" class="loadmore">
       <button class="btn" :disabled="loadingMore" @click="loadMore">
         <Icon name="chevD" :size="16" />{{ loadingMore ? 'Carregando…' : 'Carregar mais' }}
       </button>
@@ -311,9 +347,9 @@ defineExpose({ reload });
 
     <!-- footer -->
     <div v-if="!loading && !error" class="fstatus">
-      <span>{{ folderCount }} {{ folderCount !== 1 ? 'pastas' : 'pasta' }} · {{ fileCount }} {{ fileCount !== 1 ? 'arquivos' : 'arquivo' }}{{ nextToken ? '+' : '' }} · {{ fmtBytes(totalSize) }}{{ nextToken ? ' carregados' : ' nesta pasta' }}</span>
-      <span v-if="query && nextToken" class="ro-note"><Icon name="search" :size="13" /> busca só no que está carregado</span>
-      <span v-else-if="!canWrite" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
+      <span v-if="isSearch">{{ ordered.length }} resultado{{ ordered.length !== 1 ? 's' : '' }}{{ ordered.length >= 300 ? '+' : '' }} para “{{ query.trim() }}” · busca recursiva</span>
+      <span v-else>{{ folderCount }} {{ folderCount !== 1 ? 'pastas' : 'pasta' }} · {{ fileCount }} {{ fileCount !== 1 ? 'arquivos' : 'arquivo' }}{{ nextToken ? '+' : '' }} · {{ fmtBytes(totalSize) }}{{ nextToken ? ' carregados' : ' nesta pasta' }}</span>
+      <span v-if="!canWrite" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
     </div>
 
     <!-- dropzone -->

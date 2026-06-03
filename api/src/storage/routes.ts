@@ -68,6 +68,24 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       }
     })
 
+    // recursive search under a prefix (scans all pages, not just the loaded ones)
+    .get('/buckets/:id/search', async ({ user, params, query, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      if (!canRead(usersStore.permFor(user!.username, params.id))) { set.status = 403; return { error: 'forbidden' }; }
+      const q = (query as Record<string, string>)['q']?.trim() ?? '';
+      if (!q) return { bucket: params.id, items: [] };
+      const path = norm((query as Record<string, string>)['path'] ?? '');
+      const limit = Math.min(1000, Math.max(1, Number((query as Record<string, string>)['limit']) || 300));
+      try {
+        const items = await s3.search(ref.cid, ref.bucket, path, q, limit);
+        return { bucket: params.id, path, items };
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+    })
+
     .get('/buckets/:id/download', async ({ user, params, query, set }) => {
       const ref = parse(params.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
