@@ -21,6 +21,9 @@ const failed = ref(false);
 const wave = Array.from({ length: 64 }, (_, i) => 12 + Math.round((Math.sin(i * 0.7) * 0.5 + 0.5) * 80));
 
 // spreadsheet state
+// for extension-less files: detect what it actually is from the bytes
+const fileKind = ref<'image' | 'pdf' | 'none' | null>(null);
+
 const sheetNames = ref<string[]>([]);
 const activeSheet = ref('');
 const sheetRows = ref<string[][]>([]);
@@ -52,13 +55,36 @@ function selectSheet(name: string) {
   sheetRows.value = aoa.slice(0, MAX_ROWS).map((r) => (r ?? []).map((c) => c == null ? '' : String(c)));
 }
 
+/** Detect kind + MIME from the first bytes — for files saved without an extension.
+ *  Returns a precise MIME so the rebuilt blob renders even if the server sent octet-stream. */
+async function sniff(blob: Blob): Promise<{ kind: 'image' | 'pdf' | 'none'; mime: string }> {
+  const b = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return { kind: 'pdf', mime: 'application/pdf' };
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { kind: 'image', mime: 'image/png' };
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { kind: 'image', mime: 'image/jpeg' };
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return { kind: 'image', mime: 'image/gif' };
+  if (b[0] === 0x42 && b[1] === 0x4d) return { kind: 'image', mime: 'image/bmp' };
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) return { kind: 'image', mime: 'image/webp' };
+  if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) return { kind: 'image', mime: 'image/avif' };
+  if (b[0] === 0x3c) return { kind: 'image', mime: 'image/svg+xml' };
+  return { kind: 'none', mime: '' };
+}
+
 async function load() {
   const it = item.value;
   if (!it) return;
-  loading.value = true; failed.value = false; revoke(); resetSheet();
+  loading.value = true; failed.value = false; revoke(); resetSheet(); fileKind.value = null;
   try {
-    if (it.type === 'sheet') await loadSheet(it);
-    else url.value = await api.objectUrl(props.bucketId, it.key, 'preview');
+    if (it.type === 'sheet') { await loadSheet(it); return; }
+    const blob = await api.objectBlob(props.bucketId, it.key, 'preview');
+    if (it.type === 'file') {
+      const { kind, mime } = await sniff(blob);
+      fileKind.value = kind;
+      if (kind === 'none') return;                        // name-only screen, no object URL needed
+      url.value = URL.createObjectURL(new Blob([blob], { type: mime }));   // force the right MIME
+      return;
+    }
+    url.value = URL.createObjectURL(blob);
   } catch { failed.value = true; }
   finally { loading.value = false; }
 }
@@ -128,6 +154,16 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
               </div>
               <div v-if="sheetTruncated" class="pv-sheet-note"><Icon name="alert" :size="13" /> mostrando as primeiras 5000 linhas</div>
             </div>
+            <template v-else-if="item.type === 'file'">
+              <iframe v-if="fileKind === 'pdf'" :src="url || ''"></iframe>
+              <img v-else-if="fileKind === 'image' && url" :src="url" :alt="item.name" @error="fileKind = 'none'" />
+              <div v-else class="pv-noprev">
+                <Icon name="file" :size="46" />
+                <div class="pv-noprev-name">{{ item.name }}</div>
+                <div class="pv-noprev-sub">Sem prévia para este arquivo</div>
+                <button class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Baixar</button>
+              </div>
+            </template>
             <template v-else-if="url">
               <img v-if="item.type === 'image'" :src="url" :alt="item.name" />
               <video v-else-if="item.type === 'video'" :src="url" controls autoplay></video>

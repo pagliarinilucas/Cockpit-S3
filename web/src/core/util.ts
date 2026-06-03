@@ -39,7 +39,9 @@ export function typeFromName(name: string): FileType {
   return EXT_TYPE[ext] || 'file';
 }
 
-const PREVIEWABLE = new Set<FileType>(['image', 'video', 'audio', 'pdf', 'text', 'code', 'sheet']);
+// 'file' (unknown/extension-less) is previewable too — Preview sniffs the bytes
+// and shows image/pdf, or a name-only screen when it can't render it.
+const PREVIEWABLE = new Set<FileType>(['image', 'video', 'audio', 'pdf', 'text', 'code', 'sheet', 'file']);
 export function isPreviewable(type: FileType): boolean {
   return PREVIEWABLE.has(type);
 }
