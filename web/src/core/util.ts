@@ -39,7 +39,7 @@ export function typeFromName(name: string): FileType {
   return EXT_TYPE[ext] || 'file';
 }
 
-const PREVIEWABLE = new Set<FileType>(['image', 'video', 'audio', 'pdf', 'text', 'code']);
+const PREVIEWABLE = new Set<FileType>(['image', 'video', 'audio', 'pdf', 'text', 'code', 'sheet']);
 export function isPreviewable(type: FileType): boolean {
   return PREVIEWABLE.has(type);
 }

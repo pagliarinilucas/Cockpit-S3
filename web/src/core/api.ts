@@ -124,11 +124,12 @@ export const api = {
   list: (bucketId: string, path = '', token?: string) => req<ObjectListing>('GET', `/buckets/${encodeURIComponent(bucketId)}/objects`, { params: token ? { path, token } : { path } }),
   download: (bucketId: string, key: string) => req<PresignedUrl>('GET', `/buckets/${encodeURIComponent(bucketId)}/download`, { params: { key } }),
   preview: (bucketId: string, key: string) => req<PresignedUrl>('GET', `/buckets/${encodeURIComponent(bucketId)}/preview`, { params: { key } }),
-  /** Object streamed through the API as a local blob URL (works over HTTPS regardless
-   *  of the Garage endpoint). Caller must URL.revokeObjectURL() when done. */
+  /** Object streamed through the API as a Blob (same origin, works over HTTPS). */
+  objectBlob: (bucketId: string, key: string, mode: 'preview' | 'download' = 'preview') =>
+    fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/raw`, { key, mode }),
+  /** Same, as a local blob URL. Caller must URL.revokeObjectURL() when done. */
   async objectUrl(bucketId: string, key: string, mode: 'preview' | 'download' = 'preview'): Promise<string> {
-    const blob = await fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/raw`, { key, mode });
-    return URL.createObjectURL(blob);
+    return URL.createObjectURL(await fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/raw`, { key, mode }));
   },
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
   deleteObjects: (bucketId: string, keys: string[]) => req('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
