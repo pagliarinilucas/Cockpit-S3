@@ -171,10 +171,11 @@ const round = (n: number) => Math.round(n);
         <button v-for="b in visible" :key="b.id" class="bcard" :style="{ '--accent': accent(b) }" @click="emit('open', b)">
           <div class="bcard-top">
             <div class="bcard-icon"><Icon name="database" :size="22" /></div>
+            <div v-if="b.connection" class="bcard-conn"><Icon name="cpu" :size="12" /> {{ b.connection }}</div>
             <PermBadge :perm="b.perm" :small="true" />
           </div>
           <div class="bcard-name">{{ b.name ?? b.id }}</div>
-          <div class="bcard-region"><Icon name="cpu" :size="12" /> {{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}</div>
+          <div class="bcard-region">{{ b.region }}</div>
           <div class="bcard-tiles">
             <div class="bcard-tile">
               <span class="bcard-tile-val">
@@ -191,7 +192,6 @@ const round = (n: number) => Math.round(n);
               <em>objetos</em>
             </div>
           </div>
-          <div class="bcard-go"><Icon name="chevR" :size="16" /></div>
         </button>
       </div>
     </template>
