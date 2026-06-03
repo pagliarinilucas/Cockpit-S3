@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import type { Bucket, Cluster, Connection } from '../core/models';
 import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
-import { fmtBytes, timeAgo } from '../core/util';
+import { fmtBytes } from '../core/util';
 import Icon from '../components/Icon.vue';
 import Gauge from '../components/Gauge.vue';
 import LevelBar from '../components/LevelBar.vue';
@@ -48,9 +48,22 @@ async function reload() {
   cluster.value = cl.status === 'fulfilled' ? cl.value : null;
   loading.value = false;
   emit('loaded', buckets.value);
+  loadStats();
 }
 onMounted(reload);
 defineExpose({ reload });
+
+// Fill in real usage (size + object count) per card, asynchronously, so the grid
+// shows immediately and the numbers land as each bucket is tallied server-side.
+function loadStats() {
+  for (const b of buckets.value) {
+    b.statsLoading = true;
+    api.bucketStats(b.id)
+      .then((s) => { b.used = s.used; b.objects = s.objects; b.statsTruncated = s.truncated; })
+      .catch(() => { /* leave as unknown */ })
+      .finally(() => { b.statsLoading = false; });
+  }
+}
 
 async function create() {
   const name = newName.value.trim();
@@ -61,7 +74,6 @@ async function create() {
 }
 
 const pct = (u?: number, q?: number) => (q && u != null) ? Math.round((u / q) * 100) + '%' : '—';
-const ratio = (u?: number, q?: number) => (q && u != null) ? u / q : 0;
 const objstr = (n?: number) => (n != null ? n.toLocaleString('pt-BR') : '—');
 const accent = (b: Bucket) => b.color === 'green' ? 'var(--green)' : b.color === 'amber' ? 'var(--amber)' : 'var(--neon)';
 const round = (n: number) => Math.round(n);
@@ -163,12 +175,20 @@ const round = (n: number) => Math.round(n);
           </div>
           <div class="bcard-name">{{ b.name ?? b.id }}</div>
           <div class="bcard-region"><Icon name="cpu" :size="12" /> {{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}</div>
-          <div class="bcard-gaugerow">
-            <Gauge :value="ratio(b.used, b.quota)" :size="72" :stroke="7" :color="accent(b)" :label="pct(b.used, b.quota)" />
-            <div class="bcard-stats">
-              <div class="bcard-stat"><span>{{ fmtBytes(b.used) }}</span><em>de {{ fmtBytes(b.quota) }}</em></div>
-              <div class="bcard-stat"><span>{{ objstr(b.objects) }}</span><em>objetos</em></div>
-              <div v-if="b.updated" class="bcard-stat bcard-updated"><span class="ping"></span>{{ 'atualizado ' + timeAgo(b.updated) }}</div>
+          <div class="bcard-tiles">
+            <div class="bcard-tile">
+              <span class="bcard-tile-val">
+                <span v-if="b.statsLoading" class="bcard-skel"></span>
+                <template v-else>{{ b.used != null ? fmtBytes(b.used) : '—' }}<i v-if="b.statsTruncated">+</i></template>
+              </span>
+              <em>armazenado</em>
+            </div>
+            <div class="bcard-tile">
+              <span class="bcard-tile-val">
+                <span v-if="b.statsLoading" class="bcard-skel"></span>
+                <template v-else>{{ objstr(b.objects) }}<i v-if="b.statsTruncated">+</i></template>
+              </span>
+              <em>objetos</em>
             </div>
           </div>
           <div class="bcard-go"><Icon name="chevR" :size="16" /></div>

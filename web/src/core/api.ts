@@ -1,5 +1,5 @@
 import type {
-  Me, Cluster, Bucket, ObjectListing, PresignedUrl,
+  Me, Cluster, Bucket, BucketStats, ObjectListing, PresignedUrl,
   AccessKey, ActivityEvent, Perm, User, Role, Connection,
 } from './models';
 
@@ -118,6 +118,7 @@ export const api = {
   // cluster / buckets
   cluster: () => req<Cluster>('GET', '/cluster'),
   buckets: () => req<Bucket[]>('GET', '/buckets'),
+  bucketStats: (bucketId: string) => req<BucketStats>('GET', `/buckets/${encodeURIComponent(bucketId)}/stats`),
   createBucket: (connectionId: string, name: string) => req<Bucket>('POST', '/buckets', { body: { connectionId, name } }),
 
   // objects

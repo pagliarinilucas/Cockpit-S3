@@ -131,6 +131,27 @@ export const s3 = {
   },
 
   /**
+   * Compute bucket usage by listing every object (no admin API needed). Sums sizes
+   * and counts objects, bounded by a page cap so a huge bucket can't hang the request.
+   */
+  async stats(cid: string, bucket: string): Promise<{ used: number; objects: number; truncated: boolean }> {
+    const MAX_PAGES = 400;   // up to ~400k objects
+    let used = 0, objects = 0, pages = 0;
+    let token: string | undefined;
+    do {
+      const res = await client(cid).send(new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token, MaxKeys: 1000 }));
+      for (const o of res.Contents ?? []) {
+        if (!o.Key || o.Key.endsWith('/')) continue;   // skip folder markers
+        used += o.Size ?? 0;
+        objects++;
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      pages++;
+    } while (token && pages < MAX_PAGES);
+    return { used, objects, truncated: !!token };
+  },
+
+  /**
    * Recursive search under `prefix` (no delimiter): scans all pages, returns files
    * whose path (relative to prefix) matches `q` (case-insensitive substring).
    * Bounded by `limit` matches and a hard scan cap so it can't run forever.

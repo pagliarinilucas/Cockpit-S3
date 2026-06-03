@@ -64,7 +64,13 @@ export interface Bucket {
   objects?: number;
   updated?: string;
   color?: 'cyan' | 'green' | 'amber';
+  /** stats still being computed (filled in async after the grid loads). */
+  statsLoading?: boolean;
+  /** stats hit the scan cap, so used/objects are a lower bound (show "+"). */
+  statsTruncated?: boolean;
 }
+
+export interface BucketStats { used: number; objects: number; truncated: boolean }
 
 /** Item returned by GET /api/buckets/:id/objects */
 export interface ObjectItem {

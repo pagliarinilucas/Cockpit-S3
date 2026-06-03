@@ -7,6 +7,10 @@ import { s3 } from './s3';
 import type { Perm } from '../types';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
+
+// short-lived cache for computed bucket stats (listing is expensive on big buckets)
+const statsCache = new Map<string, { at: number; used: number; objects: number; truncated: boolean }>();
+const STATS_TTL = 120_000;   // 2 min
 const canRead = (p: Perm | null) => p !== null;
 const canWrite = (p: Perm | null) => p === 'owner' || p === 'read-write';
 
@@ -62,6 +66,23 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       try {
         const { items, nextToken } = await s3.list(ref.cid, ref.bucket, path, { token, limit });
         return { bucket: params.id, path, items, nextToken };
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+    })
+
+    // computed bucket usage (size + object count) — cached briefly
+    .get('/buckets/:id/stats', async ({ user, params, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      if (!canRead(usersStore.permFor(user!.username, params.id))) { set.status = 403; return { error: 'forbidden' }; }
+      const hit = statsCache.get(params.id);
+      if (hit && Date.now() - hit.at < STATS_TTL) return { used: hit.used, objects: hit.objects, truncated: hit.truncated };
+      try {
+        const s = await s3.stats(ref.cid, ref.bucket);
+        statsCache.set(params.id, { at: Date.now(), ...s });
+        return s;
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 502; return { error: 's3_error' };
