@@ -6,11 +6,14 @@ export interface UserRow {
   password_hash: string;
   role: Role;
   token_version: number;
-  grants: string;            // JSON string
+  grants: string;            // legacy JSON column (unused after migration)
   active: number;
   created_at: string;
   last_login: string | null;
 }
+
+export interface UserGrant { bucketId: string; prefix: string; perm: Perm }
+export interface UserBlock { bucketId: string; prefix: string }
 
 /** Shape returned to the client (never includes password_hash). */
 export interface PublicUser {
@@ -19,7 +22,9 @@ export interface PublicUser {
   created?: string;
   lastLogin?: string;
   active?: boolean;
-  grants: Record<string, Perm | null>;
+  groups: string[];          // group ids the user belongs to
+  grants: UserGrant[];       // direct allow grants
+  blocks: UserBlock[];       // direct deny blocks
 }
 
 /** Access-token payload (the part we control). */
