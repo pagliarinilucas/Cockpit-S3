@@ -1,17 +1,17 @@
 import { db } from '../db';
-import type { Perm, PublicUser, Role, UserRow } from '../types';
+import type { Perm, PublicUser, Role, UserGrant, UserBlock, UserRow } from '../types';
 import { hashPassword } from '../auth/passwords';
 
 function toPublic(r: UserRow): PublicUser {
-  let grants: Record<string, Perm | null> = {};
-  try { grants = JSON.parse(r.grants) as Record<string, Perm | null>; } catch { /* keep {} */ }
   return {
     username: r.username,
     role: r.role,
     created: r.created_at,
     lastLogin: r.last_login ?? undefined,
     active: r.active === 1,
-    grants,
+    groups: (db.query('SELECT group_id FROM user_groups WHERE username = ? ORDER BY group_id').all(r.username) as { group_id: string }[]).map((x) => x.group_id),
+    grants: db.query("SELECT bucket_id AS bucketId, prefix, perm FROM grants WHERE subject_type='user' AND subject_id = ? ORDER BY bucket_id, prefix").all(r.username) as UserGrant[],
+    blocks: db.query('SELECT bucket_id AS bucketId, prefix FROM user_blocks WHERE username = ? ORDER BY bucket_id, prefix').all(r.username) as UserBlock[],
   };
 }
 
@@ -52,24 +52,41 @@ export const usersStore = {
     return this.get(username);
   },
 
-  setGrant(username: string, bucketId: string, perm: Perm | null): PublicUser | null {
-    const r = this.raw(username);
-    if (!r) return null;
-    const grants: Record<string, Perm | null> = JSON.parse(r.grants || '{}');
-    if (perm === null) delete grants[bucketId];
-    else grants[bucketId] = perm;
-    db.query('UPDATE users SET grants = ? WHERE username = ?').run(JSON.stringify(grants), username);
+  /** Define/remove um allow direto do usuário (perm null remove). */
+  setGrant(username: string, bucketId: string, prefix: string, perm: Perm | null): PublicUser | null {
+    if (!this.exists(username)) return null;
+    if (perm === null) {
+      db.query("DELETE FROM grants WHERE subject_type='user' AND subject_id=? AND bucket_id=? AND prefix=?").run(username, bucketId, prefix);
+    } else {
+      db.query(`INSERT INTO grants (subject_type, subject_id, bucket_id, prefix, perm) VALUES ('user', ?, ?, ?, ?)
+                ON CONFLICT(subject_type, subject_id, bucket_id, prefix) DO UPDATE SET perm = excluded.perm`)
+        .run(username, bucketId, prefix, perm);
+    }
+    return this.get(username);
+  },
+
+  /** Define/remove um deny (bloqueio) do usuário. */
+  setBlock(username: string, bucketId: string, prefix: string, blocked: boolean): PublicUser | null {
+    if (!this.exists(username)) return null;
+    if (blocked) db.query('INSERT OR IGNORE INTO user_blocks (username, bucket_id, prefix) VALUES (?, ?, ?)').run(username, bucketId, prefix);
+    else db.query('DELETE FROM user_blocks WHERE username=? AND bucket_id=? AND prefix=?').run(username, bucketId, prefix);
+    return this.get(username);
+  },
+
+  /** Adiciona/remove o usuário de um grupo. */
+  setGroupMember(username: string, groupId: string, member: boolean): PublicUser | null {
+    if (!this.exists(username)) return null;
+    if (member) db.query('INSERT OR IGNORE INTO user_groups (username, group_id) VALUES (?, ?)').run(username, groupId);
+    else db.query('DELETE FROM user_groups WHERE username=? AND group_id=?').run(username, groupId);
     return this.get(username);
   },
 
   async setPassword(username: string, password: string): Promise<void> {
     const hash = await hashPassword(password);
-    // changing the password bumps token_version → kills all existing access tokens
     db.query('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE username = ?')
       .run(hash, username);
   },
 
-  /** Bump version to invalidate every outstanding access token for the user. */
   bumpVersion(username: string): void {
     db.query('UPDATE users SET token_version = token_version + 1 WHERE username = ?').run(username);
   },
@@ -79,15 +96,7 @@ export const usersStore = {
   },
 
   remove(username: string): void {
-    db.query('DELETE FROM users WHERE username = ?').run(username);
-  },
-
-  /** Effective permission for a user on a bucket (admins implicitly own everything). */
-  permFor(username: string, bucketId: string): Perm | null {
-    const r = this.raw(username);
-    if (!r) return null;
-    if (r.role === 'admin') return 'owner';
-    const grants: Record<string, Perm | null> = JSON.parse(r.grants || '{}');
-    return grants[bucketId] ?? null;
+    db.query('DELETE FROM users WHERE username = ?').run(username);                        // cascade user_groups/user_blocks
+    db.query("DELETE FROM grants WHERE subject_type='user' AND subject_id = ?").run(username); // grants has no FK
   },
 };
