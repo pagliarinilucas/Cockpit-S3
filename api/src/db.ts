@@ -69,3 +69,56 @@ db.run(`
     at      TEXT NOT NULL
   );
 `);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS groups (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    created_at  TEXT NOT NULL
+  );
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS user_groups (
+    username  TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    group_id  TEXT NOT NULL REFERENCES groups(id)     ON DELETE CASCADE,
+    PRIMARY KEY (username, group_id)
+  );
+`);
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS grants (
+    subject_type TEXT NOT NULL,             -- 'user' | 'group'
+    subject_id   TEXT NOT NULL,             -- username | group id
+    bucket_id    TEXT NOT NULL,             -- connectionId:bucketName
+    prefix       TEXT NOT NULL DEFAULT '',  -- '' = bucket todo; senão termina em '/'
+    perm         TEXT NOT NULL,             -- owner|read-write|read-only
+    PRIMARY KEY (subject_type, subject_id, bucket_id, prefix)
+  );
+`);
+db.run('CREATE INDEX IF NOT EXISTS idx_grants_subject ON grants(subject_type, subject_id)');
+db.run('CREATE INDEX IF NOT EXISTS idx_grants_bucket  ON grants(bucket_id)');
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS user_blocks (
+    username   TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    bucket_id  TEXT NOT NULL,
+    prefix     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (username, bucket_id, prefix)
+  );
+`);
+
+// One-time migration: legacy users.grants JSON -> grants rows (prefix='' = whole bucket).
+// Idempotent; guarded by a settings flag. The users.grants column stays but is unused after.
+if (!db.query("SELECT 1 FROM settings WHERE key = 'grants_migrated'").get()) {
+  const rows = db.query('SELECT username, grants FROM users').all() as { username: string; grants: string }[];
+  const ins = db.query(
+    "INSERT OR IGNORE INTO grants (subject_type, subject_id, bucket_id, prefix, perm) VALUES ('user', ?, ?, '', ?)",
+  );
+  for (const r of rows) {
+    let g: Record<string, string | null> = {};
+    try { g = JSON.parse(r.grants || '{}'); } catch { /* skip malformed */ }
+    for (const [bucketId, perm] of Object.entries(g)) if (perm) ins.run(r.username, bucketId, perm);
+  }
+  db.query("INSERT INTO settings (key, value) VALUES ('grants_migrated', '1')").run();
+}
