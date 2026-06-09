@@ -18,7 +18,7 @@ const prefix = () => (path.value.length ? path.value.join('/') + '/' : '');
 async function load() {
   loading.value = true; error.value = null;
   try {
-    const res = await api.list(props.bucketId, prefix.value);
+    const res = await api.list(props.bucketId, prefix());
     folders.value = (res.items ?? []).filter((it) => it.kind === 'folder').map((it) => it.name);
   } catch (e) {
     error.value = 'Falha ao listar pastas.';
@@ -71,7 +71,7 @@ function confirmManual() {
 
     <template #foot>
       <button class="btn" @click="emit('close')">Cancelar</button>
-      <button class="btn btn-primary" @click="confirmCurrent"><Icon name="check" :size="16" />Usar esta pasta ({{ prefix() || 'raiz' }})</button>
+      <button class="btn btn-primary" @click="confirmCurrent"><Icon name="check" :size="16" />Usar esta pasta</button>
     </template>
   </Modal>
 </template>
