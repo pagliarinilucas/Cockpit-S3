@@ -161,9 +161,9 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
       <button v-else class="btn btn-primary" @click="showNewGroup = true"><Icon name="plus" :size="16" />Novo grupo</button>
     </div>
 
-    <div class="seg" style="margin-bottom:16px">
-      <button class="seg-btn" :class="{ 'seg-on': tab === 'users' }" @click="tab = 'users'"><Icon name="key" :size="15" /> Usuários</button>
-      <button class="seg-btn" :class="{ 'seg-on': tab === 'groups' }" @click="tab = 'groups'"><Icon name="shield" :size="15" /> Grupos</button>
+    <div class="tabs">
+      <button class="tab" :class="{ 'tab-on': tab === 'users' }" @click="tab = 'users'"><Icon name="key" :size="15" /> Usuários</button>
+      <button class="tab" :class="{ 'tab-on': tab === 'groups' }" @click="tab = 'groups'"><Icon name="shield" :size="15" /> Grupos</button>
     </div>
 
     <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
@@ -368,11 +368,18 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
 </template>
 
 <style scoped>
-.card { background:var(--surface-2,#161616); border:1px solid var(--border,#2a2a2a); border-radius:10px; padding:14px; }
-.chip { background:var(--surface-3,#222); border:1px solid var(--border,#333); border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; color:inherit; }
-.chip-on { background:var(--accent,#3b82f6); border-color:var(--accent,#3b82f6); color:#fff; }
-.grant-row { display:flex; align-items:center; gap:8px; }
-.grant-loc { flex:1; font-size:13px; }
-.muted { opacity:.6; }
-.perm-btn { background:none; border:none; cursor:pointer; padding:0; }
+.tabs { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 18px; background: var(--bg-0); border: 1px solid var(--line-2); border-radius: 10px; }
+.tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border: none; background: transparent; color: var(--text-3); border-radius: 7px; cursor: pointer; font-family: var(--display-font); font-weight: 600; font-size: 13px; letter-spacing: .3px; transition: color .14s, background .14s; }
+.tab:hover { color: var(--text); }
+.tab-on { background: var(--bg-3); color: var(--neon); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neon) 28%, transparent); }
+
+.card { background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 14px; padding: 16px 18px; }
+.chip { display: inline-flex; align-items: center; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-2); cursor: pointer; transition: color .14s, border-color .14s, background .14s; }
+.chip:hover { border-color: color-mix(in srgb, var(--neon) 40%, transparent); color: var(--text); }
+.chip-on { background: color-mix(in srgb, var(--neon) 14%, var(--bg-2)); border-color: color-mix(in srgb, var(--neon) 45%, transparent); color: var(--neon); }
+.grant-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.grant-row:first-child { border-top: none; }
+.grant-loc { flex: 1; font-size: 13px; color: var(--text); }
+.muted { color: var(--text-3); font-family: var(--mono); font-size: 12px; }
+.perm-btn { display: inline-flex; background: none; border: none; cursor: pointer; padding: 0; }
 </style>

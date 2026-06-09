@@ -75,10 +75,10 @@ function confirmManual() {
 </template>
 
 <style scoped>
-.fp-crumbs { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin:10px 0; }
-.fp-crumb { background:none; border:none; color:var(--accent); cursor:pointer; padding:2px 4px; font-size:13px; }
-.fp-sep { opacity:.5; }
-.fp-list { max-height:220px; overflow:auto; display:flex; flex-direction:column; gap:4px; }
-.fp-item { display:flex; align-items:center; gap:8px; text-align:left; background:var(--surface-2,#1a1a1a); border:1px solid var(--border,#333); border-radius:6px; padding:8px 10px; cursor:pointer; color:inherit; }
-.fp-item:hover { border-color:var(--accent); }
+.fp-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0; }
+.fp-crumb { background: none; border: none; color: var(--neon); cursor: pointer; padding: 2px 4px; font-size: 13px; font-family: var(--mono); }
+.fp-sep { color: var(--text-3); }
+.fp-list { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 5px; }
+.fp-item { display: flex; align-items: center; gap: 8px; text-align: left; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 11px; cursor: pointer; color: var(--text); font-size: 13px; transition: border-color .14s, background .14s; }
+.fp-item:hover { border-color: color-mix(in srgb, var(--neon) 45%, transparent); background: var(--bg-3); }
 </style>
