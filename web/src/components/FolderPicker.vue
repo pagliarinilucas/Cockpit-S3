@@ -63,12 +63,14 @@ function confirmManual() {
 
     <div class="field" style="margin-top:12px">
       <label class="field-label">Ou digite o prefixo (vazio = bucket inteiro)</label>
-      <input class="field-input" v-model="manual" placeholder="ex: financeiro/2026/" @keydown.enter="confirmManual" />
+      <div class="fp-prefix">
+        <input class="field-input" v-model="manual" placeholder="ex: financeiro/2026/" @keydown.enter="confirmManual" />
+        <button class="btn" @click="confirmManual" title="Usar prefixo digitado"><Icon name="check" :size="16" />Usar</button>
+      </div>
     </div>
 
     <template #foot>
       <button class="btn" @click="emit('close')">Cancelar</button>
-      <button class="btn" @click="confirmManual"><Icon name="check" :size="16" />Usar prefixo digitado</button>
       <button class="btn btn-primary" @click="confirmCurrent"><Icon name="check" :size="16" />Usar esta pasta ({{ prefix() || 'raiz' }})</button>
     </template>
   </Modal>
@@ -81,4 +83,7 @@ function confirmManual() {
 .fp-list { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 5px; }
 .fp-item { display: flex; align-items: center; gap: 8px; text-align: left; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 11px; cursor: pointer; color: var(--text); font-size: 13px; transition: border-color .14s, background .14s; }
 .fp-item:hover { border-color: color-mix(in srgb, var(--neon) 45%, transparent); background: var(--bg-3); }
+.fp-prefix { display: flex; gap: 8px; }
+.fp-prefix .field-input { flex: 1; min-width: 0; }
+.fp-prefix .btn { flex: none; height: 46px; }
 </style>
