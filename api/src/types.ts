@@ -1,17 +1,6 @@
 export type Perm = 'owner' | 'read-write' | 'read-only';
 export type Role = 'admin' | 'user';
 
-export interface UserRow {
-  username: string;
-  password_hash: string;
-  role: Role;
-  token_version: number;
-  grants: string;            // legacy JSON column (unused after migration)
-  active: number;
-  created_at: string;
-  last_login: string | null;
-}
-
 export interface UserGrant { bucketId: string; prefix: string; perm: Perm }
 export interface UserBlock { bucketId: string; prefix: string }
 

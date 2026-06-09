@@ -1,4 +1,6 @@
+import { eq, count } from 'drizzle-orm';
 import { db } from '../db';
+import { connections } from '../db/schema';
 
 export interface ConnInput {
   name: string;
@@ -16,36 +18,32 @@ export interface ConnPublic {
   accessKey: string; buckets: string[]; secretSet: boolean; createdAt: string;
 }
 
-interface Row {
-  id: string; name: string; endpoint: string; region: string;
-  access_key: string; secret_key: string; buckets: string; created_at: string;
-}
+type Row = typeof connections.$inferSelect;
 
 function full(r: Row): ConnFull {
   let buckets: string[] = [];
   try { buckets = JSON.parse(r.buckets); } catch { /* [] */ }
-  return { id: r.id, name: r.name, endpoint: r.endpoint, region: r.region, accessKey: r.access_key, secretKey: r.secret_key, buckets, createdAt: r.created_at };
+  return {
+    id: r.id, name: r.name, endpoint: r.endpoint, region: r.region,
+    accessKey: r.accessKey, secretKey: r.secretKey, buckets, createdAt: r.createdAt,
+  };
 }
 function pub(c: ConnFull): ConnPublic {
   const { secretKey, ...rest } = c;
   return { ...rest, secretSet: !!secretKey };
 }
-function newId(): string {
-  return 'c' + crypto.randomUUID().replace(/-/g, '').slice(0, 11);
-}
-
 export const connectionsStore = {
   listFull(): ConnFull[] {
-    return (db.query('SELECT * FROM connections ORDER BY created_at').all() as Row[]).map(full);
+    return db.select().from(connections).orderBy(connections.createdAt).all().map(full);
   },
   list(): ConnPublic[] {
     return this.listFull().map(pub);
   },
   count(): number {
-    return (db.query('SELECT COUNT(*) AS n FROM connections').get() as { n: number }).n;
+    return db.select({ n: count() }).from(connections).get()?.n ?? 0;
   },
   getFull(id: string): ConnFull | null {
-    const r = db.query('SELECT * FROM connections WHERE id = ?').get(id) as Row | null;
+    const r = db.select().from(connections).where(eq(connections.id, id)).get();
     return r ? full(r) : null;
   },
   get(id: string): ConnPublic | null {
@@ -53,24 +51,35 @@ export const connectionsStore = {
     return c ? pub(c) : null;
   },
   exists(id: string): boolean {
-    return !!db.query('SELECT 1 FROM connections WHERE id = ?').get(id);
+    return !!db.select({ id: connections.id }).from(connections).where(eq(connections.id, id)).get();
   },
   create(input: ConnInput): ConnFull {
-    const id = newId();
-    db.query(`INSERT INTO connections (id, name, endpoint, region, access_key, secret_key, buckets, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, input.name, input.endpoint, input.region || 'garage', input.accessKey, input.secretKey,
-           JSON.stringify(input.buckets ?? []), new Date().toISOString());
+    const id = 'c' + crypto.randomUUID().replace(/-/g, '').slice(0, 11);
+    db.insert(connections).values({
+      id,
+      name: input.name,
+      endpoint: input.endpoint,
+      region: input.region || 'garage',
+      accessKey: input.accessKey,
+      secretKey: input.secretKey,
+      buckets: JSON.stringify(input.buckets ?? []),
+      createdAt: new Date().toISOString(),
+    }).run();
     return this.getFull(id)!;
   },
   update(id: string, input: ConnInput): ConnFull | null {
     if (!this.exists(id)) return null;
-    db.query(`UPDATE connections SET name=?, endpoint=?, region=?, access_key=?, secret_key=?, buckets=? WHERE id=?`)
-      .run(input.name, input.endpoint, input.region || 'garage', input.accessKey, input.secretKey,
-           JSON.stringify(input.buckets ?? []), id);
+    db.update(connections).set({
+      name: input.name,
+      endpoint: input.endpoint,
+      region: input.region || 'garage',
+      accessKey: input.accessKey,
+      secretKey: input.secretKey,
+      buckets: JSON.stringify(input.buckets ?? []),
+    }).where(eq(connections.id, id)).run();
     return this.getFull(id);
   },
   remove(id: string): void {
-    db.query('DELETE FROM connections WHERE id = ?').run(id);
+    db.delete(connections).where(eq(connections.id, id)).run();
   },
 };

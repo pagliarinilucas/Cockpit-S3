@@ -1,4 +1,6 @@
+import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
+import { grants, userGroups, userBlocks } from '../db/schema';
 import type { Perm, Role } from '../types';
 
 export interface Allow { prefix: string; perm: Perm }
@@ -34,17 +36,25 @@ export const perms = {
   /** Conjunto de acesso de `user` em `bucketId`, ou null se ele não tem nenhum allow lá. */
   access(user: Subject, bucketId: string): Access | null {
     if (user.role === 'admin') return { all: true, allows: [], denies: [] };
-    const allows: Allow[] = [
-      ...(db.query("SELECT prefix, perm FROM grants WHERE subject_type='user' AND subject_id=? AND bucket_id=?")
-        .all(user.username, bucketId) as Allow[]),
-      ...(db.query(`SELECT g.prefix AS prefix, g.perm AS perm FROM grants g
-                    JOIN user_groups ug ON ug.group_id = g.subject_id
-                    WHERE g.subject_type='group' AND ug.username=? AND g.bucket_id=?`)
-        .all(user.username, bucketId) as Allow[]),
-    ];
+    const userAllows = db
+      .select({ prefix: grants.prefix, perm: grants.perm })
+      .from(grants)
+      .where(and(eq(grants.subjectType, 'user'), eq(grants.subjectId, user.username), eq(grants.bucketId, bucketId)))
+      .all();
+    const groupAllows = db
+      .select({ prefix: grants.prefix, perm: grants.perm })
+      .from(grants)
+      .innerJoin(userGroups, eq(userGroups.groupId, grants.subjectId))
+      .where(and(eq(grants.subjectType, 'group'), eq(userGroups.username, user.username), eq(grants.bucketId, bucketId)))
+      .all();
+    const allows = [...userAllows, ...groupAllows] as Allow[];
     if (allows.length === 0) return null;
-    const denies = (db.query('SELECT prefix FROM user_blocks WHERE username=? AND bucket_id=?')
-      .all(user.username, bucketId) as { prefix: string }[]).map((d) => d.prefix);
+    const denies = db
+      .select({ prefix: userBlocks.prefix })
+      .from(userBlocks)
+      .where(and(eq(userBlocks.username, user.username), eq(userBlocks.bucketId, bucketId)))
+      .all()
+      .map((d) => d.prefix);
     return { all: false, allows, denies };
   },
   permForKey(a: Access, key: string): Perm | null {

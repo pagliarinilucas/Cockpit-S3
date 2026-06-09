@@ -16,7 +16,7 @@ export async function resolveUser(authorization?: string): Promise<AuthUser | nu
   if (!claims) return null;
   const u = usersStore.raw(claims.sub);
   if (!u || u.active !== 1) return null;
-  if (u.token_version !== claims.ver) return null; // token version revoked
+  if (u.tokenVersion !== claims.ver) return null; // token version revoked
   return { username: u.username, role: u.role };
 }
 

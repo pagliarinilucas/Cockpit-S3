@@ -15,7 +15,7 @@ import { config } from '../config';
 
 async function issue(username: string, refreshToken: string): Promise<AuthBundle> {
   const u = usersStore.raw(username)!;
-  const accessToken = await signAccess(u.username, u.role, u.token_version);
+  const accessToken = await signAccess(u.username, u.role, u.tokenVersion);
   return {
     accessToken,
     expiresIn: config.accessTtl,
@@ -29,7 +29,7 @@ export const authService = {
   async login(username: string, password: string, userAgent: string | null): Promise<AuthBundle | null> {
     const u = usersStore.raw(username);
     // Always run a verify to keep timing roughly constant even for unknown users.
-    const hash = u?.password_hash ?? '$argon2id$v=19$m=19456,t=2,p=1$xxxxxxxxxxxxxxxxxxxxxx$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    const hash = u?.passwordHash ?? '$argon2id$v=19$m=19456,t=2,p=1$xxxxxxxxxxxxxxxxxxxxxx$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
     const ok = await verifyPassword(password, hash);
     if (!u || !ok || u.active !== 1) return null;
 
@@ -65,7 +65,7 @@ export const authService = {
   async changePassword(username: string, current: string, next: string): Promise<boolean> {
     const u = usersStore.raw(username);
     if (!u) return false;
-    if (!(await verifyPassword(current, u.password_hash))) return false;
+    if (!(await verifyPassword(current, u.passwordHash))) return false;
     await usersStore.setPassword(username, next); // bumps version
     sessions.revokeAllForUser(username);
     return true;
