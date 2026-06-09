@@ -1,6 +1,6 @@
 import type {
   Me, Cluster, Bucket, BucketStats, ObjectListing, PresignedUrl,
-  AccessKey, ActivityEvent, Perm, User, Role, Connection,
+  AccessKey, ActivityEvent, Perm, User, Role, Connection, Group,
 } from './models';
 
 export interface ConnectionPayload {
@@ -163,9 +163,22 @@ export const api = {
   users: () => req<User[]>('GET', '/users'),
   createUser: (username: string, password: string, role: Role) => req<User>('POST', '/users', { body: { username, password, role } }),
   setUserRole: (username: string, role: Role) => req<User>('PATCH', `/users/${encodeURIComponent(username)}`, { body: { role } }),
-  setUserGrant: (username: string, bucketId: string, perm: Perm | null) => req<User>('PATCH', `/users/${encodeURIComponent(username)}/grants`, { body: { bucketId, perm } }),
+  setUserGrant: (username: string, bucketId: string, prefix: string, perm: Perm | null) =>
+    req<User>('PUT', `/users/${encodeURIComponent(username)}/grants`, { body: { bucketId, prefix, perm } }),
+  setUserBlock: (username: string, bucketId: string, prefix: string, blocked: boolean) =>
+    req<User>('PUT', `/users/${encodeURIComponent(username)}/blocks`, { body: { bucketId, prefix, blocked } }),
+  setUserGroup: (username: string, groupId: string, member: boolean) =>
+    req<User>('PUT', `/users/${encodeURIComponent(username)}/groups`, { body: { groupId, member } }),
   resetPassword: (username: string, password: string) => req('POST', `/users/${encodeURIComponent(username)}/password`, { body: { password } }),
   deleteUser: (username: string) => req('DELETE', `/users/${encodeURIComponent(username)}`),
+
+  // groups (admin)
+  groups: () => req<Group[]>('GET', '/groups'),
+  createGroup: (name: string) => req<Group>('POST', '/groups', { body: { name } }),
+  renameGroup: (id: string, name: string) => req<Group>('PATCH', `/groups/${encodeURIComponent(id)}`, { body: { name } }),
+  deleteGroup: (id: string) => req('DELETE', `/groups/${encodeURIComponent(id)}`),
+  setGroupGrant: (id: string, bucketId: string, prefix: string, perm: Perm | null) =>
+    req<Group>('PUT', `/groups/${encodeURIComponent(id)}/grants`, { body: { bucketId, prefix, perm } }),
 
   // activity
   activity: () => req<ActivityEvent[]>('GET', '/activity'),
