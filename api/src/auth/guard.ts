@@ -26,16 +26,21 @@ export const authDerive = new Elysia({ name: 'auth-derive' })
     user: await resolveUser((headers as Record<string, string | undefined>)['authorization']),
   }));
 
-// `any` param on purpose: Elysia's beforeHandle context type does not surface the
-// scoped derive (`user`) at the guard boundary, so a strict param type fails to
-// assign. The values are present at runtime (derive runs before beforeHandle).
-export const requireUser = (ctx: any): unknown => {
-  if (!ctx.user) { ctx.set.status = 401; return { error: 'unauthorized' }; }
+// Elysia's beforeHandle context type does not surface the scoped derive (`user`) at
+// the guard boundary, so we take the param as `unknown` (assignable to the hook's
+// expected context) and narrow to the fields we use. The values exist at runtime
+// because the derive runs before beforeHandle.
+type GuardCtx = { user: AuthUser | null; set: { status?: number | string } };
+
+export const requireUser = (ctx: unknown): unknown => {
+  const { user, set } = ctx as GuardCtx;
+  if (!user) { set.status = 401; return { error: 'unauthorized' }; }
   return undefined;
 };
 
-export const requireAdmin = (ctx: any): unknown => {
-  if (!ctx.user) { ctx.set.status = 401; return { error: 'unauthorized' }; }
-  if (ctx.user.role !== 'admin') { ctx.set.status = 403; return { error: 'forbidden' }; }
+export const requireAdmin = (ctx: unknown): unknown => {
+  const { user, set } = ctx as GuardCtx;
+  if (!user) { set.status = 401; return { error: 'unauthorized' }; }
+  if (user.role !== 'admin') { set.status = 403; return { error: 'forbidden' }; }
   return undefined;
 };
