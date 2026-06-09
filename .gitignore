@@ -14,6 +14,9 @@ api/data
 **/.env
 !**/.env.example
 
+# nix / direnv
+.direnv/
+
 # editor / os
 .idea/
 .vscode/
