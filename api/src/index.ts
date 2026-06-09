@@ -8,6 +8,7 @@ import { connectionsStore } from './connections/store';
 import { s3, isValidConfig } from './storage/s3';
 import { authRoutes } from './auth/routes';
 import { userRoutes } from './users/routes';
+import { groupRoutes } from './groups/routes';
 import { storageRoutes } from './storage/routes';
 import { connectionsRoutes } from './connections/routes';
 import { activityRoutes } from './audit/routes';
@@ -53,6 +54,7 @@ const app = new Elysia()
   .get('/api/health', () => ({ ok: true, connections: connectionsStore.count(), s3: s3.hasAny() }))
   .use(authRoutes)
   .use(userRoutes)
+  .use(groupRoutes)
   .use(storageRoutes)
   .use(connectionsRoutes)
   .use(activityRoutes)
