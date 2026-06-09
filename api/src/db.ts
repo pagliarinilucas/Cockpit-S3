@@ -1,52 +1,60 @@
 import { Database } from 'bun:sqlite';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config';
+import * as schema from './db/schema';
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
-export const db = new Database(config.dbPath, { create: true });
-db.run('PRAGMA journal_mode = WAL');
-db.run('PRAGMA foreign_keys = ON');
+// Raw bun:sqlite handle — usado só para garantir o schema (idempotente) e o backfill único.
+export const sqlite = new Database(config.dbPath, { create: true });
+sqlite.run('PRAGMA journal_mode = WAL');
+sqlite.run('PRAGMA foreign_keys = ON');
 
-db.run(`
+// Drizzle ORM por cima do mesmo handle — é o que os stores usam para queries tipadas.
+export const db = drizzle({ client: sqlite, schema });
+
+// Schema garantido no boot (idempotente). Cobre DB novo, DB legado (5 tabelas) e DB já migrado.
+// As mudanças FUTURAS de schema devem ser geradas com `bun run db:generate`.
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS users (
     username      TEXT PRIMARY KEY,
     password_hash TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'user',
     token_version INTEGER NOT NULL DEFAULT 1,
-    grants        TEXT NOT NULL DEFAULT '{}',   -- JSON: { bucketId: perm }
+    grants        TEXT NOT NULL DEFAULT '{}',   -- JSON legado: { bucketId: perm }
     active        INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL,
     last_login    TEXT
   );
 `);
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS sessions (
-    id          TEXT PRIMARY KEY,             -- session (refresh) id
-    family_id   TEXT NOT NULL,                -- rotation family
+    id          TEXT PRIMARY KEY,
+    family_id   TEXT NOT NULL,
     username    TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
-    token_hash  TEXT NOT NULL UNIQUE,         -- sha256(refresh token)
+    token_hash  TEXT NOT NULL UNIQUE,
     created_at  TEXT NOT NULL,
     expires_at  TEXT NOT NULL,
-    used_at     TEXT,                         -- set when rotated
-    rotated_to  TEXT,                         -- next session id in family
+    used_at     TEXT,
+    rotated_to  TEXT,
     revoked     INTEGER NOT NULL DEFAULT 0,
     user_agent  TEXT
   );
 `);
-db.run('CREATE INDEX IF NOT EXISTS idx_sessions_family ON sessions(family_id)');
-db.run('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(username)');
+sqlite.run('CREATE INDEX IF NOT EXISTS idx_sessions_family ON sessions(family_id)');
+sqlite.run('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(username)');
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
 `);
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS connections (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -54,12 +62,12 @@ db.run(`
     region      TEXT NOT NULL DEFAULT 'garage',
     access_key  TEXT NOT NULL,
     secret_key  TEXT NOT NULL,
-    buckets     TEXT NOT NULL DEFAULT '[]',   -- JSON array (override; empty = ListBuckets)
+    buckets     TEXT NOT NULL DEFAULT '[]',
     created_at  TEXT NOT NULL
   );
 `);
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS activity (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     action  TEXT NOT NULL,
@@ -70,7 +78,7 @@ db.run(`
   );
 `);
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS groups (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
@@ -78,7 +86,7 @@ db.run(`
   );
 `);
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS user_groups (
     username  TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
     group_id  TEXT NOT NULL REFERENCES groups(id)     ON DELETE CASCADE,
@@ -86,20 +94,20 @@ db.run(`
   );
 `);
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS grants (
-    subject_type TEXT NOT NULL,             -- 'user' | 'group'
-    subject_id   TEXT NOT NULL,             -- username | group id
-    bucket_id    TEXT NOT NULL,             -- connectionId:bucketName
-    prefix       TEXT NOT NULL DEFAULT '',  -- '' = bucket todo; senão termina em '/'
-    perm         TEXT NOT NULL,             -- owner|read-write|read-only
+    subject_type TEXT NOT NULL,
+    subject_id   TEXT NOT NULL,
+    bucket_id    TEXT NOT NULL,
+    prefix       TEXT NOT NULL DEFAULT '',
+    perm         TEXT NOT NULL,
     PRIMARY KEY (subject_type, subject_id, bucket_id, prefix)
   );
 `);
-db.run('CREATE INDEX IF NOT EXISTS idx_grants_subject ON grants(subject_type, subject_id)');
-db.run('CREATE INDEX IF NOT EXISTS idx_grants_bucket  ON grants(bucket_id)');
+sqlite.run('CREATE INDEX IF NOT EXISTS idx_grants_subject ON grants(subject_type, subject_id)');
+sqlite.run('CREATE INDEX IF NOT EXISTS idx_grants_bucket  ON grants(bucket_id)');
 
-db.run(`
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS user_blocks (
     username   TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
     bucket_id  TEXT NOT NULL,
@@ -110,9 +118,9 @@ db.run(`
 
 // One-time migration: legacy users.grants JSON -> grants rows (prefix='' = whole bucket).
 // Idempotent; guarded by a settings flag. The users.grants column stays but is unused after.
-if (!db.query("SELECT 1 FROM settings WHERE key = 'grants_migrated'").get()) {
-  const rows = db.query('SELECT username, grants FROM users').all() as { username: string; grants: string }[];
-  const ins = db.query(
+if (!sqlite.query("SELECT 1 FROM settings WHERE key = 'grants_migrated'").get()) {
+  const rows = sqlite.query('SELECT username, grants FROM users').all() as { username: string; grants: string }[];
+  const ins = sqlite.query(
     "INSERT OR IGNORE INTO grants (subject_type, subject_id, bucket_id, prefix, perm) VALUES ('user', ?, ?, '', ?)",
   );
   for (const r of rows) {
@@ -120,5 +128,5 @@ if (!db.query("SELECT 1 FROM settings WHERE key = 'grants_migrated'").get()) {
     try { g = JSON.parse(r.grants || '{}'); } catch { /* skip malformed */ }
     for (const [bucketId, perm] of Object.entries(g)) if (perm) ins.run(r.username, bucketId, perm);
   }
-  db.query("INSERT INTO settings (key, value) VALUES ('grants_migrated', '1')").run();
+  sqlite.query("INSERT INTO settings (key, value) VALUES ('grants_migrated', '1')").run();
 }
