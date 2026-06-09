@@ -44,8 +44,10 @@ bun run seed <username> <password> [admin|user]
 
 ```
 src/config.ts         env + secret validation
-src/db.ts             bun:sqlite schema (users, sessions, activity, groups,
-                      user_groups, grants, user_blocks) + migração de grants legados
+src/db.ts             Drizzle (bun-sqlite) + schema garantido no boot via CREATE TABLE
+                      IF NOT EXISTS (users, sessions, activity, connections, settings,
+                      groups, user_groups, grants, user_blocks) + backfill de grants legados
+src/db/schema.ts      schema Drizzle tipado (fonte da verdade p/ queries e drizzle-kit)
 src/auth/             passwords, tokens (access JWT + refresh), sessions (rotation +
                       reuse detection), rate-limit, service, guard, routes
 src/users/            user store + admin CRUD routes (+ grants por prefixo, blocks, membership)
@@ -76,3 +78,7 @@ is real.
 - Presigned URLs expire in 5 min; preview returns `inline` for images/PDF/video/audio,
   `attachment` otherwise.
 - Set `COOKIE_SECURE=true` and a strong `ACCESS_TOKEN_SECRET` in production (HTTPS).
+- Persistência via **Drizzle ORM** sobre `bun:sqlite` (queries tipadas). Schema em
+  `src/db/schema.ts`; o boot garante as tabelas com `CREATE TABLE IF NOT EXISTS` (seguro
+  para DB novo, legado ou já migrado). Mudanças futuras de schema: `bun run db:generate`
+  gera o SQL em `drizzle/` (aplicar com `bun run db:migrate`).
