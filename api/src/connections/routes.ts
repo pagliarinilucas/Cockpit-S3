@@ -11,14 +11,18 @@ const bodySchema = t.Object({
   accessKey: t.String(),
   secretKey: t.Optional(t.String()),
   buckets: t.Optional(t.Array(t.String())),
+  adminEndpoint: t.Optional(t.String()),
+  adminToken: t.Optional(t.String()),
 });
 
-type Body = { name?: string; endpoint: string; region?: string; accessKey: string; secretKey?: string; buckets?: string[] };
+type Body = { name?: string; endpoint: string; region?: string; accessKey: string; secretKey?: string; buckets?: string[]; adminEndpoint?: string; adminToken?: string };
 
 /** Build a ConnInput, falling back to the stored secret when omitted on update. */
 function toInput(body: Body, existingId?: string): ConnInput {
   let secretKey = body.secretKey ?? '';
   if (!secretKey && existingId) secretKey = connectionsStore.getFull(existingId)?.secretKey ?? '';
+  let adminToken = body.adminToken ?? '';
+  if (!adminToken && existingId) adminToken = connectionsStore.getFull(existingId)?.adminToken ?? '';
   return {
     name: (body.name ?? '').trim(),
     endpoint: body.endpoint.trim(),
@@ -26,6 +30,8 @@ function toInput(body: Body, existingId?: string): ConnInput {
     accessKey: body.accessKey.trim(),
     secretKey,
     buckets: (body.buckets ?? []).map((b) => b.trim()).filter(Boolean),
+    adminEndpoint: (body.adminEndpoint ?? '').trim() || undefined,
+    adminToken: adminToken || undefined,
   };
 }
 
