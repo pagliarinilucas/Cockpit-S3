@@ -181,7 +181,7 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
           <div class="kmrow-name"><Icon name="key" :size="15" /> {{ u.username }}
             <span class="role-badge" :class="u.role === 'admin' ? 'role-admin' : 'role-user'" style="margin-left:8px">{{ u.role === 'admin' ? 'ADMIN' : 'USUÁRIO' }}</span>
           </div>
-          <div class="kmrow-acts">
+          <div class="row-acts">
             <button class="btn" @click="openPerms(u)"><Icon name="shield" :size="15" /> Permissões</button>
             <button class="iconbtn" title="Redefinir senha" @click="openReset(u.username)"><Icon name="shield" :size="15" /></button>
             <button class="iconbtn iconbtn-danger" title="Excluir" @click="delUser = u.username"><Icon name="trash" :size="15" /></button>
@@ -205,7 +205,7 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
       <div class="card" v-for="g in groups" :key="g.id" style="margin-bottom:10px">
         <div class="kmrow-top">
           <div class="kmrow-name"><Icon name="shield" :size="15" /> {{ g.name }}</div>
-          <div class="kmrow-acts">
+          <div class="row-acts">
             <button class="btn" @click="editGroup = g"><Icon name="database" :size="15" /> Grants</button>
             <button class="iconbtn iconbtn-danger" title="Excluir" @click="delGroup = g"><Icon name="trash" :size="15" /></button>
           </div>
@@ -382,4 +382,6 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
 .grant-loc { flex: 1; font-size: 13px; color: var(--text); }
 .muted { color: var(--text-3); font-family: var(--mono); font-size: 12px; }
 .perm-btn { display: inline-flex; background: none; border: none; cursor: pointer; padding: 0; }
+.row-acts { display: flex; align-items: center; gap: 6px; }
+.row-acts .iconbtn { width: 30px; height: 30px; }
 </style>

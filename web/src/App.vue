@@ -230,7 +230,7 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
 
       <div class="main">
         <header class="topbar">
-          <div class="searchbox searchbox-global">
+          <div v-if="searchable || view === 'files'" class="searchbox searchbox-global">
             <Icon name="search" :size="16" />
             <input v-model="query" :disabled="!searchable" :placeholder="searchPlaceholder" />
           </div>
