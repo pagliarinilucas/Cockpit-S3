@@ -12,7 +12,7 @@ export function resolvePerm(allows: Allow[], denies: string[], key: string): Per
   if (denies.some((d) => key.startsWith(d))) return null;
   let best = 0;
   for (const a of allows) if (key.startsWith(a.prefix)) best = Math.max(best, RANK[a.perm]);
-  return BY_RANK[best];
+  return BY_RANK[best] ?? null;
 }
 
 /** Mostra a pasta se for coberta por, ou ancestral de, algum allow — e não estiver sob deny. */
@@ -25,7 +25,7 @@ export function folderVisible(allows: Allow[], denies: string[], folderKey: stri
 export function maxBucketPerm(allows: Allow[], denies: string[]): Perm | null {
   let best = 0;
   for (const a of allows) if (!denies.some((d) => a.prefix.startsWith(d))) best = Math.max(best, RANK[a.perm]);
-  return BY_RANK[best];
+  return BY_RANK[best] ?? null;
 }
 
 interface Subject { username: string; role: Role }
