@@ -84,16 +84,36 @@ admin-only access on every route below.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET    | `/api/users` | — | `User[]` → `{ username, role, created?, lastLogin?, active?, grants }` |
+| GET    | `/api/users` | — | `User[]` → `{ username, role, created?, lastLogin?, active?, groups, grants, blocks }` |
 | POST   | `/api/users` | `{ username, password, role }` | created `User` (use `409` if username exists) |
 | PATCH  | `/api/users/:username` | `{ role }` | updated `User` |
-| PATCH  | `/api/users/:username/grants` | `{ bucketId, perm }` | updated `User` |
+| PUT    | `/api/users/:username/grants` | `{ bucketId, prefix?, perm\|null }` | updated `User` (perm null removes) |
+| PUT    | `/api/users/:username/blocks` | `{ bucketId, prefix?, blocked }` | updated `User` |
+| PUT    | `/api/users/:username/groups` | `{ groupId, member }` | updated `User` |
 | POST   | `/api/users/:username/password` | `{ password }` | — (reset password) |
 | DELETE | `/api/users/:username` | — | — |
 
-`role` is `"admin" | "user"`. `grants` is `{ [bucketId]: "owner"|"read-write"|"read-only"|null }`
-— same matrix/cycle behaviour as access keys. Passwords arrive in plaintext over the
-session-protected channel; **hash them server-side** (e.g. bcrypt) before storing.
+`role` is `"admin" | "user"`. A user's access is: `groups: string[]` (group ids), `grants:
+{ bucketId, prefix, perm }[]` (direct allows), and `blocks: { bucketId, prefix }[]` (denies).
+`prefix` is `""` for the whole bucket or a folder prefix ending in `/`. Passwords arrive in
+plaintext over the session-protected channel; **hash them server-side** (argon2id) before storing.
+
+### Grupos (admin only)
+Reusable permission groups. A group holds `allow` grants by bucket (`prefix:""`) or folder.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET    | `/api/groups` | — | `Group[]` → `{ id, name, created?, members, grants }` |
+| POST   | `/api/groups` | `{ name }` | created `Group` (409 if name exists) |
+| PATCH  | `/api/groups/:id` | `{ name }` | updated `Group` |
+| DELETE | `/api/groups/:id` | — | `{ ok }` |
+| PUT    | `/api/groups/:id/grants` | `{ bucketId, prefix?, perm\|null }` | updated `Group` (perm null removes) |
+
+`grants` (group and user) is `{ bucketId, prefix, perm }[]`. **Effective permission per object
+key:** a user `deny` (`/blocks`) is absolute; otherwise the highest `perm` among all applicable
+allows (direct + groups) whose `prefix` covers the key wins; admins are `owner` of everything.
+`GET /api/buckets/:id/objects` filters items by visibility and returns `perm` (effective at
+`path`). `GET /api/buckets` shows buckets with any access; its `perm` is the max in the bucket.
 
 ### Connections — Garage/S3 connections (admin only)
 Multiple S3 connections are supported. Each has its own endpoint/credentials. The

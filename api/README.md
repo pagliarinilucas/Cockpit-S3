@@ -44,12 +44,15 @@ bun run seed <username> <password> [admin|user]
 
 ```
 src/config.ts         env + secret validation
-src/db.ts             bun:sqlite schema (users, sessions, activity)
+src/db.ts             bun:sqlite schema (users, sessions, activity, groups,
+                      user_groups, grants, user_blocks) + migração de grants legados
 src/auth/             passwords, tokens (access JWT + refresh), sessions (rotation +
                       reuse detection), rate-limit, service, guard, routes
-src/users/            user store + admin CRUD routes (+ per-bucket grants)
+src/users/            user store + admin CRUD routes (+ grants por prefixo, blocks, membership)
+src/groups/           grupos de permissão (CRUD + grants) + /api/groups (admin)
+src/auth/permissions  resolução de permissão por chave (deny absoluto, união de allows)
 src/storage/          Garage S3 client + bucket/object routes (list/upload/download/
-                      preview/delete/folders) with per-bucket authorization
+                      preview/delete/folders) com autorização por PASTA (prefixo)
 src/audit/            SQLite activity log + /api/activity
 src/connections/      multiple Garage/S3 connections in DB + /api/connections (admin)
 src/settings/         legacy single-config store (kept only to migrate into a connection)
@@ -66,8 +69,10 @@ is real.
 
 ## Notes
 
-- Authorization is enforced **server-side** on every route; per-bucket permissions come
-  from each user's `grants` (admins implicitly own all buckets).
+- Authorization is enforced **server-side** on every route, resolved **per object key**:
+  a user-level `deny` (block) is absolute; otherwise the highest `perm` among all applicable
+  allows (direct grants + the user's groups) whose `prefix` covers the key wins. Grants can be
+  whole-bucket (`prefix:""`) or per-folder. Admins implicitly own all buckets.
 - Presigned URLs expire in 5 min; preview returns `inline` for images/PDF/video/audio,
   `attachment` otherwise.
 - Set `COOKIE_SECURE=true` and a strong `ACCESS_TOKEN_SECRET` in production (HTTPS).
