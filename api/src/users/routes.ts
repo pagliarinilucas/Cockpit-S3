@@ -5,7 +5,7 @@ import { sessions } from '../auth/sessions';
 import { audit } from '../audit/store';
 import type { Perm } from '../types';
 
-const PERMS = ['owner', 'read-write', 'read-only'] as const;
+const norm = (p?: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
 export const userRoutes = new Elysia({ prefix: '/api/users' })
   .use(authDerive)
@@ -30,17 +30,43 @@ export const userRoutes = new Elysia({ prefix: '/api/users' })
       return u;
     }, { body: t.Object({ role: t.Union([t.Literal('admin'), t.Literal('user')]) }) })
 
-    .patch('/:username/grants', ({ params, body, set, user }) => {
+    // set/remove a direct ALLOW grant (optionally scoped to a folder prefix)
+    .put('/:username/grants', ({ params, body, set, user }) => {
       if (!usersStore.exists(params.username)) { set.status = 404; return { error: 'not_found' }; }
+      const prefix = norm(body.prefix);
       const perm = body.perm as Perm | null;
-      const updated = usersStore.setGrant(params.username, body.bucketId, perm);
+      const updated = usersStore.setGrant(params.username, body.bucketId, prefix, perm);
       audit.log(perm ? 'grant' : 'revoke', user!.username, body.bucketId,
-        `${params.username}${perm ? ' → ' + perm : ' ✕'}`);
+        `${params.username}${prefix ? ' /' + prefix : ''}${perm ? ' → ' + perm : ' ✕'}`);
       return updated;
     }, { body: t.Object({
       bucketId: t.String({ minLength: 1 }),
+      prefix: t.Optional(t.String()),
       perm: t.Union([t.Literal('owner'), t.Literal('read-write'), t.Literal('read-only'), t.Null()]),
     }) })
+
+    // set/remove a DENY block
+    .put('/:username/blocks', ({ params, body, set, user }) => {
+      if (!usersStore.exists(params.username)) { set.status = 404; return { error: 'not_found' }; }
+      const prefix = norm(body.prefix);
+      const updated = usersStore.setBlock(params.username, body.bucketId, prefix, body.blocked);
+      audit.log(body.blocked ? 'revoke' : 'grant', user!.username, body.bucketId,
+        `${params.username} bloqueio ${prefix || '(bucket)'} ${body.blocked ? '✕' : '↺'}`);
+      return updated;
+    }, { body: t.Object({
+      bucketId: t.String({ minLength: 1 }),
+      prefix: t.Optional(t.String()),
+      blocked: t.Boolean(),
+    }) })
+
+    // add/remove group membership
+    .put('/:username/groups', ({ params, body, set, user }) => {
+      if (!usersStore.exists(params.username)) { set.status = 404; return { error: 'not_found' }; }
+      const updated = usersStore.setGroupMember(params.username, body.groupId, body.member);
+      audit.log(body.member ? 'grant' : 'revoke', user!.username, '—',
+        `${params.username} grupo ${body.groupId} ${body.member ? '+' : '-'}`);
+      return updated;
+    }, { body: t.Object({ groupId: t.String({ minLength: 1 }), member: t.Boolean() }) })
 
     .post('/:username/password', async ({ params, body, set }) => {
       if (!usersStore.exists(params.username)) { set.status = 404; return { error: 'not_found' }; }
@@ -57,5 +83,3 @@ export const userRoutes = new Elysia({ prefix: '/api/users' })
       return { ok: true };
     }),
   );
-
-export { PERMS };
