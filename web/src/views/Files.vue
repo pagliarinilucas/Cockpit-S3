@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import type { Bucket, ObjectItem, FileType } from '../core/models';
+import type { Bucket, ObjectItem, FileType, Perm } from '../core/models';
 import type { UploadItem } from '../core/ui';
 import { api, apiErrMsg } from '../core/api';
 import { useToast } from '../core/toast';
@@ -31,7 +31,8 @@ const showFolder = ref(false);
 const toDelete = ref<{ keys: string[]; label: string } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
-const canWrite = computed(() => props.bucket.perm === 'owner' || props.bucket.perm === 'read-write');
+const pathPerm = ref<Perm | null>(props.bucket.perm);
+const canWrite = computed(() => pathPerm.value === 'owner' || pathPerm.value === 'read-write');
 const prefix = computed(() => props.path.length ? props.path.join('/') + '/' : '');
 
 // path is owned by App (so the browser Back button can drive it); reload whenever
@@ -47,6 +48,7 @@ async function reload() {
   try {
     const res = await api.list(props.bucket.id, prefix.value);
     items.value = mapItems(res.items ?? []);
+    pathPerm.value = res.perm ?? null;
     nextToken.value = res.nextToken ?? null;
   } catch (e) {
     error.value = apiErrMsg(e, 'listar');
@@ -62,6 +64,7 @@ async function loadMore() {
   try {
     const res = await api.list(props.bucket.id, prefix.value, nextToken.value);
     items.value = [...items.value, ...mapItems(res.items ?? [])];
+    pathPerm.value = res.perm ?? pathPerm.value;
     nextToken.value = res.nextToken ?? null;
   } catch (e) {
     toast.error(apiErrMsg(e, 'carregar mais'));
