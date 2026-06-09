@@ -79,7 +79,7 @@ function refreshEditUser(updated: User | null) {
 async function toggleGroup(g: Group) {
   const u = editUser.value; if (!u) return;
   const member = !u.groups.includes(g.id);
-  try { refreshEditUser(await api.setUserGroup(u.username, g.id, member)); }
+  try { refreshEditUser(await api.setUserGroup(u.username, g.id, member)); await reloadGroupsKeepEditor(); }
   catch { toast.error('Falha ao alterar grupo'); }
 }
 async function cycleUserGrant(gr: UserGrant) {
@@ -101,11 +101,11 @@ async function removeUserBlock(b: { bucketId: string; prefix: string }) {
 
 // ── add grant / block flow (shared picker) ──
 // mode: 'user-grant' | 'user-block' | 'group-grant'
-const picker = ref<{ mode: string; subjectId: string; bucketId: string } | null>(null);
+const picker = ref<{ mode: string; subjectId: string; bucketId: string; step: 'bucket' | 'folder' } | null>(null);
 function startAdd(mode: string, subjectId: string) {
   const bucketId = buckets.value[0]?.id;
   if (!bucketId) { toast.error('Nenhum bucket disponível.'); return; }
-  picker.value = { mode, subjectId, bucketId };
+  picker.value = { mode, subjectId, bucketId, step: 'bucket' };
 }
 async function onPick(prefix: string) {
   const p = picker.value; if (!p) return;
@@ -349,7 +349,7 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
     </Modal>
 
     <!-- bucket choice + folder picker for add flow -->
-    <Modal v-if="picker" title="Bucket" icon="database" @close="picker = null">
+    <Modal v-if="picker && picker.step === 'bucket'" title="Bucket" icon="database" @close="picker = null">
       <div class="field">
         <label class="field-label">Bucket</label>
         <select class="modal-input" v-model="picker.bucketId">
@@ -359,9 +359,10 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
       <p class="modal-hint">Escolha o bucket; em seguida selecione a pasta.</p>
       <template #foot>
         <button class="btn" @click="picker = null">Cancelar</button>
+        <button class="btn btn-primary" @click="picker.step = 'folder'"><Icon name="check" :size="16" />Continuar</button>
       </template>
     </Modal>
-    <FolderPicker v-if="picker" :bucket-id="picker.bucketId" :bucket-name="bucketName(picker.bucketId)"
+    <FolderPicker v-if="picker && picker.step === 'folder'" :bucket-id="picker.bucketId" :bucket-name="bucketName(picker.bucketId)"
       @pick="onPick" @close="picker = null" />
   </div>
 </template>
