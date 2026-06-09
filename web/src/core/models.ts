@@ -20,14 +20,29 @@ export interface Me {
   role?: Role;
 }
 
-/** GET /api/users — app login accounts and their per-bucket access. */
+export interface UserGrant { bucketId: string; prefix: string; perm: Perm }
+export interface UserBlock { bucketId: string; prefix: string }
+
+/** GET /api/users — app login accounts and their access. */
 export interface User {
   username: string;
   role: Role;
   created?: string;
   lastLogin?: string;
   active?: boolean;
-  grants: Record<string, Perm | null>;
+  groups: string[];        // group ids the user belongs to
+  grants: UserGrant[];     // direct allow grants
+  blocks: UserBlock[];     // direct deny blocks
+}
+
+export interface GroupGrant { bucketId: string; prefix: string; perm: Perm }
+/** GET /api/groups — reusable permission groups. */
+export interface Group {
+  id: string;
+  name: string;
+  created?: string;
+  members?: number;
+  grants: GroupGrant[];
 }
 
 export interface ClusterNode {
@@ -87,6 +102,8 @@ export interface ObjectListing {
   bucket: string;
   path: string;
   items: ObjectItem[];
+  /** effective permission at `path` (drives write UI for this folder). */
+  perm?: Perm | null;
   /** present when there are more pages; pass back as `token` to continue. */
   nextToken?: string;
 }
