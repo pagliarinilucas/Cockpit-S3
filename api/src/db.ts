@@ -63,9 +63,16 @@ sqlite.run(`
     access_key  TEXT NOT NULL,
     secret_key  TEXT NOT NULL,
     buckets     TEXT NOT NULL DEFAULT '[]',
+    admin_endpoint TEXT,
+    admin_token    TEXT,
     created_at  TEXT NOT NULL
   );
 `);
+
+// Garante colunas novas em DBs já existentes (SQLite não tem ADD COLUMN IF NOT EXISTS).
+const connCols = (sqlite.query('PRAGMA table_info(connections)').all() as { name: string }[]).map((c) => c.name);
+if (!connCols.includes('admin_endpoint')) sqlite.run('ALTER TABLE connections ADD COLUMN admin_endpoint TEXT');
+if (!connCols.includes('admin_token')) sqlite.run('ALTER TABLE connections ADD COLUMN admin_token TEXT');
 
 sqlite.run(`
   CREATE TABLE IF NOT EXISTS activity (

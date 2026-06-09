@@ -50,6 +50,8 @@ export const connections = sqliteTable('connections', {
   accessKey: text('access_key').notNull(),
   secretKey: text('secret_key').notNull(),
   buckets: text('buckets').notNull().default('[]'), // JSON array (override; vazio = ListBuckets)
+  adminEndpoint: text('admin_endpoint'),
+  adminToken: text('admin_token'),
   createdAt: text('created_at').notNull(),
 });
 
