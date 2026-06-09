@@ -56,7 +56,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const ref = parse(params.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
       const access = perms.access(user!, params.id);
-      if (!access) { set.status = 403; return { error: 'forbidden' }; }
+      if (!access || !perms.hasBucketAccess(access)) { set.status = 403; return { error: 'forbidden' }; }
       const q = query as Record<string, string>;
       const path = norm(q['path'] ?? '');
       const token = q['token'] || undefined;
@@ -77,7 +77,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const ref = parse(params.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
       const access = perms.access(user!, params.id);
-      if (!access) { set.status = 403; return { error: 'forbidden' }; }
+      if (!access || !perms.hasBucketAccess(access)) { set.status = 403; return { error: 'forbidden' }; }
       const cacheKey = `${user!.username}|${params.id}`;
       const hit = statsCache.get(cacheKey);
       if (hit && Date.now() - hit.at < STATS_TTL) return { used: hit.used, objects: hit.objects, truncated: hit.truncated };
@@ -97,7 +97,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const ref = parse(params.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
       const access = perms.access(user!, params.id);
-      if (!access) { set.status = 403; return { error: 'forbidden' }; }
+      if (!access || !perms.hasBucketAccess(access)) { set.status = 403; return { error: 'forbidden' }; }
       const q = (query as Record<string, string>)['q']?.trim() ?? '';
       if (!q) return { bucket: params.id, items: [] };
       const path = norm((query as Record<string, string>)['path'] ?? '');

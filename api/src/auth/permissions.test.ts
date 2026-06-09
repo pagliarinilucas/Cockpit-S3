@@ -54,4 +54,7 @@ describe('maxBucketPerm', () => {
   it('sem allows → null', () => {
     expect(maxBucketPerm([], [])).toBe(null);
   });
+  it('allow exatamente sombreado por deny → null (não autoriza listagem)', () => {
+    expect(maxBucketPerm([{ prefix: 'fin/reports/', perm: 'read-write' }], ['fin/reports/'])).toBe(null);
+  });
 });

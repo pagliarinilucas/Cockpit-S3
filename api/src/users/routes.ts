@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { authDerive, requireAdmin } from '../auth/guard';
 import { usersStore } from './store';
+import { groupsStore } from '../groups/store';
 import { sessions } from '../auth/sessions';
 import { audit } from '../audit/store';
 import type { Perm } from '../types';
@@ -62,6 +63,7 @@ export const userRoutes = new Elysia({ prefix: '/api/users' })
     // add/remove group membership
     .put('/:username/groups', ({ params, body, set, user }) => {
       if (!usersStore.exists(params.username)) { set.status = 404; return { error: 'not_found' }; }
+      if (body.member && !groupsStore.exists(body.groupId)) { set.status = 404; return { error: 'group_not_found' }; }
       const updated = usersStore.setGroupMember(params.username, body.groupId, body.member);
       audit.log(body.member ? 'grant' : 'revoke', user!.username, '—',
         `${params.username} grupo ${body.groupId} ${body.member ? '+' : '-'}`);

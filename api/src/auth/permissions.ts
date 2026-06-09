@@ -60,6 +60,10 @@ export const perms = {
   folderVisible(a: Access, key: string): boolean {
     return a.all ? true : folderVisible(a.allows, a.denies, key);
   },
+  /** True se o usuário tem QUALQUER acesso efetivo no bucket (autoriza listagem/stats/search). */
+  hasBucketAccess(a: Access): boolean {
+    return a.all || maxBucketPerm(a.allows, a.denies) !== null;
+  },
   /** Maior perm do usuário no bucket (badge). null = bucket não aparece. */
   bucketPermFor(user: Subject, bucketId: string): Perm | null {
     if (user.role === 'admin') return 'owner';
