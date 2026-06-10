@@ -1,6 +1,6 @@
 import type {
   Me, Bucket, BucketStats, ObjectListing, PresignedUrl,
-  AccessKey, ActivityEvent, Perm, User, Role, Connection, Group,
+  ActivityEvent, Perm, User, Role, Connection, Group,
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
 } from './models';
 
@@ -155,10 +155,6 @@ export const api = {
     });
   },
 
-  // access keys
-  keys: () => req<AccessKey[]>('GET', '/keys'),
-  createKey: (name: string) => req<AccessKey>('POST', '/keys', { body: { name } }),
-  setGrant: (keyId: string, bucketId: string, perm: Perm | null) => req<AccessKey>('PATCH', `/keys/${encodeURIComponent(keyId)}/grants`, { body: { bucketId, perm } }),
 
   // users (admin)
   users: () => req<User[]>('GET', '/users'),

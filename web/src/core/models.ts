@@ -96,14 +96,6 @@ export interface PresignedUrl {
   disposition?: 'inline' | 'attachment';
 }
 
-export interface AccessKey {
-  id: string;
-  name: string;
-  created: string;
-  lastUsed?: string;
-  grants: Record<string, Perm | null>;
-}
-
 /** A Garage/S3 connection (admin). Secret never leaves the server (`secretSet` only). */
 export interface Connection {
   id: string;
