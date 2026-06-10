@@ -2,11 +2,11 @@ import type {
   Me, Bucket, BucketStats, ObjectListing, PresignedUrl,
   ActivityEvent, Perm, User, Role, Connection, Group,
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
+  Cluster, ClusterInput,
 } from './models';
 
 export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
-  adminEndpoint?: string; adminToken?: string;
 }
 
 /**
@@ -187,16 +187,22 @@ export const api = {
   deleteConnection: (id: string) => req('DELETE', `/connections/${encodeURIComponent(id)}`),
   testConnection: (p: ConnectionPayload & { id?: string }) => req<{ ok: boolean; buckets?: string[]; error?: string }>('POST', '/connections/test', { body: p }),
 
-  // garage admin — Garage Admin API per connection (admin only)
-  cluster: (connId: string) => req<ClusterSummary>('GET', `/connections/${encodeURIComponent(connId)}/cluster`),
-  garageBuckets: (connId: string) => req<GarageBucket[]>('GET', `/connections/${encodeURIComponent(connId)}/garage/buckets`),
-  createGarageBucket: (connId: string, alias: string) => req('POST', `/connections/${encodeURIComponent(connId)}/garage/buckets`, { body: { alias } }),
-  deleteGarageBucket: (connId: string, bucketId: string) => req('DELETE', `/connections/${encodeURIComponent(connId)}/garage/buckets/${encodeURIComponent(bucketId)}`),
-  setGarageQuotas: (connId: string, bucketId: string, maxSize: number | null, maxObjects: number | null) => req('PUT', `/connections/${encodeURIComponent(connId)}/garage/buckets/${encodeURIComponent(bucketId)}/quotas`, { body: { maxSize, maxObjects } }),
-  garageKeys: (connId: string) => req<GarageKey[]>('GET', `/connections/${encodeURIComponent(connId)}/keys`),
-  createGarageKey: (connId: string, name: string) => req<NewGarageKey>('POST', `/connections/${encodeURIComponent(connId)}/keys`, { body: { name } }),
-  deleteGarageKey: (connId: string, keyId: string) => req('DELETE', `/connections/${encodeURIComponent(connId)}/keys/${encodeURIComponent(keyId)}`),
-  setGarageKeyPerm: (connId: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/connections/${encodeURIComponent(connId)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),
+  // clusters (admin) — CRUD
+  clusters: () => req<Cluster[]>('GET', '/clusters'),
+  createCluster: (b: ClusterInput) => req<Cluster>('POST', '/clusters', { body: b }),
+  updateCluster: (id: string, b: ClusterInput) => req<Cluster>('PUT', `/clusters/${encodeURIComponent(id)}`, { body: b }),
+  deleteCluster: (id: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}`),
+
+  // garage admin — Garage Admin API per cluster (admin only)
+  cluster: (id: string) => req<ClusterSummary>('GET', `/clusters/${encodeURIComponent(id)}/cluster`),
+  garageBuckets: (id: string) => req<GarageBucket[]>('GET', `/clusters/${encodeURIComponent(id)}/buckets`),
+  createGarageBucket: (id: string, alias: string) => req('POST', `/clusters/${encodeURIComponent(id)}/buckets`, { body: { alias } }),
+  deleteGarageBucket: (id: string, bucketId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}`),
+  setGarageQuotas: (id: string, bucketId: string, maxSize: number | null, maxObjects: number | null) => req('PUT', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}/quotas`, { body: { maxSize, maxObjects } }),
+  garageKeys: (id: string) => req<GarageKey[]>('GET', `/clusters/${encodeURIComponent(id)}/keys`),
+  createGarageKey: (id: string, name: string) => req<NewGarageKey>('POST', `/clusters/${encodeURIComponent(id)}/keys`, { body: { name } }),
+  deleteGarageKey: (id: string, keyId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`),
+  setGarageKeyPerm: (id: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),
 };
 
 /** Shared helper for the views' error messages. */

@@ -105,9 +105,26 @@ export interface Connection {
   accessKey: string;
   buckets: string[];
   secretSet: boolean;
-  adminEndpoint?: string;
-  adminConfigured?: boolean;
   createdAt: string;
+}
+
+/** A Garage cluster (admin endpoint + token). */
+export interface Cluster {
+  id: string;
+  name: string;
+  adminEndpoint: string;
+  s3Endpoint: string;
+  region: string;
+  adminConfigured: boolean;
+  createdAt?: string;
+}
+
+export interface ClusterInput {
+  name: string;
+  adminEndpoint: string;
+  adminToken?: string;
+  s3Endpoint: string;
+  region?: string;
 }
 
 /** GET /api/connections/:id/cluster — Garage Admin API cluster summary. */
