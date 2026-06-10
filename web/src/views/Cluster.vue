@@ -28,12 +28,13 @@ async function loadConns() {
   loading.value = true;
   try {
     conns.value = (await api.connections()).filter((c) => c.adminConfigured);
-    connId.value = conns.value[0]?.id ?? '';
+    if (!conns.value.some((c) => c.id === connId.value)) connId.value = conns.value[0]?.id ?? '';
   } catch (e) { toast.error(apiErrMsg(e)); conns.value = []; connId.value = ''; }
   finally { loading.value = false; }
 }
 onMounted(loadConns);
-defineExpose({ reload: loadConns });
+async function reload() { await loadConns(); await loadTab(); }
+defineExpose({ reload });
 
 function onTabError(e: unknown) {
   if (e instanceof ApiError && e.status === 409) { tabError.value = 'admin_not_configured'; return; }
