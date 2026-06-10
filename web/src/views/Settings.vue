@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import type { Connection } from '../core/models';
+import type { Connection, Cluster, ClusterInput } from '../core/models';
 import { api, apiErrMsg, type ConnectionPayload } from '../core/api';
 import { useToast } from '../core/toast';
 import Icon from '../components/Icon.vue';
@@ -13,19 +13,28 @@ const error = ref<string | null>(null);
 
 // editor modal state
 const editing = ref<Connection | 'new' | null>(null);
-const form = ref({ name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '', adminEndpoint: '', adminToken: '' });
+const form = ref({ name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '' });
 const secretSet = ref(false);
-const adminConfigured = ref(false);
 const testing = ref(false);
 const saving = ref(false);
 const testResult = ref<{ ok: boolean; buckets?: string[]; error?: string } | null>(null);
 
 const toDelete = ref<Connection | null>(null);
 
+// clusters (admin)
+const clusters = ref<Cluster[]>([]);
+const clusterEditing = ref<Cluster | 'new' | null>(null);
+const clusterForm = ref({ name: '', s3Endpoint: '', adminEndpoint: '', adminToken: '', region: 'garage' });
+const clusterAdminConfigured = ref(false);
+const clusterSaving = ref(false);
+const clusterToDelete = ref<Cluster | null>(null);
+
 async function load() {
   loading.value = true; error.value = null;
-  try { connections.value = await api.connections(); }
-  catch (e) { error.value = apiErrMsg(e); }
+  try {
+    const [conns, cls] = await Promise.all([api.connections(), api.clusters()]);
+    connections.value = conns; clusters.value = cls;
+  } catch (e) { error.value = apiErrMsg(e); }
   finally { loading.value = false; }
 }
 onMounted(load);
@@ -34,16 +43,14 @@ defineExpose({ reload: load });
 function openNew() {
   editing.value = 'new';
   secretSet.value = false;
-  adminConfigured.value = false;
   testResult.value = null;
-  form.value = { name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '', adminEndpoint: '', adminToken: '' };
+  form.value = { name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '' };
 }
 function openEdit(c: Connection) {
   editing.value = c;
   secretSet.value = c.secretSet;
-  adminConfigured.value = !!c.adminConfigured;
   testResult.value = null;
-  form.value = { name: c.name, endpoint: c.endpoint, region: c.region || 'garage', accessKey: c.accessKey, secretKey: '', bucketsText: c.buckets.join(', '), adminEndpoint: c.adminEndpoint || '', adminToken: '' };
+  form.value = { name: c.name, endpoint: c.endpoint, region: c.region || 'garage', accessKey: c.accessKey, secretKey: '', bucketsText: c.buckets.join(', ') };
 }
 
 function payload(): ConnectionPayload {
@@ -55,8 +62,6 @@ function payload(): ConnectionPayload {
     accessKey: f.accessKey.trim(),
     secretKey: f.secretKey ? f.secretKey : undefined, // omit = keep stored (on edit)
     buckets: f.bucketsText.split(/[,\n]/).map((x) => x.trim()).filter(Boolean),
-    adminEndpoint: f.adminEndpoint.trim() || undefined,
-    adminToken: f.adminToken ? f.adminToken : undefined, // omit = keep stored (on edit)
   };
 }
 
@@ -94,6 +99,56 @@ async function confirmDelete() {
   const c = toDelete.value; if (!c) return;
   toDelete.value = null;
   try { await api.deleteConnection(c.id); toast.success(`Conexão "${c.name}" removida`); await load(); }
+  catch (e) { toast.error(apiErrMsg(e, 'remover')); }
+}
+
+function openNewCluster() {
+  clusterEditing.value = 'new';
+  clusterAdminConfigured.value = false;
+  clusterForm.value = { name: '', s3Endpoint: '', adminEndpoint: '', adminToken: '', region: 'garage' };
+}
+function openEditCluster(c: Cluster) {
+  clusterEditing.value = c;
+  clusterAdminConfigured.value = c.adminConfigured;
+  clusterForm.value = { name: c.name, s3Endpoint: c.s3Endpoint, adminEndpoint: c.adminEndpoint, adminToken: '', region: c.region || 'garage' };
+}
+
+function clusterPayload(): ClusterInput {
+  const f = clusterForm.value;
+  return {
+    name: f.name.trim(),
+    s3Endpoint: f.s3Endpoint.trim(),
+    adminEndpoint: f.adminEndpoint.trim(),
+    adminToken: f.adminToken ? f.adminToken : undefined, // omit = keep stored (on edit)
+    region: f.region.trim() || 'garage',
+  };
+}
+
+async function saveCluster() {
+  const f = clusterForm.value;
+  if (!f.name.trim() || !f.s3Endpoint.trim() || !f.adminEndpoint.trim() || (!f.adminToken && !clusterAdminConfigured.value)) {
+    toast.error('Preencha nome, S3 endpoint, admin endpoint e admin token.');
+    return;
+  }
+  clusterSaving.value = true;
+  try {
+    if (clusterEditing.value === 'new') {
+      await api.createCluster(clusterPayload());
+      toast.success('Cluster criado');
+    } else if (clusterEditing.value) {
+      await api.updateCluster(clusterEditing.value.id, clusterPayload());
+      toast.success('Cluster atualizado');
+    }
+    clusterEditing.value = null;
+    await load();
+  } catch (e) { toast.error(apiErrMsg(e, 'salvar')); }
+  finally { clusterSaving.value = false; }
+}
+
+async function confirmDeleteCluster() {
+  const c = clusterToDelete.value; if (!c) return;
+  clusterToDelete.value = null;
+  try { await api.deleteCluster(c.id); toast.success(`Cluster "${c.name}" removido`); await load(); }
   catch (e) { toast.error(apiErrMsg(e, 'remover')); }
 }
 </script>
@@ -138,6 +193,37 @@ async function confirmDelete() {
       </div>
     </div>
 
+    <div v-if="!loading && !error" class="cluster-section">
+      <div class="view-head">
+        <div>
+          <h1 class="view-title">Clusters</h1>
+          <p class="view-sub">{{ clusters.length }} cluster(s) Garage · admin</p>
+        </div>
+        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Novo cluster</button>
+      </div>
+      <div v-if="clusters.length === 0" class="empty-files">
+        <Icon name="gauge" :size="30" />
+        <p>Nenhum cluster ainda.</p>
+        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Adicionar cluster</button>
+      </div>
+      <div v-else class="conn-list">
+        <div v-for="c in clusters" :key="c.id" class="conn-item">
+          <div class="conn-ic"><Icon name="gauge" :size="22" /></div>
+          <div class="conn-main">
+            <div class="conn-name">{{ c.name }}</div>
+            <div class="conn-sub">
+              admin {{ c.adminEndpoint }} · s3 {{ c.s3Endpoint }} · {{ c.region }}
+              · {{ c.adminConfigured ? 'token ✓' : 'sem token' }}
+            </div>
+          </div>
+          <div class="conn-acts">
+            <button class="iconbtn" title="Editar" @click="openEditCluster(c)"><Icon name="cpu" :size="17" /></button>
+            <button class="iconbtn iconbtn-danger" title="Remover" @click="clusterToDelete = c"><Icon name="trash" :size="17" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- editor modal -->
     <Modal v-if="editing" :title="editing === 'new' ? 'Nova conexão' : 'Editar conexão'" icon="database" @close="editing = null">
       <div class="field">
@@ -167,16 +253,6 @@ async function confirmDelete() {
         <label class="field-label">Buckets (vírgula — vazio = listar todos)</label>
         <input class="field-input" v-model="form.bucketsText" placeholder="prod-assets, backups" />
       </div>
-      <div class="field">
-        <label class="field-label">Admin API endpoint (opcional)</label>
-        <input class="field-input" v-model="form.adminEndpoint" placeholder="http://host:3903" autocomplete="off" />
-      </div>
-      <div class="field">
-        <label class="field-label">Admin API token (opcional)</label>
-        <input class="field-input" type="password" v-model="form.adminToken"
-               :placeholder="adminConfigured ? '•••• (definido)' : ''" autocomplete="off" />
-        <p class="modal-hint">Habilita a aba Cluster (dashboard/buckets/keys do Garage) para esta conexão.</p>
-      </div>
       <div v-if="testResult" class="test-result" :class="testResult.ok ? 'ok' : 'err'">
         <template v-if="testResult.ok">✓ Conectado. {{ testResult.buckets?.length || 0 }} bucket(s){{ testResult.buckets?.length ? ': ' + testResult.buckets.join(', ') : '' }}.</template>
         <template v-else>✕ {{ testResult.error }}</template>
@@ -198,5 +274,51 @@ async function confirmDelete() {
         <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />Remover</button>
       </template>
     </Modal>
+
+    <!-- cluster editor modal -->
+    <Modal v-if="clusterEditing" :title="clusterEditing === 'new' ? 'Novo cluster' : 'Editar cluster'" icon="gauge" @close="clusterEditing = null">
+      <div class="field">
+        <label class="field-label">Nome</label>
+        <input class="field-input" v-model="clusterForm.name" placeholder="ex: Garage SP" />
+      </div>
+      <div class="field">
+        <label class="field-label">Endpoint S3</label>
+        <input class="field-input" v-model="clusterForm.s3Endpoint" placeholder="http://host:3900" />
+      </div>
+      <div class="modal-row">
+        <div class="field">
+          <label class="field-label">Admin API endpoint</label>
+          <input class="field-input" v-model="clusterForm.adminEndpoint" placeholder="http://host:3903" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="field-label">Região</label>
+          <input class="field-input" v-model="clusterForm.region" placeholder="garage" />
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">Admin API token</label>
+        <input class="field-input" type="password" v-model="clusterForm.adminToken"
+               :placeholder="clusterAdminConfigured ? '•••• (definido)' : 'admin token'" autocomplete="off" />
+        <p class="modal-hint">Gerencia cluster, buckets e keys do Garage. Vazio mantém o token atual na edição.</p>
+      </div>
+      <template #foot>
+        <button class="btn" @click="clusterEditing = null">Cancelar</button>
+        <button class="btn btn-primary" :disabled="clusterSaving" @click="saveCluster"><Icon name="check" :size="16" />{{ clusterSaving ? 'Salvando…' : 'Salvar' }}</button>
+      </template>
+    </Modal>
+
+    <!-- cluster delete confirm -->
+    <Modal v-if="clusterToDelete" title="Remover cluster" icon="trash" @close="clusterToDelete = null">
+      <p class="modal-text">Remover o cluster <strong>{{ clusterToDelete.name }}</strong>?</p>
+      <p class="modal-warn"><Icon name="shield" :size="14" /> A key interna do cluster será removida no Garage. Os buckets desse cluster deixam de aparecer.</p>
+      <template #foot>
+        <button class="btn" @click="clusterToDelete = null">Cancelar</button>
+        <button class="btn btn-danger" @click="confirmDeleteCluster"><Icon name="trash" :size="16" />Remover</button>
+      </template>
+    </Modal>
   </div>
 </template>
+
+<style scoped>
+.cluster-section { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line-2); }
+</style>
