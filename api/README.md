@@ -58,16 +58,17 @@ src/storage/          Garage S3 client + bucket/object routes (list/upload/downl
 src/audit/            SQLite activity log + /api/activity
 src/connections/      multiple Garage/S3 connections in DB + /api/connections (admin)
 src/settings/         legacy single-config store (kept only to migrate into a connection)
-src/misc/             /api/cluster + /api/keys → 501 (need Garage ADMIN API; see below)
+src/garage/           client da Admin API v2 + /api/connections/:id/{cluster,garage/buckets,keys} (admin)
 src/index.ts          Elysia app: CORS, error handler, mounts, listen
 ```
 
-## Not yet wired
+## Garage Admin API (cluster, buckets nativos, access keys)
 
-`/api/cluster` and Garage's native `/api/keys` require Garage's **admin API** (separate
-from the S3 API + an admin token), so they return `501 not_implemented` for now rather
-than fabricating data. Everything else (auth, users + permissions, S3 objects, audit)
-is real.
+Por conexão: defina `adminEndpoint` (ex.: `http://host:3903`) + `adminToken` numa conexão para
+habilitar `GET /api/connections/:id/cluster`, `.../garage/buckets` (+ criar/excluir/quota) e
+`.../keys` (+ criar/excluir/permissão por bucket), via **Admin API v2** do Garage. Sem eles, a
+área "Cluster" mostra um CTA "configure a Admin API" (sem dado fabricado). O resto (auth, usuários
+ permissões, objetos S3, audit) é real.
 
 ## Notes
 

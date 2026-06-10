@@ -38,14 +38,12 @@ family is revoked. Passwords are hashed with argon2id; login is rate-limited.
 ### Cluster & buckets
 | Method | Path | Returns |
 |---|---|---|
-| GET  | `/api/cluster` | `Cluster` → `{ nodes[], version, replication, usedBytes, quotaBytes, objects }` |
 | GET  | `/api/buckets` | `Bucket[]` → `{ id, name, connection, region, perm }` (aggregated across connections) |
 | POST | `/api/buckets` | body `{ connectionId, name }` → created `Bucket` (admin) |
 
 `perm` is `"owner" | "read-write" | "read-only"`. `id` is the composite
 `<connectionId>:<bucketName>`. Stats (`used/quota/objects`) are optional and omitted
-unless the Garage admin API is wired (the UI shows "—"). `/api/cluster` is optional — if
-it 404s/501s the buckets grid still renders without the cluster panel.
+unless the Garage admin API is configured on the connection (see **Garage Admin API** below).
 
 ### Objects (per bucket)
 | Method | Path | Query / Body | Returns |
@@ -68,15 +66,22 @@ opens those directly in `<img>` / `<video>` / `<audio>` / `<iframe>`. The user
 explicitly wanted to view images, PDFs and videos without downloading. Other types
 use **download** instead.
 
-### Access keys
+### Garage Admin API (per-connection, admin)
+Habilitado quando a conexão tem `adminEndpoint` + `adminToken` (Garage Admin API v2). Tudo admin-only.
+
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET   | `/api/keys` | — | `AccessKey[]` → `{ id, name, created, lastUsed?, grants }` |
-| POST  | `/api/keys` | `{ name }` | created `AccessKey` |
-| PATCH | `/api/keys/:id/grants` | `{ bucketId, perm }` | updated `AccessKey` |
+| GET    | `/api/connections/:id/cluster` | — | `ClusterSummary` (status, nodes, partitions, buckets, objects, bytes) |
+| GET    | `/api/connections/:id/garage/buckets` | — | `GarageBucket[]` (aliases, objects, bytes, quotas, keys+perms) |
+| POST   | `/api/connections/:id/garage/buckets` | `{ alias }` | bucket criado |
+| DELETE | `/api/connections/:id/garage/buckets/:bucketId` | — | `{ ok }` (400 se não vazio) |
+| PUT    | `/api/connections/:id/garage/buckets/:bucketId/quotas` | `{ maxSize\|null, maxObjects\|null }` | atualizado |
+| GET    | `/api/connections/:id/keys` | — | `GarageKey[]` (permissão por bucket) |
+| POST   | `/api/connections/:id/keys` | `{ name }` | `NewGarageKey` (inclui `secretAccessKey`, retornado uma vez) |
+| DELETE | `/api/connections/:id/keys/:keyId` | — | `{ ok }` |
+| PUT    | `/api/connections/:id/keys/:keyId/buckets/:bucketId` | `{ read, write, owner }` | `{ ok }` (Allow/Deny) |
 
-`grants` is `{ [bucketId]: "owner"|"read-write"|"read-only"|null }`. The matrix cycles
-a cell through `null → read-only → read-write → owner` and PATCHes the new value.
+Retorna `409 admin_not_configured` se a conexão não tem admin endpoint/token; `502` em erro da Admin API do Garage.
 
 ### Users (admin only)
 Only shown when `GET /api/me` returns `role: "admin"`. The backend must still enforce
