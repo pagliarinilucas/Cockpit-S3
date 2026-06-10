@@ -1,10 +1,12 @@
 import type {
-  Me, Cluster, Bucket, BucketStats, ObjectListing, PresignedUrl,
+  Me, Bucket, BucketStats, ObjectListing, PresignedUrl,
   AccessKey, ActivityEvent, Perm, User, Role, Connection, Group,
+  ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
 } from './models';
 
 export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
+  adminEndpoint?: string; adminToken?: string;
 }
 
 /**
@@ -115,8 +117,7 @@ export const api = {
   changePassword: (current: string, next: string) => req('POST', '/auth/password', { body: { current, next } }),
   me: () => req<Me>('GET', '/me'),
 
-  // cluster / buckets
-  cluster: () => req<Cluster>('GET', '/cluster'),
+  // buckets
   buckets: () => req<Bucket[]>('GET', '/buckets'),
   bucketStats: (bucketId: string) => req<BucketStats>('GET', `/buckets/${encodeURIComponent(bucketId)}/stats`),
   createBucket: (connectionId: string, name: string) => req<Bucket>('POST', '/buckets', { body: { connectionId, name } }),
@@ -189,6 +190,17 @@ export const api = {
   updateConnection: (id: string, p: ConnectionPayload) => req<Connection>('PUT', `/connections/${encodeURIComponent(id)}`, { body: p }),
   deleteConnection: (id: string) => req('DELETE', `/connections/${encodeURIComponent(id)}`),
   testConnection: (p: ConnectionPayload & { id?: string }) => req<{ ok: boolean; buckets?: string[]; error?: string }>('POST', '/connections/test', { body: p }),
+
+  // garage admin — Garage Admin API per connection (admin only)
+  cluster: (connId: string) => req<ClusterSummary>('GET', `/connections/${encodeURIComponent(connId)}/cluster`),
+  garageBuckets: (connId: string) => req<GarageBucket[]>('GET', `/connections/${encodeURIComponent(connId)}/garage/buckets`),
+  createGarageBucket: (connId: string, alias: string) => req('POST', `/connections/${encodeURIComponent(connId)}/garage/buckets`, { body: { alias } }),
+  deleteGarageBucket: (connId: string, bucketId: string) => req('DELETE', `/connections/${encodeURIComponent(connId)}/garage/buckets/${encodeURIComponent(bucketId)}`),
+  setGarageQuotas: (connId: string, bucketId: string, maxSize: number | null, maxObjects: number | null) => req('PUT', `/connections/${encodeURIComponent(connId)}/garage/buckets/${encodeURIComponent(bucketId)}/quotas`, { body: { maxSize, maxObjects } }),
+  garageKeys: (connId: string) => req<GarageKey[]>('GET', `/connections/${encodeURIComponent(connId)}/keys`),
+  createGarageKey: (connId: string, name: string) => req<NewGarageKey>('POST', `/connections/${encodeURIComponent(connId)}/keys`, { body: { name } }),
+  deleteGarageKey: (connId: string, keyId: string) => req('DELETE', `/connections/${encodeURIComponent(connId)}/keys/${encodeURIComponent(keyId)}`),
+  setGarageKeyPerm: (connId: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/connections/${encodeURIComponent(connId)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),
 };
 
 /** Shared helper for the views' error messages. */

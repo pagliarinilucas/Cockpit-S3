@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { Bucket, Cluster, Connection } from '../core/models';
+import type { Bucket, Connection } from '../core/models';
 import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
 import { fmtBytes } from '../core/util';
 import Icon from '../components/Icon.vue';
-import Gauge from '../components/Gauge.vue';
-import LevelBar from '../components/LevelBar.vue';
 import PermBadge from '../components/PermBadge.vue';
 import Modal from '../components/Modal.vue';
 
@@ -15,7 +13,6 @@ const emit = defineEmits<{ open: [bucket: Bucket]; goSettings: []; loaded: [buck
 const toast = useToast();
 
 const buckets = ref<Bucket[]>([]);
-const cluster = ref<Cluster | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const notConfigured = ref(false);
@@ -41,11 +38,11 @@ async function openNew() {
 
 async function reload() {
   loading.value = true; error.value = null; notConfigured.value = false;
-  const [bk, cl] = await Promise.allSettled([api.buckets(), api.cluster()]);
-  if (bk.status === 'fulfilled') buckets.value = bk.value ?? [];
-  else if (bk.reason instanceof ApiError && bk.reason.status === 503) notConfigured.value = true;
-  else error.value = apiErrMsg(bk.reason);
-  cluster.value = cl.status === 'fulfilled' ? cl.value : null;
+  try { buckets.value = (await api.buckets()) ?? []; }
+  catch (e) {
+    if (e instanceof ApiError && e.status === 503) notConfigured.value = true;
+    else error.value = apiErrMsg(e);
+  }
   loading.value = false;
   emit('loaded', buckets.value);
   loadStats();
@@ -73,10 +70,8 @@ async function create() {
   catch (e) { toast.error(apiErrMsg(e, 'criar')); }
 }
 
-const pct = (u?: number, q?: number) => (q && u != null) ? Math.round((u / q) * 100) + '%' : '—';
 const objstr = (n?: number) => (n != null ? n.toLocaleString('pt-BR') : '—');
 const accent = (b: Bucket) => b.color === 'green' ? 'var(--green)' : b.color === 'amber' ? 'var(--amber)' : 'var(--neon)';
-const round = (n: number) => Math.round(n);
 </script>
 
 <template>
@@ -134,37 +129,6 @@ const round = (n: number) => Math.round(n);
     </div>
 
     <template v-else>
-      <div v-if="cluster" class="cluster">
-        <div class="cluster-gauge">
-          <Gauge :value="cluster.usedBytes / (cluster.quotaBytes || 1)" :size="132" :stroke="11"
-            :color="cluster.usedBytes / (cluster.quotaBytes || 1) > 0.85 ? 'var(--danger)' : 'var(--neon)'"
-            :label="pct(cluster.usedBytes, cluster.quotaBytes)" sub="CAPACIDADE" />
-        </div>
-        <div class="cluster-readouts">
-          <div class="readout">
-            <span class="readout-label"><Icon name="database" :size="13" /> ARMAZENADO</span>
-            <span class="readout-val">{{ fmtBytes(cluster.usedBytes) }}<em>/ {{ fmtBytes(cluster.quotaBytes) }}</em></span>
-          </div>
-          <div class="readout">
-            <span class="readout-label"><Icon name="file" :size="13" /> OBJETOS</span>
-            <span class="readout-val">{{ cluster.objects.toLocaleString('pt-BR') }}</span>
-          </div>
-          <div class="readout">
-            <span class="readout-label"><Icon name="shield" :size="13" /> REPLICAÇÃO</span>
-            <span class="readout-val">{{ cluster.replication }}<em>garage {{ cluster.version }}</em></span>
-          </div>
-        </div>
-        <div class="cluster-nodes">
-          <div class="nodes-title">NÓS DO CLUSTER</div>
-          <div v-for="n in cluster.nodes" :key="n.id" class="node-row">
-            <span class="node-dot" :class="{ off: n.status !== 'online' }"></span>
-            <span class="node-id">{{ n.id }}</span>
-            <span class="node-region">{{ n.region }}</span>
-            <div class="node-load"><LevelBar :value="n.load" :height="4" :color="n.load > 0.7 ? 'var(--amber)' : 'var(--green)'" /></div>
-            <span class="node-pct">{{ round(n.load * 100) }}%</span>
-          </div>
-        </div>
-      </div>
 
       <div v-if="visible.length === 0" class="empty">{{ query ? 'Nenhum bucket corresponde à busca.' : 'Nenhum bucket disponível.' }}</div>
       <div v-else class="bgrid">

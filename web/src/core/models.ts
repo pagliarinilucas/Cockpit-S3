@@ -45,23 +45,6 @@ export interface Group {
   grants: GroupGrant[];
 }
 
-export interface ClusterNode {
-  id: string;
-  region: string;
-  status: 'online' | 'offline' | 'degraded';
-  load: number; // 0..1
-}
-
-/** GET /api/cluster */
-export interface Cluster {
-  nodes: ClusterNode[];
-  version: string;
-  replication: string;
-  usedBytes: number;
-  quotaBytes: number;
-  objects: number;
-}
-
 /** GET /api/buckets */
 export interface Bucket {
   /** composite id: `<connectionId>:<bucketName>` — opaque routing key. */
@@ -130,8 +113,52 @@ export interface Connection {
   accessKey: string;
   buckets: string[];
   secretSet: boolean;
+  adminEndpoint?: string;
+  adminConfigured?: boolean;
   createdAt: string;
 }
+
+/** GET /api/connections/:id/cluster — Garage Admin API cluster summary. */
+export interface ClusterSummary {
+  status: string;
+  knownNodes: number;
+  connectedNodes: number;
+  storageNodes: number;
+  storageNodesUp: number;
+  partitions: { total: number; ok: number };
+  buckets: number;
+  objects: number;
+  bytes: number;
+  dataAvail: number;
+  nodes: {
+    id: string; hostname: string; addr: string; zone: string; garageVersion: string;
+    isUp: boolean; capacity: number | null; dataAvail: number | null; dataTotal: number | null;
+  }[];
+}
+
+export interface GaragePerm { read: boolean; write: boolean; owner: boolean }
+
+/** GET /api/connections/:id/garage/buckets — native Garage buckets. */
+export interface GarageBucket {
+  id: string;
+  aliases: string[];
+  objects: number;
+  bytes: number;
+  quotas: { maxSize: number | null; maxObjects: number | null };
+  keys: { accessKeyId: string; name: string; permissions: GaragePerm }[];
+}
+
+/** GET /api/connections/:id/keys — native Garage access keys. */
+export interface GarageKey {
+  id: string;
+  name: string;
+  created: string;
+  expired: boolean;
+  buckets: { id: string; aliases: string[]; permissions: GaragePerm }[];
+}
+
+/** POST /api/connections/:id/keys — secret returned once. */
+export interface NewGarageKey { accessKeyId: string; name: string; secretAccessKey: string; created: string }
 
 export type ActivityAction =
   | 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket';
