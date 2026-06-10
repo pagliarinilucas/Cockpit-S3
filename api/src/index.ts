@@ -12,7 +12,8 @@ import { groupRoutes } from './groups/routes';
 import { storageRoutes } from './storage/routes';
 import { connectionsRoutes } from './connections/routes';
 import { activityRoutes } from './audit/routes';
-import { garageRoutes } from './garage/routes';
+import { clusterRoutes, configureClusterS3 } from './clusters/routes';
+import { clustersStore } from './clusters/store';
 import { staticRoutes } from './web/static';
 
 await bootstrap();
@@ -36,6 +37,7 @@ if (connectionsStore.count() === 0) {
   }
 }
 s3.configureAll(connectionsStore.listFull());
+for (const c of clustersStore.listFull()) configureClusterS3(c);
 
 const app = new Elysia()
   .use(cors({
@@ -57,7 +59,7 @@ const app = new Elysia()
   .use(groupRoutes)
   .use(storageRoutes)
   .use(connectionsRoutes)
-  .use(garageRoutes)
+  .use(clusterRoutes)
   .use(activityRoutes)
   .use(staticRoutes)        // serves the SPA in single-container deploys (WEB_DIR set)
   .listen(config.port);
