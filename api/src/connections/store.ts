@@ -9,8 +9,6 @@ export interface ConnInput {
   accessKey: string;
   secretKey: string;
   buckets: string[];
-  adminEndpoint?: string;
-  adminToken?: string;
 }
 /** Full connection incl. secret — server-side only. */
 export interface ConnFull extends ConnInput { id: string; createdAt: string; }
@@ -18,7 +16,6 @@ export interface ConnFull extends ConnInput { id: string; createdAt: string; }
 export interface ConnPublic {
   id: string; name: string; endpoint: string; region: string;
   accessKey: string; buckets: string[]; secretSet: boolean; createdAt: string;
-  adminEndpoint?: string; adminConfigured: boolean;
 }
 
 type Row = typeof connections.$inferSelect;
@@ -29,12 +26,11 @@ function full(r: Row): ConnFull {
   return {
     id: r.id, name: r.name, endpoint: r.endpoint, region: r.region,
     accessKey: r.accessKey, secretKey: r.secretKey, buckets, createdAt: r.createdAt,
-    adminEndpoint: r.adminEndpoint ?? undefined, adminToken: r.adminToken ?? undefined,
   };
 }
 function pub(c: ConnFull): ConnPublic {
-  const { secretKey, adminToken, ...rest } = c;
-  return { ...rest, secretSet: !!secretKey, adminConfigured: !!(c.adminEndpoint && adminToken) };
+  const { secretKey, ...rest } = c;
+  return { ...rest, secretSet: !!secretKey };
 }
 export const connectionsStore = {
   listFull(): ConnFull[] {
@@ -67,8 +63,6 @@ export const connectionsStore = {
       accessKey: input.accessKey,
       secretKey: input.secretKey,
       buckets: JSON.stringify(input.buckets ?? []),
-      adminEndpoint: input.adminEndpoint || null,
-      adminToken: input.adminToken || null,
       createdAt: new Date().toISOString(),
     }).run();
     return this.getFull(id)!;
@@ -82,8 +76,6 @@ export const connectionsStore = {
       accessKey: input.accessKey,
       secretKey: input.secretKey,
       buckets: JSON.stringify(input.buckets ?? []),
-      adminEndpoint: input.adminEndpoint || null,
-      adminToken: input.adminToken || null,
     }).where(eq(connections.id, id)).run();
     return this.getFull(id);
   },
