@@ -227,12 +227,8 @@ async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
             <span class="stat-val">{{ cluster.buckets }}</span>
           </div>
           <div class="stat">
-            <span class="stat-label"><Icon name="cpu" :size="13" /> NÓS DE STORAGE</span>
-            <span class="stat-val">{{ cluster.storageNodesUp }}<em>/ {{ cluster.storageNodes }} ativos</em></span>
-          </div>
-          <div class="stat">
-            <span class="stat-label"><Icon name="activity" :size="13" /> NÓS CONECTADOS</span>
-            <span class="stat-val">{{ cluster.connectedNodes }}<em>/ {{ cluster.knownNodes }} conhecidos</em></span>
+            <span class="stat-label"><Icon name="cpu" :size="13" /> NÓS</span>
+            <span class="stat-val">{{ cluster.storageNodesUp }}/{{ cluster.storageNodes }}<em>{{ cluster.connectedNodes }}/{{ cluster.knownNodes }} conectados</em></span>
           </div>
           <div class="stat">
             <span class="stat-label"><Icon name="grid" :size="13" /> PARTIÇÕES OK</span>
@@ -459,7 +455,7 @@ async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
 
 .section-title { font-family: var(--display-font); font-weight: 700; font-size: 14px; color: var(--text); margin: 22px 0 10px; }
 
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .stat { display: flex; flex-direction: column; gap: 10px; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 14px; padding: 15px 17px; }
 .stat-label { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10px; letter-spacing: 1.4px; color: var(--text-3); text-transform: uppercase; }
 .stat-label .ic { color: var(--neon); }
