@@ -13,8 +13,9 @@ const error = ref<string | null>(null);
 
 // editor modal state
 const editing = ref<Connection | 'new' | null>(null);
-const form = ref({ name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '' });
+const form = ref({ name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '', adminEndpoint: '', adminToken: '' });
 const secretSet = ref(false);
+const adminConfigured = ref(false);
 const testing = ref(false);
 const saving = ref(false);
 const testResult = ref<{ ok: boolean; buckets?: string[]; error?: string } | null>(null);
@@ -33,14 +34,16 @@ defineExpose({ reload: load });
 function openNew() {
   editing.value = 'new';
   secretSet.value = false;
+  adminConfigured.value = false;
   testResult.value = null;
-  form.value = { name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '' };
+  form.value = { name: '', endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucketsText: '', adminEndpoint: '', adminToken: '' };
 }
 function openEdit(c: Connection) {
   editing.value = c;
   secretSet.value = c.secretSet;
+  adminConfigured.value = !!c.adminConfigured;
   testResult.value = null;
-  form.value = { name: c.name, endpoint: c.endpoint, region: c.region || 'garage', accessKey: c.accessKey, secretKey: '', bucketsText: c.buckets.join(', ') };
+  form.value = { name: c.name, endpoint: c.endpoint, region: c.region || 'garage', accessKey: c.accessKey, secretKey: '', bucketsText: c.buckets.join(', '), adminEndpoint: c.adminEndpoint || '', adminToken: '' };
 }
 
 function payload(): ConnectionPayload {
@@ -52,6 +55,8 @@ function payload(): ConnectionPayload {
     accessKey: f.accessKey.trim(),
     secretKey: f.secretKey ? f.secretKey : undefined, // omit = keep stored (on edit)
     buckets: f.bucketsText.split(/[,\n]/).map((x) => x.trim()).filter(Boolean),
+    adminEndpoint: f.adminEndpoint.trim() || undefined,
+    adminToken: f.adminToken ? f.adminToken : undefined, // omit = keep stored (on edit)
   };
 }
 
@@ -161,6 +166,16 @@ async function confirmDelete() {
       <div class="field">
         <label class="field-label">Buckets (vírgula — vazio = listar todos)</label>
         <input class="field-input" v-model="form.bucketsText" placeholder="prod-assets, backups" />
+      </div>
+      <div class="field">
+        <label class="field-label">Admin API endpoint (opcional)</label>
+        <input class="field-input" v-model="form.adminEndpoint" placeholder="http://host:3903" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label class="field-label">Admin API token (opcional)</label>
+        <input class="field-input" type="password" v-model="form.adminToken"
+               :placeholder="adminConfigured ? '•••• (definido)' : ''" autocomplete="off" />
+        <p class="modal-hint">Habilita a aba Cluster (dashboard/buckets/keys do Garage) para esta conexão.</p>
       </div>
       <div v-if="testResult" class="test-result" :class="testResult.ok ? 'ok' : 'err'">
         <template v-if="testResult.ok">✓ Conectado. {{ testResult.buckets?.length || 0 }} bucket(s){{ testResult.buckets?.length ? ': ' + testResult.buckets.join(', ') : '' }}.</template>
