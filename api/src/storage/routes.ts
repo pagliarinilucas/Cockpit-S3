@@ -5,6 +5,9 @@ import { audit } from '../audit/store';
 import { s3 } from './s3';
 import { perms } from '../auth/permissions';
 import type { Perm } from '../types';
+import { clustersStore } from '../clusters/store';
+import { garageAdmin } from '../garage/admin';
+import { isCluster, ensureClusterBucketAccess } from '../clusters/access';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -17,6 +20,11 @@ function parse(id: string): { cid: string; bucket: string } | null {
   const i = id.indexOf(':');
   if (i <= 0) return null;
   return { cid: id.slice(0, i), bucket: id.slice(i + 1) };
+}
+
+/** Cluster buckets precisam da key interna liberada (lazy) antes de qualquer op S3. No-op para conexões. */
+async function ensureSource(ref: { cid: string; bucket: string }): Promise<void> {
+  if (isCluster(ref.cid)) await ensureClusterBucketAccess(ref.cid, ref.bucket);
 }
 
 export const storageRoutes = new Elysia({ prefix: '/api' })
@@ -37,12 +45,23 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
           if (perm) out.push({ id, name, connection: conn.name, region: s3.region(conn.id), perm });
         }
       }
+      for (const cluster of clustersStore.listFull()) {
+        let buckets: { id: string; globalAliases: string[] }[];
+        try { buckets = await garageAdmin({ endpoint: cluster.adminEndpoint, token: cluster.adminToken }).listBuckets(); } catch { continue; }
+        for (const b of buckets) {
+          const name = b.globalAliases[0] ?? b.id;
+          const id = `${cluster.id}:${name}`;
+          const perm = perms.bucketPermFor(user!, id);
+          if (perm) out.push({ id, name, connection: cluster.name, region: cluster.region, perm });
+        }
+      }
       return out;
     })
 
     // create bucket on a given connection (admin only)
     .post('/buckets', async ({ user, body, set }) => {
       if (user!.role !== 'admin') { set.status = 403; return { error: 'forbidden' }; }
+      if (isCluster(body.connectionId)) { set.status = 400; return { error: 'use /api/clusters/:id/buckets' }; }
       if (!s3.has(body.connectionId)) { set.status = 400; return { error: 'unknown_connection' }; }
       try { await s3.createBucket(body.connectionId, body.name); } catch (e) { set.status = 502; return { error: String(e) }; }
       const conn = connectionsStore.get(body.connectionId)!;
@@ -62,6 +81,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const token = q['token'] || undefined;
       const limit = q['limit'] ? Number(q['limit']) : undefined;
       try {
+        await ensureSource(ref);
         const { items, nextToken } = await s3.list(ref.cid, ref.bucket, path, { token, limit });
         const visible = access.all ? items : items.filter((it) =>
           it.kind === 'folder' ? perms.folderVisible(access, it.key) : perms.canRead(access, it.key));
@@ -82,6 +102,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const hit = statsCache.get(cacheKey);
       if (hit && Date.now() - hit.at < STATS_TTL) return { used: hit.used, objects: hit.objects, truncated: hit.truncated };
       try {
+        await ensureSource(ref);
         const keep = access.all ? undefined : (k: string) => perms.canRead(access, k);
         const s = await s3.stats(ref.cid, ref.bucket, keep);
         statsCache.set(cacheKey, { at: Date.now(), ...s });
@@ -103,6 +124,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const path = norm((query as Record<string, string>)['path'] ?? '');
       const limit = Math.min(1000, Math.max(1, Number((query as Record<string, string>)['limit']) || 300));
       try {
+        await ensureSource(ref);
         const items = await s3.search(ref.cid, ref.bucket, path, q, limit);
         const visible = access.all ? items : items.filter((it) => perms.canRead(access, it.key));
         return { bucket: params.id, path, items: visible };
@@ -119,6 +141,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const key = (query as Record<string, string>)['key'];
       if (!key) { set.status = 400; return { error: 'missing_key' }; }
       if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      await ensureSource(ref);
       const r = await s3.presign(ref.cid, ref.bucket, key, 'download');
       audit.log('download', user!.username, params.id, key);
       return r;
@@ -131,6 +154,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const key = (query as Record<string, string>)['key'];
       if (!key) { set.status = 400; return { error: 'missing_key' }; }
       if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      await ensureSource(ref);
       return s3.presign(ref.cid, ref.bucket, key, 'preview');
     })
 
@@ -144,6 +168,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
       const mode = q['mode'] === 'download' ? 'download' : 'preview';
       try {
+        await ensureSource(ref);
         const res = await s3.object(ref.cid, ref.bucket, key, mode);
         if (mode === 'download') audit.log('download', user!.username, params.id, key);
         return res;
@@ -161,6 +186,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const file = body.file;
       const key = path + file.name;
       if (!access || !perms.canWrite(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      await ensureSource(ref);
       const data = new Uint8Array(await file.arrayBuffer());
       await s3.put(ref.cid, ref.bucket, key, data, file.type || undefined);
       audit.log('upload', user!.username, params.id, key);
@@ -173,6 +199,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const access = perms.access(user!, params.id);
       const key = norm(body.path ?? '') + body.name + '/';
       if (!access || !perms.canWrite(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      await ensureSource(ref);
       await s3.createFolder(ref.cid, ref.bucket, key);
       return { ok: true, key };
     }, { body: t.Object({ path: t.Optional(t.String()), name: t.String({ minLength: 1 }) }) })
@@ -183,6 +210,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const access = perms.access(user!, params.id);
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
       for (const k of body.keys) if (!perms.canWrite(access, k)) { set.status = 403; return { error: 'forbidden' }; }
+      await ensureSource(ref);
       await s3.remove(ref.cid, ref.bucket, body.keys);
       for (const k of body.keys) audit.log('delete', user!.username, params.id, k);
       return { ok: true };
