@@ -89,6 +89,11 @@ export const s3 = {
     clients.set(c.id, make(c));
     metas.set(c.id, { region: c.region || 'garage', buckets: c.buckets ?? [] });
   },
+  /** Configure (or replace) an S3 client for an arbitrary source id (connection or cluster). */
+  configureSource(id: string, c: S3Conn): void {
+    clients.set(id, make(c));
+    metas.set(id, { region: c.region || 'garage', buckets: c.buckets ?? [] });
+  },
   removeOne(cid: string): void { clients.delete(cid); metas.delete(cid); },
 
   hasAny(): boolean { return clients.size > 0; },
