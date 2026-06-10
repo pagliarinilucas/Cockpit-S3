@@ -12,7 +12,7 @@ import { groupRoutes } from './groups/routes';
 import { storageRoutes } from './storage/routes';
 import { connectionsRoutes } from './connections/routes';
 import { activityRoutes } from './audit/routes';
-import { miscRoutes } from './misc/routes';
+import { garageRoutes } from './garage/routes';
 import { staticRoutes } from './web/static';
 
 await bootstrap();
@@ -57,8 +57,8 @@ const app = new Elysia()
   .use(groupRoutes)
   .use(storageRoutes)
   .use(connectionsRoutes)
+  .use(garageRoutes)
   .use(activityRoutes)
-  .use(miscRoutes)
   .use(staticRoutes)        // serves the SPA in single-container deploys (WEB_DIR set)
   .listen(config.port);
 
