@@ -50,8 +50,18 @@ export const connections = sqliteTable('connections', {
   accessKey: text('access_key').notNull(),
   secretKey: text('secret_key').notNull(),
   buckets: text('buckets').notNull().default('[]'), // JSON array (override; vazio = ListBuckets)
-  adminEndpoint: text('admin_endpoint'),
-  adminToken: text('admin_token'),
+  createdAt: text('created_at').notNull(),
+});
+
+export const clusters = sqliteTable('clusters', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  adminEndpoint: text('admin_endpoint').notNull(),
+  adminToken: text('admin_token').notNull(),
+  s3Endpoint: text('s3_endpoint').notNull(),
+  region: text('region').notNull().default('garage'),
+  internalKeyId: text('internal_key_id'),
+  internalSecret: text('internal_secret'),
   createdAt: text('created_at').notNull(),
 });
 
