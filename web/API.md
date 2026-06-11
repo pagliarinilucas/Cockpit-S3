@@ -43,7 +43,7 @@ family is revoked. Passwords are hashed with argon2id; login is rate-limited.
 
 `perm` is `"owner" | "read-write" | "read-only"`. `id` is the composite
 `<connectionId>:<bucketName>`. Stats (`used/quota/objects`) are optional and omitted
-unless the Garage admin API is configured on the connection (see **Garage Admin API** below).
+unless accessed via a **Cluster** (admin) — ver **Clusters** abaixo.
 
 ### Objects (per bucket)
 | Method | Path | Query / Body | Returns |
@@ -66,22 +66,26 @@ opens those directly in `<img>` / `<video>` / `<audio>` / `<iframe>`. The user
 explicitly wanted to view images, PDFs and videos without downloading. Other types
 use **download** instead.
 
-### Garage Admin API (per-connection, admin)
-Habilitado quando a conexão tem `adminEndpoint` + `adminToken` (Garage Admin API v2). Tudo admin-only.
+### Clusters (admin only)
+Um cluster guarda `adminEndpoint`(:3903) + `adminToken` + `s3Endpoint`(:3900). Ao criar, o backend cria uma access key S3 interna (CreateKey) pra navegar objetos; ao excluir, apaga (DeleteKey). `adminToken`/secrets nunca voltam ao cliente.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET    | `/api/connections/:id/cluster` | — | `ClusterSummary` (status, nodes, partitions, buckets, objects, bytes) |
-| GET    | `/api/connections/:id/garage/buckets` | — | `GarageBucket[]` (aliases, objects, bytes, quotas, keys+perms) |
-| POST   | `/api/connections/:id/garage/buckets` | `{ alias }` | bucket criado |
-| DELETE | `/api/connections/:id/garage/buckets/:bucketId` | — | `{ ok }` (400 se não vazio) |
-| PUT    | `/api/connections/:id/garage/buckets/:bucketId/quotas` | `{ maxSize\|null, maxObjects\|null }` | atualizado |
-| GET    | `/api/connections/:id/keys` | — | `GarageKey[]` (permissão por bucket) |
-| POST   | `/api/connections/:id/keys` | `{ name }` | `NewGarageKey` (inclui `secretAccessKey`, retornado uma vez) |
-| DELETE | `/api/connections/:id/keys/:keyId` | — | `{ ok }` |
-| PUT    | `/api/connections/:id/keys/:keyId/buckets/:bucketId` | `{ read, write, owner }` | `{ ok }` (Allow/Deny) |
+| GET    | `/api/clusters` | — | `Cluster[]` (`{id,name,adminEndpoint,s3Endpoint,region,adminConfigured,createdAt}`) |
+| POST   | `/api/clusters` | `{ name, adminEndpoint, adminToken, s3Endpoint, region? }` | `Cluster` (cria key interna) |
+| PUT    | `/api/clusters/:id` | mesmo (`adminToken` opcional; preservado se vazio) | `Cluster` |
+| DELETE | `/api/clusters/:id` | — | `{ ok }` (apaga a key interna) |
+| GET    | `/api/clusters/:id/cluster` | — | `ClusterSummary` (status, nodes, partitions, buckets, objects, bytes) |
+| GET    | `/api/clusters/:id/buckets` | — | `GarageBucket[]` (aliases, objects, bytes, quotas, keys+perms) |
+| POST   | `/api/clusters/:id/buckets` | `{ alias }` | bucket criado |
+| DELETE | `/api/clusters/:id/buckets/:bucketId` | — | `{ ok }` (400 se não vazio) |
+| PUT    | `/api/clusters/:id/buckets/:bucketId/quotas` | `{ maxSize\|null, maxObjects\|null }` | atualizado |
+| GET    | `/api/clusters/:id/keys` | — | `GarageKey[]` (permissão por bucket) |
+| POST   | `/api/clusters/:id/keys` | `{ name }` | `NewGarageKey` (inclui `secretAccessKey`, uma vez) |
+| DELETE | `/api/clusters/:id/keys/:keyId` | — | `{ ok }` |
+| PUT    | `/api/clusters/:id/keys/:keyId/buckets/:bucketId` | `{ read, write, owner }` | `{ ok }` (Allow/Deny) |
 
-Retorna `409 admin_not_configured` se a conexão não tem admin endpoint/token; `502` em erro da Admin API do Garage.
+`502` em erro da Admin API. Buckets de um cluster aparecem em `GET /api/buckets` como `<clusterId>:<alias>` e navegam via a key interna (liberada por bucket sob demanda).
 
 ### Users (admin only)
 Only shown when `GET /api/me` returns `role: "admin"`. The backend must still enforce

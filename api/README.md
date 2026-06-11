@@ -58,17 +58,23 @@ src/storage/          Garage S3 client + bucket/object routes (list/upload/downl
 src/audit/            SQLite activity log + /api/activity
 src/connections/      multiple Garage/S3 connections in DB + /api/connections (admin)
 src/settings/         legacy single-config store (kept only to migrate into a connection)
-src/garage/           client da Admin API v2 + /api/connections/:id/{cluster,garage/buckets,keys} (admin)
+src/garage/           client da Admin API v2 do Garage (usado pelos clusters)
+src/clusters/         clusters (admin endpoint+token + key S3 interna) + /api/clusters (CRUD + cluster/buckets/keys, admin)
 src/index.ts          Elysia app: CORS, error handler, mounts, listen
 ```
 
-## Garage Admin API (cluster, buckets nativos, access keys)
+## Clusters × Conexões de bucket
 
-Por conexão: defina `adminEndpoint` (ex.: `http://host:3903`) + `adminToken` numa conexão para
-habilitar `GET /api/connections/:id/cluster`, `.../garage/buckets` (+ criar/excluir/quota) e
-`.../keys` (+ criar/excluir/permissão por bucket), via **Admin API v2** do Garage. Sem eles, a
-área "Cluster" mostra um CTA "configure a Admin API" (sem dado fabricado). O resto (auth, usuários
- permissões, objetos S3, audit) é real.
+Duas formas de apontar pro Garage:
+- **Cluster (admin):** `clusters` = adminEndpoint(:3903) + adminToken + s3Endpoint(:3900). Gerencia
+  cluster/buckets/keys (Admin API v2) **e** navega objetos via uma access key S3 interna que o cockpit
+  cria automaticamente (`CreateKey`) e libera por bucket sob demanda (`AllowBucketKey`, lazy). Rotas
+  `/api/clusters` + `/api/clusters/:id/{cluster,buckets,keys}` (admin-only).
+- **Conexão de bucket (S3 direto):** `connections` = endpoint + accessKey/secretKey, **sem** admin.
+  Pra navegar objetos de bucket(s) que a key acessa.
+
+`GET /api/buckets` agrega buckets das duas fontes; `bucketId = <sourceId>:<bucket>`. O resto (auth,
+usuários + permissões por pasta, objetos S3, audit) é real.
 
 ## Notes
 
