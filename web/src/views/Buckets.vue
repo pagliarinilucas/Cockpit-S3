@@ -3,10 +3,12 @@ import { ref, computed, onMounted } from 'vue';
 import type { Bucket, Connection } from '../core/models';
 import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
-import { fmtBytes } from '../core/util';
+import { fmtBytes, bucketLabel, canDeleteBucket } from '../core/util';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
 import Modal from '../components/Modal.vue';
+import InputModal from '../components/InputModal.vue';
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 
 const props = defineProps<{ query: string; isAdmin?: boolean }>();
 const emit = defineEmits<{ open: [bucket: Bucket]; goSettings: []; loaded: [buckets: Bucket[]] }>();
@@ -20,6 +22,20 @@ const showNew = ref(false);
 const conns = ref<Connection[]>([]);
 const newName = ref('');
 const newConn = ref('');
+
+const menu = ref<{ x: number; y: number; bucket: Bucket } | null>(null);
+const renaming = ref<Bucket | null>(null);
+const deleting = ref<Bucket | null>(null);
+
+const menuItems = computed<MenuItem[]>(() => {
+  const b = menu.value?.bucket;
+  if (!b) return [];
+  return [
+    { key: 'rename', label: 'Renomear apelido', icon: 'edit' },
+    { key: 'copy', label: 'Copiar nome do bucket', icon: 'copy' },
+    { key: 'delete', label: 'Excluir bucket', icon: 'trash', danger: true, disabled: !canDeleteBucket(b) },
+  ];
+});
 
 const visible = computed(() => {
   const q = props.query.trim().toLowerCase();
@@ -72,6 +88,45 @@ async function create() {
 
 const objstr = (n?: number) => (n != null ? n.toLocaleString('pt-BR') : '—');
 const accent = (b: Bucket) => b.color === 'green' ? 'var(--green)' : b.color === 'amber' ? 'var(--amber)' : 'var(--neon)';
+
+function openMenu(e: MouseEvent, b: Bucket) {
+  menu.value = { x: e.clientX, y: e.clientY, bucket: b };
+}
+function onMenu(key: string) {
+  const b = menu.value?.bucket; menu.value = null;
+  if (!b) return;
+  if (key === 'rename') renaming.value = b;
+  else if (key === 'copy') {
+    navigator.clipboard.writeText(b.name ?? b.id)
+      .then(() => toast.success('Nome copiado'))
+      .catch(() => toast.error('Não foi possível copiar'));
+  } else if (key === 'delete') {
+    if (canDeleteBucket(b)) deleting.value = b;
+  }
+}
+async function saveAlias(value: string) {
+  const b = renaming.value; renaming.value = null;
+  if (!b) return;
+  try {
+    const r = await api.setBucketAlias(b.id, value);
+    b.alias = r.alias ?? undefined;
+    toast.success('Apelido atualizado');
+  } catch (e) { toast.error(apiErrMsg(e, 'salvar')); }
+}
+async function confirmDelete() {
+  const b = deleting.value; deleting.value = null;
+  if (!b) return;
+  try {
+    await api.deleteBucket(b.id);
+    buckets.value = buckets.value.filter((x) => x.id !== b.id);
+    toast.success('Bucket excluído');
+  } catch (e) {
+    const msg = e instanceof ApiError && e.status === 409
+      ? 'O bucket precisa estar vazio para ser excluído.'
+      : apiErrMsg(e, 'excluir');
+    toast.error(msg);
+  }
+}
 </script>
 
 <template>
@@ -132,14 +187,15 @@ const accent = (b: Bucket) => b.color === 'green' ? 'var(--green)' : b.color ===
 
       <div v-if="visible.length === 0" class="empty">{{ query ? 'Nenhum bucket corresponde à busca.' : 'Nenhum bucket disponível.' }}</div>
       <div v-else class="bgrid">
-        <button v-for="b in visible" :key="b.id" class="bcard" :style="{ '--accent': accent(b) }" @click="emit('open', b)">
+        <button v-for="b in visible" :key="b.id" class="bcard" :style="{ '--accent': accent(b) }"
+                @click="emit('open', b)" @contextmenu.prevent="openMenu($event, b)">
           <div class="bcard-top">
             <div class="bcard-icon"><Icon name="database" :size="22" /></div>
-            <div v-if="b.connection" class="bcard-conn">{{ b.connection }}</div>
+            <div class="bcard-conn">{{ bucketLabel(b) }}</div>
             <PermBadge :perm="b.perm" :small="true" />
           </div>
           <div class="bcard-name">{{ b.name ?? b.id }}</div>
-          <div class="bcard-region">{{ b.region }}</div>
+          <div class="bcard-region">{{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}</div>
           <div class="bcard-tiles">
             <div class="bcard-tile">
               <span class="bcard-tile-val">
@@ -159,5 +215,23 @@ const accent = (b: Bucket) => b.color === 'green' ? 'var(--green)' : b.color ===
         </button>
       </div>
     </template>
+
+    <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menuItems"
+                 @select="onMenu" @close="menu = null" />
+
+    <InputModal v-if="renaming" title="Renomear apelido" icon="edit"
+                :initial="bucketLabel(renaming)" placeholder="apelido do bucket"
+                hint="Deixe vazio para voltar ao nome do bucket." confirm-label="Salvar"
+                @confirm="saveAlias" @close="renaming = null" />
+
+    <Modal v-if="deleting" title="Excluir bucket" icon="trash" @close="deleting = null">
+      <div class="modal-hint">
+        Excluir o bucket <strong>{{ deleting.name ?? deleting.id }}</strong>? Esta ação não pode ser desfeita.
+      </div>
+      <template #foot>
+        <button class="btn" @click="deleting = null">Cancelar</button>
+        <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />Excluir</button>
+      </template>
+    </Modal>
   </div>
 </template>
