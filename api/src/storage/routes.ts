@@ -8,6 +8,8 @@ import type { Perm } from '../types';
 import { clustersStore } from '../clusters/store';
 import { garageAdmin } from '../garage/admin';
 import { isCluster, ensureClusterBucketAccess } from '../clusters/access';
+import { bucketAliasStore } from '../buckets/store';
+import { mayDeleteBucket } from '../buckets/guard';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -34,7 +36,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
     // list buckets the caller can reach (any grant in the bucket)
     .get('/buckets', async ({ user, set }) => {
       if (!s3.hasAny()) { set.status = 503; return { error: 's3_not_configured' }; }
-      const out: { id: string; name: string; connection: string; region: string; perm: Perm }[] = [];
+      const out: { id: string; name: string; connection: string; region: string; perm: Perm; alias?: string }[] = [];
       for (const conn of connectionsStore.list()) {
         if (!s3.has(conn.id)) continue;
         let names: string[];
@@ -55,6 +57,8 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
           if (perm) out.push({ id, name, connection: cluster.name, region: cluster.region, perm });
         }
       }
+      const aliasMap = bucketAliasStore.getMany(out.map((b) => b.id));
+      for (const b of out) b.alias = aliasMap.get(b.id);
       return out;
     })
 
@@ -69,6 +73,19 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       set.status = 201;
       return { id: `${body.connectionId}:${body.name}`, name: body.name, connection: conn.name, region: s3.region(body.connectionId), perm: 'owner' };
     }, { body: t.Object({ connectionId: t.String({ minLength: 1 }), name: t.String({ minLength: 1 }) }) })
+
+    // define/limpa o apelido de um bucket (qualquer um com acesso de escrita ao bucket)
+    .patch('/buckets/alias', async ({ user, body, set }) => {
+      const ref = parse(body.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      const access = perms.access(user!, body.id);
+      if (!access || !perms.hasBucketAccess(access)) { set.status = 403; return { error: 'forbidden' }; }
+      const alias = body.alias.trim();
+      if (alias) bucketAliasStore.set(body.id, alias);
+      else bucketAliasStore.clear(body.id);
+      audit.log('bucket', user!.username, body.id, alias ? `apelido: ${alias}` : 'apelido removido');
+      return { ok: true, alias: alias || null };
+    }, { body: t.Object({ id: t.String({ minLength: 1 }), alias: t.String() }) })
 
     // list objects (paginated) — filtered to what the caller can see at `path`
     .get('/buckets/:id/objects', async ({ user, params, query, set }) => {
@@ -214,5 +231,33 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       await s3.remove(ref.cid, ref.bucket, body.keys);
       for (const k of body.keys) audit.log('delete', user!.username, params.id, k);
       return { ok: true };
-    }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1 }) }) }),
+    }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1 }) }) })
+
+    .delete('/buckets/:id', async ({ user, params, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      const perm = perms.bucketPermFor(user!, params.id);
+      if (perm !== 'owner') { set.status = 403; return { error: 'forbidden' }; }
+      try {
+        await ensureSource(ref);
+        const { objects } = await s3.stats(ref.cid, ref.bucket);
+        if (!mayDeleteBucket(perm, objects)) { set.status = 409; return { error: 'bucket_not_empty' }; }
+        if (isCluster(ref.cid)) {
+          const c = clustersStore.getFull(ref.cid);
+          if (!c) { set.status = 404; return { error: 'cluster_not_found' }; }
+          const g = garageAdmin({ endpoint: c.adminEndpoint, token: c.adminToken });
+          const hexId = await g.resolveBucketId(ref.bucket);
+          await g.deleteBucket(hexId);
+        } else {
+          await s3.deleteBucket(ref.cid, ref.bucket);
+        }
+        bucketAliasStore.clear(params.id);
+        for (const k of [...statsCache.keys()]) if (k.endsWith(`|${params.id}`)) statsCache.delete(k);
+        audit.log('bucket', user!.username, params.id, 'excluiu bucket');
+        return { ok: true };
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: String((e as Error).message ?? e) };
+      }
+    }),
   );

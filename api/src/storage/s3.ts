@@ -1,6 +1,6 @@
 import {
   S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand,
-  PutObjectCommand, GetObjectCommand, CreateBucketCommand,
+  PutObjectCommand, GetObjectCommand, CreateBucketCommand, DeleteBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConnFull } from '../connections/store';
@@ -113,6 +113,10 @@ export const s3 = {
 
   async createBucket(cid: string, name: string): Promise<void> {
     await client(cid).send(new CreateBucketCommand({ Bucket: name }));
+  },
+
+  async deleteBucket(cid: string, bucket: string): Promise<void> {
+    await client(cid).send(new DeleteBucketCommand({ Bucket: bucket }));
   },
 
   async list(cid: string, bucket: string, prefix: string, opts: { token?: string; limit?: number } = {}): Promise<{ items: S3Item[]; nextToken?: string }> {
