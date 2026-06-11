@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import type { Connection, ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey } from '../core/models';
+import type { Cluster, ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey } from '../core/models';
 import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
 import { fmtBytes, timeAgo } from '../core/util';
@@ -12,9 +12,9 @@ const toast = useToast();
 type Tab = 'dashboard' | 'buckets' | 'keys';
 const tab = ref<Tab>('dashboard');
 
-const conns = ref<Connection[]>([]);
-const connId = ref('');
-const loading = ref(true);            // initial connections fetch
+const clusters = ref<Cluster[]>([]);
+const clusterId = ref('');
+const loading = ref(true);            // initial clusters fetch
 const tabLoading = ref(false);
 const tabError = ref<string | null>(null);   // 'admin_not_configured' | message
 
@@ -22,18 +22,18 @@ const cluster = ref<ClusterSummary | null>(null);
 const gbuckets = ref<GarageBucket[]>([]);
 const gkeys = ref<GarageKey[]>([]);
 
-const noConns = computed(() => !loading.value && conns.value.length === 0);
+const noClusters = computed(() => !loading.value && clusters.value.length === 0);
 
-async function loadConns() {
+async function loadClusters() {
   loading.value = true;
   try {
-    conns.value = (await api.connections()).filter((c) => c.adminConfigured);
-    if (!conns.value.some((c) => c.id === connId.value)) connId.value = conns.value[0]?.id ?? '';
-  } catch (e) { toast.error(apiErrMsg(e)); conns.value = []; connId.value = ''; }
+    clusters.value = await api.clusters();
+    if (!clusters.value.some((c) => c.id === clusterId.value)) clusterId.value = clusters.value[0]?.id ?? '';
+  } catch (e) { toast.error(apiErrMsg(e)); clusters.value = []; clusterId.value = ''; }
   finally { loading.value = false; }
 }
-onMounted(loadConns);
-async function reload() { await loadConns(); await loadTab(); }
+onMounted(loadClusters);
+async function reload() { await loadClusters(); await loadTab(); }
 defineExpose({ reload });
 
 function onTabError(e: unknown) {
@@ -44,22 +44,22 @@ function onTabError(e: unknown) {
 }
 
 async function loadTab() {
-  if (!connId.value) { cluster.value = null; gbuckets.value = []; gkeys.value = []; return; }
+  if (!clusterId.value) { cluster.value = null; gbuckets.value = []; gkeys.value = []; return; }
   tabLoading.value = true; tabError.value = null;
   try {
     if (tab.value === 'dashboard') {
-      const [c, b] = await Promise.all([api.cluster(connId.value), api.garageBuckets(connId.value)]);
+      const [c, b] = await Promise.all([api.cluster(clusterId.value), api.garageBuckets(clusterId.value)]);
       cluster.value = c; gbuckets.value = b;
     } else if (tab.value === 'buckets') {
-      gbuckets.value = await api.garageBuckets(connId.value);
+      gbuckets.value = await api.garageBuckets(clusterId.value);
     } else {
-      const [k, b] = await Promise.all([api.garageKeys(connId.value), api.garageBuckets(connId.value)]);
+      const [k, b] = await Promise.all([api.garageKeys(clusterId.value), api.garageBuckets(clusterId.value)]);
       gkeys.value = k; gbuckets.value = b;
     }
   } catch (e) { onTabError(e); }
   finally { tabLoading.value = false; }
 }
-watch([connId, tab], loadTab, { immediate: false });
+watch([clusterId, tab], loadTab, { immediate: false });
 
 // ── dashboard helpers ──
 const maxBucketBytes = computed(() => Math.max(1, ...gbuckets.value.map((b) => b.bytes)));
@@ -82,7 +82,7 @@ async function createBucket() {
   const alias = newAlias.value.trim();
   if (!alias) { toast.error('Informe o alias do bucket.'); return; }
   showNewBucket.value = false;
-  try { await api.createGarageBucket(connId.value, alias); toast.success(`Bucket "${alias}" criado`); await loadTab(); }
+  try { await api.createGarageBucket(clusterId.value, alias); toast.success(`Bucket "${alias}" criado`); await loadTab(); }
   catch (e) { toast.error(apiErrMsg(e, 'criar')); }
 }
 
@@ -90,7 +90,7 @@ const delBucket = ref<GarageBucket | null>(null);
 async function confirmDeleteBucket() {
   const b = delBucket.value; if (!b) return;
   delBucket.value = null;
-  try { await api.deleteGarageBucket(connId.value, b.id); toast.success('Bucket removido'); await loadTab(); }
+  try { await api.deleteGarageBucket(clusterId.value, b.id); toast.success('Bucket removido'); await loadTab(); }
   catch (e) {
     const status = e instanceof ApiError ? e.status : -1;
     toast.error(status === 502 ? 'Falha ao remover: o bucket precisa estar vazio.' : apiErrMsg(e, 'remover'));
@@ -115,7 +115,7 @@ async function saveQuota() {
     toast.error('Valores de quota inválidos.'); return;
   }
   editQuota.value = null;
-  try { await api.setGarageQuotas(connId.value, b.id, maxSize, maxObjects); toast.success('Quota atualizada'); await loadTab(); }
+  try { await api.setGarageQuotas(clusterId.value, b.id, maxSize, maxObjects); toast.success('Quota atualizada'); await loadTab(); }
   catch (e) { toast.error(apiErrMsg(e, 'salvar quota')); }
 }
 
@@ -129,7 +129,7 @@ async function createKey() {
   if (!name) { toast.error('Informe o nome da chave.'); return; }
   showNewKey.value = false;
   try {
-    createdKey.value = await api.createGarageKey(connId.value, name);
+    createdKey.value = await api.createGarageKey(clusterId.value, name);
     await loadTab();
   } catch (e) { toast.error(apiErrMsg(e, 'criar chave')); }
 }
@@ -138,7 +138,7 @@ const delKey = ref<GarageKey | null>(null);
 async function confirmDeleteKey() {
   const k = delKey.value; if (!k) return;
   delKey.value = null;
-  try { await api.deleteGarageKey(connId.value, k.id); toast.success('Chave removida'); await loadTab(); }
+  try { await api.deleteGarageKey(clusterId.value, k.id); toast.success('Chave removida'); await loadTab(); }
   catch (e) { toast.error(apiErrMsg(e, 'remover chave')); }
 }
 
@@ -148,14 +148,14 @@ function permFor(k: GarageKey, bucketId: string): GaragePerm {
   return k.buckets.find((b) => b.id === bucketId)?.permissions ?? { read: false, write: false, owner: false };
 }
 async function reloadKeysKeepEditor() {
-  gkeys.value = await api.garageKeys(connId.value);
+  gkeys.value = await api.garageKeys(clusterId.value);
   if (editKey.value) editKey.value = gkeys.value.find((k) => k.id === editKey.value!.id) ?? null;
 }
 async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
   const k = editKey.value; if (!k) return;
   const cur = permFor(k, bucketId);
   const next: GaragePerm = { ...cur, [flag]: !cur[flag] };
-  try { await api.setGarageKeyPerm(connId.value, k.id, bucketId, next); await reloadKeysKeepEditor(); }
+  try { await api.setGarageKeyPerm(clusterId.value, k.id, bucketId, next); await reloadKeysKeepEditor(); }
   catch (e) { toast.error(apiErrMsg(e, 'alterar permissão')); }
 }
 </script>
@@ -167,9 +167,9 @@ async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
         <h1 class="view-title">Cluster</h1>
         <p class="view-sub">Admin API do Garage · dashboard, buckets e chaves nativas.</p>
       </div>
-      <div v-if="!noConns" class="head-conn">
-        <select class="modal-input conn-select" v-model="connId">
-          <option v-for="c in conns" :key="c.id" :value="c.id">{{ c.name }}</option>
+      <div v-if="!noClusters" class="head-conn">
+        <select class="modal-input conn-select" v-model="clusterId">
+          <option v-for="c in clusters" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
         <button v-if="tab === 'buckets'" class="btn btn-primary" @click="openNewBucket"><Icon name="plus" :size="16" />Novo bucket</button>
         <button v-else-if="tab === 'keys'" class="btn btn-primary" @click="openNewKey"><Icon name="plus" :size="16" />Nova chave</button>
@@ -178,11 +178,11 @@ async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
 
     <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
 
-    <!-- no admin-configured connection -->
-    <div v-else-if="noConns" class="errbox">
+    <!-- no cluster configured -->
+    <div v-else-if="noClusters" class="errbox">
       <Icon name="cpu" :size="32" />
-      <div class="errbox-title">Nenhuma conexão com Admin API</div>
-      <div class="errbox-sub">Configure o endpoint e o token da Admin API em uma conexão (Configurações) para ver o cluster, buckets e chaves nativas do Garage.</div>
+      <div class="errbox-title">Nenhum cluster configurado</div>
+      <div class="errbox-sub">Adicione um cluster Garage (endpoint Admin API + token + endpoint S3) em Configurações para ver dashboard, buckets e chaves nativas.</div>
     </div>
 
     <template v-else>
