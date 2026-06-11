@@ -55,6 +55,14 @@ sqlite.run(`
 `);
 
 sqlite.run(`
+  CREATE TABLE IF NOT EXISTS bucket_aliases (
+    bucket_id  TEXT PRIMARY KEY,
+    alias      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS connections (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,

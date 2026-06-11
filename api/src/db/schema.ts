@@ -42,6 +42,12 @@ export const settings = sqliteTable('settings', {
   value: text('value').notNull(),
 });
 
+export const bucketAliases = sqliteTable('bucket_aliases', {
+  bucketId: text('bucket_id').primaryKey(), // id composto `<cid>:<bucket>`
+  alias: text('alias').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const connections = sqliteTable('connections', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
