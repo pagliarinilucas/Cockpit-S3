@@ -194,7 +194,7 @@ async function confirmDelete() {
             <div class="bcard-conn">{{ bucketLabel(b) }}</div>
             <PermBadge :perm="b.perm" :small="true" />
           </div>
-          <div class="bcard-name">{{ b.name ?? b.id }}</div>
+          <div v-if="b.alias?.trim()" class="bcard-name">{{ b.name ?? b.id }}</div>
           <div class="bcard-region">{{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}</div>
           <div class="bcard-tiles">
             <div class="bcard-tile">
@@ -220,7 +220,7 @@ async function confirmDelete() {
                  @select="onMenu" @close="menu = null" />
 
     <InputModal v-if="renaming" title="Renomear apelido" icon="edit"
-                :initial="bucketLabel(renaming)" placeholder="apelido do bucket"
+                :initial="renaming.alias ?? ''" placeholder="apelido do bucket"
                 hint="Deixe vazio para voltar ao nome do bucket." confirm-label="Salvar"
                 @confirm="saveAlias" @close="renaming = null" />
 
