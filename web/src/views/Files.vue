@@ -4,7 +4,7 @@ import type { Bucket, ObjectItem, FileType, Perm } from '../core/models';
 import type { UploadItem } from '../core/ui';
 import { api, apiErrMsg } from '../core/api';
 import { useToast } from '../core/toast';
-import { fmtBytes, timeAgo, typeFromName, isPreviewable, ICON_FOR } from '../core/util';
+import { fmtBytes, timeAgo, typeFromName, isPreviewable, ICON_FOR, bucketLabel } from '../core/util';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
 import Modal from '../components/Modal.vue';
@@ -28,6 +28,7 @@ const uploads = ref<UploadItem[]>([]);
 const drag = ref(false);
 const preview = ref<string | null>(null);
 const showFolder = ref(false);
+const renamingBucket = ref(false);
 const toDelete = ref<{ keys: string[]; label: string } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
@@ -227,6 +228,15 @@ const tp = (it: ObjectItem): FileType => it.type || typeFromName(it.name);
 const iconFor = (it: ObjectItem) => ICON_FOR[tp(it)];
 const iconBoxClass = (it: ObjectItem, base: string) => it.kind === 'folder' ? `${base} is-folder` : `${base} ft-${tp(it)}`;
 
+async function saveBucketAlias(value: string) {
+  renamingBucket.value = false;
+  try {
+    const r = await api.setBucketAlias(props.bucket.id, value);
+    props.bucket.alias = r.alias ?? undefined; // mesmo objeto da lista de Buckets → reflete lá também
+    toast.success('Apelido atualizado');
+  } catch (e) { toast.error(apiErrMsg(e, 'salvar')); }
+}
+
 defineExpose({ reload });
 </script>
 
@@ -235,7 +245,8 @@ defineExpose({ reload });
     <!-- breadcrumbs -->
     <div class="crumbs">
       <button v-if="canGoUp" class="iconbtn crumb-back" title="Voltar" @click="goUp"><Icon name="chevL" :size="18" /></button>
-      <button class="crumb crumb-root" @click="canBack ? $emit('back') : $emit('crumb', -1)"><Icon name="database" :size="15" /> {{ bucket.name ?? bucket.id }}</button>
+      <button class="crumb crumb-root" @click="canBack ? $emit('back') : $emit('crumb', -1)"><Icon name="database" :size="15" /> {{ bucketLabel(bucket) }}</button>
+      <button class="iconbtn" title="Renomear apelido" @click="renamingBucket = true"><Icon name="edit" :size="15" /></button>
       <template v-for="(seg, i) in path" :key="i">
         <Icon name="chevR" :size="13" class="crumb-sep" />
         <button class="crumb" @click="crumb(i)">{{ seg }}</button>
@@ -373,6 +384,11 @@ defineExpose({ reload });
 
   <InputModal v-if="showFolder" title="Nova pasta" icon="folderPlus" placeholder="nome-da-pasta"
     confirmLabel="Criar pasta" @close="showFolder = false" @confirm="createFolder" />
+
+  <InputModal v-if="renamingBucket" title="Renomear apelido" icon="edit"
+              :initial="bucket.alias ?? ''" placeholder="apelido do bucket"
+              hint="Deixe vazio para voltar ao nome do bucket." confirm-label="Salvar"
+              @confirm="saveBucketAlias" @close="renamingBucket = false" />
 
   <Modal v-if="toDelete" title="Confirmar exclusão" icon="trash" @close="toDelete = null">
     <p class="modal-text">Excluir <strong>{{ toDelete.label }}</strong> do bucket <strong>{{ bucket.id }}</strong>?</p>
