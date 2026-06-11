@@ -85,7 +85,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       else bucketAliasStore.clear(body.id);
       audit.log('bucket', user!.username, body.id, alias ? `apelido: ${alias}` : 'apelido removido');
       return { ok: true, alias: alias || null };
-    }, { body: t.Object({ id: t.String({ minLength: 1 }), alias: t.String() }) })
+    }, { body: t.Object({ id: t.String({ minLength: 1 }), alias: t.String({ maxLength: 200 }) }) })
 
     // list objects (paginated) — filtered to what the caller can see at `path`
     .get('/buckets/:id/objects', async ({ user, params, query, set }) => {
