@@ -38,5 +38,10 @@ export async function ensureClusterBucketAccess(clusterId: string, bucket: strin
   granted.add(cacheKey);
 }
 
+/** Esquece o grant cacheado de um bucket de cluster (após exclusão/recriação). */
+export function revokeClusterBucketAccess(clusterId: string, bucket: string): void {
+  granted.delete(`${clusterId}:${bucket}`);
+}
+
 /** True se o sourceId é um cluster. */
 export function isCluster(sourceId: string): boolean { return clustersStore.exists(sourceId); }

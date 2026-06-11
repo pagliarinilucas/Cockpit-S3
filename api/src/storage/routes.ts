@@ -7,7 +7,7 @@ import { perms } from '../auth/permissions';
 import type { Perm } from '../types';
 import { clustersStore } from '../clusters/store';
 import { garageAdmin } from '../garage/admin';
-import { isCluster, ensureClusterBucketAccess } from '../clusters/access';
+import { isCluster, ensureClusterBucketAccess, revokeClusterBucketAccess } from '../clusters/access';
 import { bucketAliasStore } from '../buckets/store';
 import { mayDeleteBucket } from '../buckets/guard';
 
@@ -74,12 +74,12 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       return { id: `${body.connectionId}:${body.name}`, name: body.name, connection: conn.name, region: s3.region(body.connectionId), perm: 'owner' };
     }, { body: t.Object({ connectionId: t.String({ minLength: 1 }), name: t.String({ minLength: 1 }) }) })
 
-    // define/limpa o apelido de um bucket (qualquer um com acesso de escrita ao bucket)
+    // define/limpa o apelido de um bucket (acesso de escrita ao bucket)
     .patch('/buckets/alias', async ({ user, body, set }) => {
       const ref = parse(body.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
-      const access = perms.access(user!, body.id);
-      if (!access || !perms.hasBucketAccess(access)) { set.status = 403; return { error: 'forbidden' }; }
+      const perm = perms.bucketPermFor(user!, body.id);
+      if (perm !== 'owner' && perm !== 'read-write') { set.status = 403; return { error: 'forbidden' }; }
       const alias = body.alias.trim();
       if (alias) bucketAliasStore.set(body.id, alias);
       else bucketAliasStore.clear(body.id);
@@ -240,14 +240,15 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (perm !== 'owner') { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
-        const { objects } = await s3.stats(ref.cid, ref.bucket);
-        if (!mayDeleteBucket(perm, objects)) { set.status = 409; return { error: 'bucket_not_empty' }; }
+        const empty = await s3.isEmpty(ref.cid, ref.bucket);
+        if (!mayDeleteBucket(perm, empty)) { set.status = 409; return { error: 'bucket_not_empty' }; }
         if (isCluster(ref.cid)) {
           const c = clustersStore.getFull(ref.cid);
           if (!c) { set.status = 404; return { error: 'cluster_not_found' }; }
           const g = garageAdmin({ endpoint: c.adminEndpoint, token: c.adminToken });
           const hexId = await g.resolveBucketId(ref.bucket);
           await g.deleteBucket(hexId);
+          revokeClusterBucketAccess(ref.cid, ref.bucket);
         } else {
           await s3.deleteBucket(ref.cid, ref.bucket);
         }
@@ -257,7 +258,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         return { ok: true };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
-        set.status = 502; return { error: String((e as Error).message ?? e) };
+        set.status = 502; return { error: String((e as Error)?.message || e) };
       }
     }),
   );

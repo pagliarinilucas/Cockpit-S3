@@ -119,6 +119,12 @@ export const s3 = {
     await client(cid).send(new DeleteBucketCommand({ Bucket: bucket }));
   },
 
+  /** True se o bucket não tem NENHUM objeto (inclui marcadores de pasta). Barato (1 key). */
+  async isEmpty(cid: string, bucket: string): Promise<boolean> {
+    const res = await client(cid).send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }));
+    return (res.KeyCount ?? res.Contents?.length ?? 0) === 0;
+  },
+
   async list(cid: string, bucket: string, prefix: string, opts: { token?: string; limit?: number } = {}): Promise<{ items: S3Item[]; nextToken?: string }> {
     const res = await client(cid).send(new ListObjectsV2Command({
       Bucket: bucket, Prefix: prefix, Delimiter: '/',
