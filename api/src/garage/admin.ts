@@ -81,6 +81,12 @@ export function garageAdmin(creds: AdminCreds) {
     },
     listBuckets: () => call<{ id: string; created: string; globalAliases: string[]; localAliases: string[] }[]>(creds, 'GET', '/v2/ListBuckets'),
     bucketInfo: (id: string) => call<{ id: string; created: string; globalAliases: string[]; websiteAccess: boolean; objects: number; bytes: number; quotas: { maxSize: number | null; maxObjects: number | null }; keys: { accessKeyId: string; name: string; permissions: Perm }[] }>(creds, 'GET', `/v2/GetBucketInfo?id=${encodeURIComponent(id)}`),
+    /** Resolve um alias global (ou id hex) para o UUID hex do bucket (exigido por Allow/DenyBucketKey). */
+    async resolveBucketId(aliasOrId: string): Promise<string> {
+      if (/^[0-9a-f]{32}$/.test(aliasOrId)) return aliasOrId;
+      const info = await call<{ id: string }>(creds, 'GET', `/v2/GetBucketInfo?globalAlias=${encodeURIComponent(aliasOrId)}`);
+      return info.id;
+    },
     createBucket: (globalAlias: string) => call(creds, 'POST', '/v2/CreateBucket', { globalAlias }),
     deleteBucket: (id: string) => call(creds, 'POST', `/v2/DeleteBucket?id=${encodeURIComponent(id)}`),
     setQuotas: (id: string, maxSize: number | null, maxObjects: number | null) => call(creds, 'POST', `/v2/UpdateBucket?id=${encodeURIComponent(id)}`, { quotas: { maxSize, maxObjects } }),
