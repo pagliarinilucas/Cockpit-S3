@@ -55,6 +55,14 @@ sqlite.run(`
 `);
 
 sqlite.run(`
+  CREATE TABLE IF NOT EXISTS bucket_aliases (
+    bucket_id  TEXT PRIMARY KEY,
+    alias      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS connections (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -64,6 +72,20 @@ sqlite.run(`
     secret_key  TEXT NOT NULL,
     buckets     TEXT NOT NULL DEFAULT '[]',
     created_at  TEXT NOT NULL
+  );
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS clusters (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    admin_endpoint  TEXT NOT NULL,
+    admin_token     TEXT NOT NULL,
+    s3_endpoint     TEXT NOT NULL,
+    region          TEXT NOT NULL DEFAULT 'garage',
+    internal_key_id TEXT,
+    internal_secret TEXT,
+    created_at      TEXT NOT NULL
   );
 `);
 

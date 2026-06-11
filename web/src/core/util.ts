@@ -1,4 +1,4 @@
-import type { FileType } from './models';
+import type { FileType, Bucket } from './models';
 
 const GB = 1024 ** 3, MB = 1024 ** 2, KB = 1024;
 
@@ -44,6 +44,16 @@ export function typeFromName(name: string): FileType {
 const PREVIEWABLE = new Set<FileType>(['image', 'video', 'audio', 'pdf', 'text', 'code', 'sheet', 'file']);
 export function isPreviewable(type: FileType): boolean {
   return PREVIEWABLE.has(type);
+}
+
+/** Rótulo exibido de um bucket: apelido, senão nome, senão id. */
+export function bucketLabel(b: Bucket): string {
+  return b.alias?.trim() || b.name || b.id;
+}
+
+/** Pode excluir? Só owner, bucket comprovadamente vazio (stats já carregadas). */
+export function canDeleteBucket(b: Bucket): boolean {
+  return b.perm === 'owner' && !b.statsLoading && b.objects === 0;
 }
 
 export const ICON_FOR: Record<FileType, string> = {

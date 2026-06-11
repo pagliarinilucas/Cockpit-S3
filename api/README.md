@@ -54,20 +54,37 @@ src/users/            user store + admin CRUD routes (+ grants por prefixo, bloc
 src/groups/           grupos de permissão (CRUD + grants) + /api/groups (admin)
 src/auth/permissions  resolução de permissão por chave (deny absoluto, união de allows)
 src/storage/          Garage S3 client + bucket/object routes (list/upload/download/
-                      preview/delete/folders) com autorização por PASTA (prefixo)
+                      preview/delete/folders/excluir-bucket) com autorização por PASTA (prefixo)
+src/buckets/          apelido por bucket (tabela bucket_aliases) + regra mayDeleteBucket
 src/audit/            SQLite activity log + /api/activity
 src/connections/      multiple Garage/S3 connections in DB + /api/connections (admin)
 src/settings/         legacy single-config store (kept only to migrate into a connection)
-src/misc/             /api/cluster + /api/keys → 501 (need Garage ADMIN API; see below)
+src/garage/           client da Admin API v2 do Garage (usado pelos clusters)
+src/clusters/         clusters (admin endpoint+token + key S3 interna) + /api/clusters (CRUD + cluster/buckets/keys, admin)
 src/index.ts          Elysia app: CORS, error handler, mounts, listen
 ```
 
-## Not yet wired
+## Clusters × Conexões de bucket
 
-`/api/cluster` and Garage's native `/api/keys` require Garage's **admin API** (separate
-from the S3 API + an admin token), so they return `501 not_implemented` for now rather
-than fabricating data. Everything else (auth, users + permissions, S3 objects, audit)
-is real.
+Duas formas de apontar pro Garage:
+- **Cluster (admin):** `clusters` = adminEndpoint(:3903) + adminToken + s3Endpoint(:3900). Gerencia
+  cluster/buckets/keys (Admin API v2) **e** navega objetos via uma access key S3 interna que o cockpit
+  cria automaticamente (`CreateKey`) e libera por bucket sob demanda (`AllowBucketKey`, lazy). Rotas
+  `/api/clusters` + `/api/clusters/:id/{cluster,buckets,keys}` (admin-only).
+- **Conexão de bucket (S3 direto):** `connections` = endpoint + accessKey/secretKey, **sem** admin.
+  Pra navegar objetos de bucket(s) que a key acessa.
+
+`GET /api/buckets` agrega buckets das duas fontes; `bucketId = <sourceId>:<bucket>`. O resto (auth,
+usuários + permissões por pasta, objetos S3, audit) é real.
+
+### Apelido por bucket e exclusão
+
+- `GET /api/buckets` inclui `alias?: string` por bucket (apelido definido pelo usuário; ausente = usa o nome do bucket).
+- `PATCH /api/buckets/alias` — body `{ id, alias }`. Define o apelido; `alias` vazio remove (volta ao nome).
+  Requer acesso de **escrita** ao bucket (owner ou read-write). Apelido é global por `bucketId` (tabela `bucket_aliases`).
+- `DELETE /api/buckets/:id` — exige **owner** e bucket **vazio** (revalidado no servidor via `isEmpty`, contando
+  marcadores de pasta); responde `409 bucket_not_empty` caso contrário. Roteia conexão→S3 `DeleteBucket` /
+  cluster→Garage Admin `DeleteBucket` (resolvendo alias→UUID) e limpa o apelido + cache de stats/grant.
 
 ## Notes
 

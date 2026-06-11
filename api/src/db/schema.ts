@@ -42,6 +42,12 @@ export const settings = sqliteTable('settings', {
   value: text('value').notNull(),
 });
 
+export const bucketAliases = sqliteTable('bucket_aliases', {
+  bucketId: text('bucket_id').primaryKey(), // id composto `<cid>:<bucket>`
+  alias: text('alias').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const connections = sqliteTable('connections', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -50,6 +56,18 @@ export const connections = sqliteTable('connections', {
   accessKey: text('access_key').notNull(),
   secretKey: text('secret_key').notNull(),
   buckets: text('buckets').notNull().default('[]'), // JSON array (override; vazio = ListBuckets)
+  createdAt: text('created_at').notNull(),
+});
+
+export const clusters = sqliteTable('clusters', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  adminEndpoint: text('admin_endpoint').notNull(),
+  adminToken: text('admin_token').notNull(),
+  s3Endpoint: text('s3_endpoint').notNull(),
+  region: text('region').notNull().default('garage'),
+  internalKeyId: text('internal_key_id'),
+  internalSecret: text('internal_secret'),
   createdAt: text('created_at').notNull(),
 });
 

@@ -3,14 +3,14 @@ import { ref, onMounted } from 'vue';
 import Modal from './Modal.vue';
 import Icon from './Icon.vue';
 
-withDefaults(defineProps<{
-  title: string; icon?: string; placeholder?: string; hint?: string; confirmLabel?: string;
-}>(), { placeholder: '', hint: '', confirmLabel: 'Confirmar' });
+const props = withDefaults(defineProps<{
+  title: string; icon?: string; placeholder?: string; hint?: string; confirmLabel?: string; initial?: string;
+}>(), { placeholder: '', hint: '', confirmLabel: 'Confirmar', initial: '' });
 
 const emit = defineEmits<{ confirm: [value: string]; close: [] }>();
-const value = ref('');
+const value = ref(props.initial);
 const box = ref<HTMLInputElement | null>(null);
-onMounted(() => box.value?.focus());
+onMounted(() => { box.value?.focus(); box.value?.select(); });
 </script>
 
 <template>

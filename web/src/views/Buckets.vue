@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { Bucket, Cluster, Connection } from '../core/models';
+import type { Bucket, Connection } from '../core/models';
 import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
-import { fmtBytes } from '../core/util';
+import { fmtBytes, bucketLabel, canDeleteBucket } from '../core/util';
 import Icon from '../components/Icon.vue';
-import Gauge from '../components/Gauge.vue';
-import LevelBar from '../components/LevelBar.vue';
 import PermBadge from '../components/PermBadge.vue';
 import Modal from '../components/Modal.vue';
+import InputModal from '../components/InputModal.vue';
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 
 const props = defineProps<{ query: string; isAdmin?: boolean }>();
 const emit = defineEmits<{ open: [bucket: Bucket]; goSettings: []; loaded: [buckets: Bucket[]] }>();
 const toast = useToast();
 
 const buckets = ref<Bucket[]>([]);
-const cluster = ref<Cluster | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const notConfigured = ref(false);
@@ -23,6 +22,20 @@ const showNew = ref(false);
 const conns = ref<Connection[]>([]);
 const newName = ref('');
 const newConn = ref('');
+
+const menu = ref<{ x: number; y: number; bucket: Bucket } | null>(null);
+const renaming = ref<Bucket | null>(null);
+const deleting = ref<Bucket | null>(null);
+
+const menuItems = computed<MenuItem[]>(() => {
+  const b = menu.value?.bucket;
+  if (!b) return [];
+  return [
+    { key: 'rename', label: 'Renomear apelido', icon: 'edit' },
+    { key: 'copy', label: 'Copiar nome do bucket', icon: 'copy' },
+    { key: 'delete', label: 'Excluir bucket', icon: 'trash', danger: true, disabled: !canDeleteBucket(b) },
+  ];
+});
 
 const visible = computed(() => {
   const q = props.query.trim().toLowerCase();
@@ -41,11 +54,11 @@ async function openNew() {
 
 async function reload() {
   loading.value = true; error.value = null; notConfigured.value = false;
-  const [bk, cl] = await Promise.allSettled([api.buckets(), api.cluster()]);
-  if (bk.status === 'fulfilled') buckets.value = bk.value ?? [];
-  else if (bk.reason instanceof ApiError && bk.reason.status === 503) notConfigured.value = true;
-  else error.value = apiErrMsg(bk.reason);
-  cluster.value = cl.status === 'fulfilled' ? cl.value : null;
+  try { buckets.value = (await api.buckets()) ?? []; }
+  catch (e) {
+    if (e instanceof ApiError && e.status === 503) notConfigured.value = true;
+    else error.value = apiErrMsg(e);
+  }
   loading.value = false;
   emit('loaded', buckets.value);
   loadStats();
@@ -73,10 +86,47 @@ async function create() {
   catch (e) { toast.error(apiErrMsg(e, 'criar')); }
 }
 
-const pct = (u?: number, q?: number) => (q && u != null) ? Math.round((u / q) * 100) + '%' : '—';
 const objstr = (n?: number) => (n != null ? n.toLocaleString('pt-BR') : '—');
 const accent = (b: Bucket) => b.color === 'green' ? 'var(--green)' : b.color === 'amber' ? 'var(--amber)' : 'var(--neon)';
-const round = (n: number) => Math.round(n);
+
+function openMenu(e: MouseEvent, b: Bucket) {
+  menu.value = { x: e.clientX, y: e.clientY, bucket: b };
+}
+function onMenu(key: string) {
+  const b = menu.value?.bucket; menu.value = null;
+  if (!b) return;
+  if (key === 'rename') renaming.value = b;
+  else if (key === 'copy') {
+    navigator.clipboard.writeText(b.name ?? b.id)
+      .then(() => toast.success('Nome copiado'))
+      .catch(() => toast.error('Não foi possível copiar'));
+  } else if (key === 'delete') {
+    if (canDeleteBucket(b)) deleting.value = b;
+  }
+}
+async function saveAlias(value: string) {
+  const b = renaming.value; renaming.value = null;
+  if (!b) return;
+  try {
+    const r = await api.setBucketAlias(b.id, value);
+    b.alias = r.alias ?? undefined;
+    toast.success('Apelido atualizado');
+  } catch (e) { toast.error(apiErrMsg(e, 'salvar')); }
+}
+async function confirmDelete() {
+  const b = deleting.value; deleting.value = null;
+  if (!b) return;
+  try {
+    await api.deleteBucket(b.id);
+    buckets.value = buckets.value.filter((x) => x.id !== b.id);
+    toast.success('Bucket excluído');
+  } catch (e) {
+    const msg = e instanceof ApiError && e.status === 409
+      ? 'O bucket precisa estar vazio para ser excluído.'
+      : apiErrMsg(e, 'excluir');
+    toast.error(msg);
+  }
+}
 </script>
 
 <template>
@@ -134,48 +184,18 @@ const round = (n: number) => Math.round(n);
     </div>
 
     <template v-else>
-      <div v-if="cluster" class="cluster">
-        <div class="cluster-gauge">
-          <Gauge :value="cluster.usedBytes / (cluster.quotaBytes || 1)" :size="132" :stroke="11"
-            :color="cluster.usedBytes / (cluster.quotaBytes || 1) > 0.85 ? 'var(--danger)' : 'var(--neon)'"
-            :label="pct(cluster.usedBytes, cluster.quotaBytes)" sub="CAPACIDADE" />
-        </div>
-        <div class="cluster-readouts">
-          <div class="readout">
-            <span class="readout-label"><Icon name="database" :size="13" /> ARMAZENADO</span>
-            <span class="readout-val">{{ fmtBytes(cluster.usedBytes) }}<em>/ {{ fmtBytes(cluster.quotaBytes) }}</em></span>
-          </div>
-          <div class="readout">
-            <span class="readout-label"><Icon name="file" :size="13" /> OBJETOS</span>
-            <span class="readout-val">{{ cluster.objects.toLocaleString('pt-BR') }}</span>
-          </div>
-          <div class="readout">
-            <span class="readout-label"><Icon name="shield" :size="13" /> REPLICAÇÃO</span>
-            <span class="readout-val">{{ cluster.replication }}<em>garage {{ cluster.version }}</em></span>
-          </div>
-        </div>
-        <div class="cluster-nodes">
-          <div class="nodes-title">NÓS DO CLUSTER</div>
-          <div v-for="n in cluster.nodes" :key="n.id" class="node-row">
-            <span class="node-dot" :class="{ off: n.status !== 'online' }"></span>
-            <span class="node-id">{{ n.id }}</span>
-            <span class="node-region">{{ n.region }}</span>
-            <div class="node-load"><LevelBar :value="n.load" :height="4" :color="n.load > 0.7 ? 'var(--amber)' : 'var(--green)'" /></div>
-            <span class="node-pct">{{ round(n.load * 100) }}%</span>
-          </div>
-        </div>
-      </div>
 
       <div v-if="visible.length === 0" class="empty">{{ query ? 'Nenhum bucket corresponde à busca.' : 'Nenhum bucket disponível.' }}</div>
       <div v-else class="bgrid">
-        <button v-for="b in visible" :key="b.id" class="bcard" :style="{ '--accent': accent(b) }" @click="emit('open', b)">
+        <button v-for="b in visible" :key="b.id" class="bcard" :style="{ '--accent': accent(b) }"
+                @click="emit('open', b)" @contextmenu.prevent="openMenu($event, b)">
           <div class="bcard-top">
             <div class="bcard-icon"><Icon name="database" :size="22" /></div>
-            <div v-if="b.connection" class="bcard-conn">{{ b.connection }}</div>
+            <div class="bcard-conn">{{ bucketLabel(b) }}</div>
             <PermBadge :perm="b.perm" :small="true" />
           </div>
-          <div class="bcard-name">{{ b.name ?? b.id }}</div>
-          <div class="bcard-region">{{ b.region }}</div>
+          <div v-if="b.alias?.trim()" class="bcard-name">{{ b.name ?? b.id }}</div>
+          <div class="bcard-region">{{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}</div>
           <div class="bcard-tiles">
             <div class="bcard-tile">
               <span class="bcard-tile-val">
@@ -195,5 +215,23 @@ const round = (n: number) => Math.round(n);
         </button>
       </div>
     </template>
+
+    <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menuItems"
+                 @select="onMenu" @close="menu = null" />
+
+    <InputModal v-if="renaming" title="Renomear apelido" icon="edit"
+                :initial="renaming.alias ?? ''" placeholder="apelido do bucket"
+                hint="Deixe vazio para voltar ao nome do bucket." confirm-label="Salvar"
+                @confirm="saveAlias" @close="renaming = null" />
+
+    <Modal v-if="deleting" title="Excluir bucket" icon="trash" @close="deleting = null">
+      <div class="modal-hint">
+        Excluir o bucket <strong>{{ deleting.name ?? deleting.id }}</strong>? Esta ação não pode ser desfeita.
+      </div>
+      <template #foot>
+        <button class="btn" @click="deleting = null">Cancelar</button>
+        <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />Excluir</button>
+      </template>
+    </Modal>
   </div>
 </template>

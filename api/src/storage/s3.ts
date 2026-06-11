@@ -1,6 +1,6 @@
 import {
   S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand,
-  PutObjectCommand, GetObjectCommand, CreateBucketCommand,
+  PutObjectCommand, GetObjectCommand, CreateBucketCommand, DeleteBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConnFull } from '../connections/store';
@@ -89,6 +89,11 @@ export const s3 = {
     clients.set(c.id, make(c));
     metas.set(c.id, { region: c.region || 'garage', buckets: c.buckets ?? [] });
   },
+  /** Configure (or replace) an S3 client for an arbitrary source id (connection or cluster). */
+  configureSource(id: string, c: S3Conn): void {
+    clients.set(id, make(c));
+    metas.set(id, { region: c.region || 'garage', buckets: c.buckets ?? [] });
+  },
   removeOne(cid: string): void { clients.delete(cid); metas.delete(cid); },
 
   hasAny(): boolean { return clients.size > 0; },
@@ -108,6 +113,16 @@ export const s3 = {
 
   async createBucket(cid: string, name: string): Promise<void> {
     await client(cid).send(new CreateBucketCommand({ Bucket: name }));
+  },
+
+  async deleteBucket(cid: string, bucket: string): Promise<void> {
+    await client(cid).send(new DeleteBucketCommand({ Bucket: bucket }));
+  },
+
+  /** True se o bucket não tem NENHUM objeto (inclui marcadores de pasta). Barato (1 key). */
+  async isEmpty(cid: string, bucket: string): Promise<boolean> {
+    const res = await client(cid).send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }));
+    return (res.KeyCount ?? res.Contents?.length ?? 0) === 0;
   },
 
   async list(cid: string, bucket: string, prefix: string, opts: { token?: string; limit?: number } = {}): Promise<{ items: S3Item[]; nextToken?: string }> {

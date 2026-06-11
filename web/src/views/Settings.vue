@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import type { Connection } from '../core/models';
+import { ref, computed, onMounted } from 'vue';
+import type { Connection, Cluster, ClusterInput } from '../core/models';
 import { api, apiErrMsg, type ConnectionPayload } from '../core/api';
 import { useToast } from '../core/toast';
 import Icon from '../components/Icon.vue';
@@ -21,10 +21,27 @@ const testResult = ref<{ ok: boolean; buckets?: string[]; error?: string } | nul
 
 const toDelete = ref<Connection | null>(null);
 
+// clusters (admin)
+const clusters = ref<Cluster[]>([]);
+const clusterEditing = ref<Cluster | 'new' | null>(null);
+const clusterForm = ref({ name: '', s3Endpoint: '', adminEndpoint: '', adminToken: '', region: 'garage' });
+const clusterAdminConfigured = ref(false);
+const clusterSaving = ref(false);
+const clusterToDelete = ref<Cluster | null>(null);
+
+// lista única: clusters (admin) primeiro, depois conexões S3 puras.
+type Source = { kind: 'cluster'; data: Cluster } | { kind: 'conn'; data: Connection };
+const sources = computed<Source[]>(() => [
+  ...clusters.value.map((data) => ({ kind: 'cluster' as const, data })),
+  ...connections.value.map((data) => ({ kind: 'conn' as const, data })),
+]);
+
 async function load() {
   loading.value = true; error.value = null;
-  try { connections.value = await api.connections(); }
-  catch (e) { error.value = apiErrMsg(e); }
+  try {
+    const [conns, cls] = await Promise.all([api.connections(), api.clusters()]);
+    connections.value = conns; clusters.value = cls;
+  } catch (e) { error.value = apiErrMsg(e); }
   finally { loading.value = false; }
 }
 onMounted(load);
@@ -91,44 +108,107 @@ async function confirmDelete() {
   try { await api.deleteConnection(c.id); toast.success(`Conexão "${c.name}" removida`); await load(); }
   catch (e) { toast.error(apiErrMsg(e, 'remover')); }
 }
+
+function openNewCluster() {
+  clusterEditing.value = 'new';
+  clusterAdminConfigured.value = false;
+  clusterForm.value = { name: '', s3Endpoint: '', adminEndpoint: '', adminToken: '', region: 'garage' };
+}
+function openEditCluster(c: Cluster) {
+  clusterEditing.value = c;
+  clusterAdminConfigured.value = c.adminConfigured;
+  clusterForm.value = { name: c.name, s3Endpoint: c.s3Endpoint, adminEndpoint: c.adminEndpoint, adminToken: '', region: c.region || 'garage' };
+}
+
+function clusterPayload(): ClusterInput {
+  const f = clusterForm.value;
+  return {
+    name: f.name.trim(),
+    s3Endpoint: f.s3Endpoint.trim(),
+    adminEndpoint: f.adminEndpoint.trim(),
+    adminToken: f.adminToken ? f.adminToken : undefined, // omit = keep stored (on edit)
+    region: f.region.trim() || 'garage',
+  };
+}
+
+async function saveCluster() {
+  const f = clusterForm.value;
+  if (!f.name.trim() || !f.s3Endpoint.trim() || !f.adminEndpoint.trim() || (!f.adminToken && !clusterAdminConfigured.value)) {
+    toast.error('Preencha nome, S3 endpoint, admin endpoint e admin token.');
+    return;
+  }
+  clusterSaving.value = true;
+  try {
+    if (clusterEditing.value === 'new') {
+      await api.createCluster(clusterPayload());
+      toast.success('Cluster criado');
+    } else if (clusterEditing.value) {
+      await api.updateCluster(clusterEditing.value.id, clusterPayload());
+      toast.success('Cluster atualizado');
+    }
+    clusterEditing.value = null;
+    await load();
+  } catch (e) { toast.error(apiErrMsg(e, 'salvar')); }
+  finally { clusterSaving.value = false; }
+}
+
+async function confirmDeleteCluster() {
+  const c = clusterToDelete.value; if (!c) return;
+  clusterToDelete.value = null;
+  try { await api.deleteCluster(c.id); toast.success(`Cluster "${c.name}" removido`); await load(); }
+  catch (e) { toast.error(apiErrMsg(e, 'remover')); }
+}
 </script>
 
 <template>
   <div class="view settings">
     <div class="view-head">
       <div>
-        <h1 class="view-title">Conexões</h1>
-        <p class="view-sub">{{ connections.length }} conexão(ões) S3 · Garage</p>
+        <h1 class="view-title">Conexões & clusters</h1>
+        <p class="view-sub">{{ clusters.length }} cluster(s) · {{ connections.length }} conexão(ões) S3</p>
       </div>
-      <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Nova conexão</button>
+      <div class="head-acts">
+        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Novo cluster</button>
+        <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Nova conexão</button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
     <div v-else-if="error" class="errbox">
       <Icon name="alert" :size="32" />
-      <div class="errbox-title">Não foi possível carregar as conexões</div>
+      <div class="errbox-title">Não foi possível carregar</div>
       <div class="errbox-sub">{{ error }}</div>
       <button class="btn" @click="load"><Icon name="refresh" :size="15" />Tentar de novo</button>
     </div>
-    <div v-else-if="connections.length === 0" class="empty-files">
+    <div v-else-if="sources.length === 0" class="empty-files">
       <Icon name="database" :size="30" />
-      <p>Nenhuma conexão ainda.</p>
-      <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Adicionar conexão</button>
+      <p>Nenhuma conexão ou cluster ainda.</p>
+      <div class="head-acts">
+        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Adicionar cluster</button>
+        <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Adicionar conexão</button>
+      </div>
     </div>
     <div v-else class="conn-list">
-      <div v-for="c in connections" :key="c.id" class="conn-item">
-        <div class="conn-ic"><Icon name="database" :size="22" /></div>
+      <div v-for="s in sources" :key="s.kind + ':' + s.data.id" class="conn-item">
+        <div class="conn-ic"><Icon :name="s.kind === 'cluster' ? 'gauge' : 'database'" :size="22" /></div>
         <div class="conn-main">
-          <div class="conn-name">{{ c.name }}</div>
-          <div class="conn-sub">
-            {{ c.endpoint }} · {{ c.region }} · {{ c.accessKey }}
-            · {{ c.buckets.length ? c.buckets.length + ' bucket(s) fixos' : 'todos os buckets' }}
-            · {{ c.secretSet ? 'secret ✓' : 'sem secret' }}
+          <div class="conn-name">
+            {{ s.data.name }}
+            <span class="conn-tag" :class="s.kind === 'cluster' ? 'tag-cluster' : 'tag-conn'">{{ s.kind === 'cluster' ? 'cluster' : 'conexão' }}</span>
+          </div>
+          <div v-if="s.kind === 'cluster'" class="conn-sub">
+            admin {{ s.data.adminEndpoint }} · s3 {{ s.data.s3Endpoint }} · {{ s.data.region }}
+            · {{ s.data.adminConfigured ? 'token ✓' : 'sem token' }}
+          </div>
+          <div v-else class="conn-sub">
+            {{ s.data.endpoint }} · {{ s.data.region }} · {{ s.data.accessKey }}
+            · {{ s.data.buckets.length ? s.data.buckets.length + ' bucket(s) fixos' : 'todos os buckets' }}
+            · {{ s.data.secretSet ? 'secret ✓' : 'sem secret' }}
           </div>
         </div>
         <div class="conn-acts">
-          <button class="iconbtn" title="Editar" @click="openEdit(c)"><Icon name="cpu" :size="17" /></button>
-          <button class="iconbtn iconbtn-danger" title="Remover" @click="toDelete = c"><Icon name="trash" :size="17" /></button>
+          <button class="iconbtn" title="Editar" @click="s.kind === 'cluster' ? openEditCluster(s.data) : openEdit(s.data)"><Icon name="cpu" :size="17" /></button>
+          <button class="iconbtn iconbtn-danger" title="Remover" @click="s.kind === 'cluster' ? (clusterToDelete = s.data) : (toDelete = s.data)"><Icon name="trash" :size="17" /></button>
         </div>
       </div>
     </div>
@@ -183,5 +263,58 @@ async function confirmDelete() {
         <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />Remover</button>
       </template>
     </Modal>
+
+    <!-- cluster editor modal -->
+    <Modal v-if="clusterEditing" :title="clusterEditing === 'new' ? 'Novo cluster' : 'Editar cluster'" icon="gauge" @close="clusterEditing = null">
+      <div class="field">
+        <label class="field-label">Nome</label>
+        <input class="field-input" v-model="clusterForm.name" placeholder="ex: Garage SP" />
+      </div>
+      <div class="field">
+        <label class="field-label">Endpoint S3</label>
+        <input class="field-input" v-model="clusterForm.s3Endpoint" placeholder="http://host:3900" />
+      </div>
+      <div class="modal-row">
+        <div class="field">
+          <label class="field-label">Admin API endpoint</label>
+          <input class="field-input" v-model="clusterForm.adminEndpoint" placeholder="http://host:3903" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label class="field-label">Região</label>
+          <input class="field-input" v-model="clusterForm.region" placeholder="garage" />
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">Admin API token</label>
+        <input class="field-input" type="password" v-model="clusterForm.adminToken"
+               :placeholder="clusterAdminConfigured ? '•••• (definido)' : 'admin token'" autocomplete="off" />
+        <p class="modal-hint">Gerencia cluster, buckets e keys do Garage. Vazio mantém o token atual na edição.</p>
+      </div>
+      <template #foot>
+        <button class="btn" @click="clusterEditing = null">Cancelar</button>
+        <button class="btn btn-primary" :disabled="clusterSaving" @click="saveCluster"><Icon name="check" :size="16" />{{ clusterSaving ? 'Salvando…' : 'Salvar' }}</button>
+      </template>
+    </Modal>
+
+    <!-- cluster delete confirm -->
+    <Modal v-if="clusterToDelete" title="Remover cluster" icon="trash" @close="clusterToDelete = null">
+      <p class="modal-text">Remover o cluster <strong>{{ clusterToDelete.name }}</strong>?</p>
+      <p class="modal-warn"><Icon name="shield" :size="14" /> A key interna do cluster será removida no Garage. Os buckets desse cluster deixam de aparecer.</p>
+      <template #foot>
+        <button class="btn" @click="clusterToDelete = null">Cancelar</button>
+        <button class="btn btn-danger" @click="confirmDeleteCluster"><Icon name="trash" :size="16" />Remover</button>
+      </template>
+    </Modal>
   </div>
 </template>
+
+<style scoped>
+.head-acts { display: flex; gap: 10px; flex-wrap: wrap; }
+.conn-name { display: flex; align-items: center; gap: 8px; }
+.conn-tag {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid currentColor; line-height: 1.4;
+}
+.tag-cluster { color: var(--amber, #ffb02e); }
+.tag-conn { color: var(--neon, #2dd4ff); }
+</style>

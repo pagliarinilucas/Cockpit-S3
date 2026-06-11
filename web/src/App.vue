@@ -8,18 +8,18 @@ import ThemePanel from './components/ThemePanel.vue';
 import Login from './views/Login.vue';
 import Buckets from './views/Buckets.vue';
 import Files from './views/Files.vue';
-import Keys from './views/Keys.vue';
 import Activity from './views/Activity.vue';
 import Users from './views/Users.vue';
+import Cluster from './views/Cluster.vue';
 import Settings from './views/Settings.vue';
 
-type View = 'buckets' | 'files' | 'keys' | 'activity' | 'users' | 'settings';
+type View = 'buckets' | 'files' | 'activity' | 'users' | 'cluster' | 'settings';
 interface Reloadable { reload: () => void }
 
-// Buckets is for everyone; keys/activity/users/settings are admin-only.
+// Buckets is for everyone; cluster/activity/users/settings are admin-only.
 const NAV_BUCKETS = { id: 'buckets' as View, label: 'Buckets', icon: 'database' };
 const NAV_ADMIN = [
-  { id: 'keys' as View, label: 'Chaves', icon: 'key' },
+  { id: 'cluster' as View, label: 'Cluster', icon: 'gauge' },
   { id: 'activity' as View, label: 'Atividade', icon: 'activity' },
   { id: 'users' as View, label: 'Usuários', icon: 'shield' },
   { id: 'settings' as View, label: 'Configurações', icon: 'cpu' },
@@ -37,10 +37,10 @@ const homeBucket = ref<Bucket | null>(null);   // the lone bucket of a basic sin
 
 const bucketsRef = ref<Reloadable | null>(null);
 const filesRef = ref<Reloadable | null>(null);
-const keysRef = ref<Reloadable | null>(null);
 const activityRef = ref<Reloadable | null>(null);
 const usersRef = ref<Reloadable | null>(null);
 const settingsRef = ref<Reloadable | null>(null);
+const clusterRef = ref<Reloadable | null>(null);
 
 const isAdmin = computed(() => me.value?.role === 'admin');
 // A basic user only reaches the bucket list if they can see more than one bucket;
@@ -165,7 +165,7 @@ function gotoCrumb(i: number) { filePath.value = filePath.value.slice(0, i + 1);
 const searchable = computed(() => view.value === 'buckets' || view.value === 'activity');
 const searchPlaceholder = computed(() => {
   if (view.value === 'files') return 'use a busca da pasta abaixo…';
-  if (view.value === 'keys' || view.value === 'users' || view.value === 'settings') return 'busca indisponível aqui';
+  if (view.value === 'users' || view.value === 'cluster' || view.value === 'settings') return 'busca indisponível aqui';
   if (view.value === 'activity') return 'Buscar eventos…';
   return 'Buscar buckets…';
 });
@@ -173,9 +173,9 @@ const searchPlaceholder = computed(() => {
 function refresh() {
   bucketsRef.value?.reload();
   filesRef.value?.reload();
-  keysRef.value?.reload();
   activityRef.value?.reload();
   usersRef.value?.reload();
+  clusterRef.value?.reload();
   settingsRef.value?.reload();
 }
 const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCase() || 'VC');
@@ -245,9 +245,9 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
                    @open="openBucket" @go-settings="view = 'settings'" @loaded="onBucketsLoaded" />
           <Files v-else-if="view === 'files' && activeBucket" ref="filesRef" :bucket="activeBucket" :path="filePath"
                  :can-back="canBrowseBuckets" @back="backToBuckets" @open-folder="openFolder" @crumb="gotoCrumb" />
-          <Keys v-else-if="view === 'keys'" ref="keysRef" />
           <Activity v-else-if="view === 'activity'" ref="activityRef" :query="query" />
           <Users v-else-if="view === 'users'" ref="usersRef" />
+          <Cluster v-else-if="view === 'cluster'" ref="clusterRef" />
           <Settings v-else-if="view === 'settings'" ref="settingsRef" />
         </main>
       </div>

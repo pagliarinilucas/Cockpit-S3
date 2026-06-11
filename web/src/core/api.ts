@@ -1,6 +1,8 @@
 import type {
-  Me, Cluster, Bucket, BucketStats, ObjectListing, PresignedUrl,
-  AccessKey, ActivityEvent, Perm, User, Role, Connection, Group,
+  Me, Bucket, BucketStats, ObjectListing, PresignedUrl,
+  ActivityEvent, Perm, User, Role, Connection, Group,
+  ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
+  Cluster, ClusterInput,
 } from './models';
 
 export interface ConnectionPayload {
@@ -115,11 +117,14 @@ export const api = {
   changePassword: (current: string, next: string) => req('POST', '/auth/password', { body: { current, next } }),
   me: () => req<Me>('GET', '/me'),
 
-  // cluster / buckets
-  cluster: () => req<Cluster>('GET', '/cluster'),
+  // buckets
   buckets: () => req<Bucket[]>('GET', '/buckets'),
   bucketStats: (bucketId: string) => req<BucketStats>('GET', `/buckets/${encodeURIComponent(bucketId)}/stats`),
   createBucket: (connectionId: string, name: string) => req<Bucket>('POST', '/buckets', { body: { connectionId, name } }),
+  setBucketAlias: (id: string, alias: string) =>
+    req<{ ok: true; alias: string | null }>('PATCH', '/buckets/alias', { body: { id, alias } }),
+  deleteBucket: (id: string) =>
+    req<{ ok: true }>('DELETE', `/buckets/${encodeURIComponent(id)}`),
 
   // objects
   list: (bucketId: string, path = '', token?: string) => req<ObjectListing>('GET', `/buckets/${encodeURIComponent(bucketId)}/objects`, { params: token ? { path, token } : { path } }),
@@ -154,10 +159,6 @@ export const api = {
     });
   },
 
-  // access keys
-  keys: () => req<AccessKey[]>('GET', '/keys'),
-  createKey: (name: string) => req<AccessKey>('POST', '/keys', { body: { name } }),
-  setGrant: (keyId: string, bucketId: string, perm: Perm | null) => req<AccessKey>('PATCH', `/keys/${encodeURIComponent(keyId)}/grants`, { body: { bucketId, perm } }),
 
   // users (admin)
   users: () => req<User[]>('GET', '/users'),
@@ -189,6 +190,23 @@ export const api = {
   updateConnection: (id: string, p: ConnectionPayload) => req<Connection>('PUT', `/connections/${encodeURIComponent(id)}`, { body: p }),
   deleteConnection: (id: string) => req('DELETE', `/connections/${encodeURIComponent(id)}`),
   testConnection: (p: ConnectionPayload & { id?: string }) => req<{ ok: boolean; buckets?: string[]; error?: string }>('POST', '/connections/test', { body: p }),
+
+  // clusters (admin) — CRUD
+  clusters: () => req<Cluster[]>('GET', '/clusters'),
+  createCluster: (b: ClusterInput) => req<Cluster>('POST', '/clusters', { body: b }),
+  updateCluster: (id: string, b: ClusterInput) => req<Cluster>('PUT', `/clusters/${encodeURIComponent(id)}`, { body: b }),
+  deleteCluster: (id: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}`),
+
+  // garage admin — Garage Admin API per cluster (admin only)
+  cluster: (id: string) => req<ClusterSummary>('GET', `/clusters/${encodeURIComponent(id)}/cluster`),
+  garageBuckets: (id: string) => req<GarageBucket[]>('GET', `/clusters/${encodeURIComponent(id)}/buckets`),
+  createGarageBucket: (id: string, alias: string) => req('POST', `/clusters/${encodeURIComponent(id)}/buckets`, { body: { alias } }),
+  deleteGarageBucket: (id: string, bucketId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}`),
+  setGarageQuotas: (id: string, bucketId: string, maxSize: number | null, maxObjects: number | null) => req('PUT', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}/quotas`, { body: { maxSize, maxObjects } }),
+  garageKeys: (id: string) => req<GarageKey[]>('GET', `/clusters/${encodeURIComponent(id)}/keys`),
+  createGarageKey: (id: string, name: string) => req<NewGarageKey>('POST', `/clusters/${encodeURIComponent(id)}/keys`, { body: { name } }),
+  deleteGarageKey: (id: string, keyId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`),
+  setGarageKeyPerm: (id: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),
 };
 
 /** Shared helper for the views' error messages. */
