@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import type { Connection, Cluster, ClusterInput } from '../core/models';
 import { api, apiErrMsg, type ConnectionPayload } from '../core/api';
 import { useToast } from '../core/toast';
@@ -28,6 +28,13 @@ const clusterForm = ref({ name: '', s3Endpoint: '', adminEndpoint: '', adminToke
 const clusterAdminConfigured = ref(false);
 const clusterSaving = ref(false);
 const clusterToDelete = ref<Cluster | null>(null);
+
+// lista única: clusters (admin) primeiro, depois conexões S3 puras.
+type Source = { kind: 'cluster'; data: Cluster } | { kind: 'conn'; data: Connection };
+const sources = computed<Source[]>(() => [
+  ...clusters.value.map((data) => ({ kind: 'cluster' as const, data })),
+  ...connections.value.map((data) => ({ kind: 'conn' as const, data })),
+]);
 
 async function load() {
   loading.value = true; error.value = null;
@@ -157,69 +164,51 @@ async function confirmDeleteCluster() {
   <div class="view settings">
     <div class="view-head">
       <div>
-        <h1 class="view-title">Conexões</h1>
-        <p class="view-sub">{{ connections.length }} conexão(ões) S3 · Garage</p>
+        <h1 class="view-title">Conexões & clusters</h1>
+        <p class="view-sub">{{ clusters.length }} cluster(s) · {{ connections.length }} conexão(ões) S3</p>
       </div>
-      <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Nova conexão</button>
+      <div class="head-acts">
+        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Novo cluster</button>
+        <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Nova conexão</button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
     <div v-else-if="error" class="errbox">
       <Icon name="alert" :size="32" />
-      <div class="errbox-title">Não foi possível carregar as conexões</div>
+      <div class="errbox-title">Não foi possível carregar</div>
       <div class="errbox-sub">{{ error }}</div>
       <button class="btn" @click="load"><Icon name="refresh" :size="15" />Tentar de novo</button>
     </div>
-    <div v-else-if="connections.length === 0" class="empty-files">
+    <div v-else-if="sources.length === 0" class="empty-files">
       <Icon name="database" :size="30" />
-      <p>Nenhuma conexão ainda.</p>
-      <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Adicionar conexão</button>
+      <p>Nenhuma conexão ou cluster ainda.</p>
+      <div class="head-acts">
+        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Adicionar cluster</button>
+        <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Adicionar conexão</button>
+      </div>
     </div>
     <div v-else class="conn-list">
-      <div v-for="c in connections" :key="c.id" class="conn-item">
-        <div class="conn-ic"><Icon name="database" :size="22" /></div>
+      <div v-for="s in sources" :key="s.kind + ':' + s.data.id" class="conn-item">
+        <div class="conn-ic"><Icon :name="s.kind === 'cluster' ? 'gauge' : 'database'" :size="22" /></div>
         <div class="conn-main">
-          <div class="conn-name">{{ c.name }}</div>
-          <div class="conn-sub">
-            {{ c.endpoint }} · {{ c.region }} · {{ c.accessKey }}
-            · {{ c.buckets.length ? c.buckets.length + ' bucket(s) fixos' : 'todos os buckets' }}
-            · {{ c.secretSet ? 'secret ✓' : 'sem secret' }}
+          <div class="conn-name">
+            {{ s.data.name }}
+            <span class="conn-tag" :class="s.kind === 'cluster' ? 'tag-cluster' : 'tag-conn'">{{ s.kind === 'cluster' ? 'cluster' : 'conexão' }}</span>
+          </div>
+          <div v-if="s.kind === 'cluster'" class="conn-sub">
+            admin {{ s.data.adminEndpoint }} · s3 {{ s.data.s3Endpoint }} · {{ s.data.region }}
+            · {{ s.data.adminConfigured ? 'token ✓' : 'sem token' }}
+          </div>
+          <div v-else class="conn-sub">
+            {{ s.data.endpoint }} · {{ s.data.region }} · {{ s.data.accessKey }}
+            · {{ s.data.buckets.length ? s.data.buckets.length + ' bucket(s) fixos' : 'todos os buckets' }}
+            · {{ s.data.secretSet ? 'secret ✓' : 'sem secret' }}
           </div>
         </div>
         <div class="conn-acts">
-          <button class="iconbtn" title="Editar" @click="openEdit(c)"><Icon name="cpu" :size="17" /></button>
-          <button class="iconbtn iconbtn-danger" title="Remover" @click="toDelete = c"><Icon name="trash" :size="17" /></button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="!loading && !error" class="cluster-section">
-      <div class="view-head">
-        <div>
-          <h1 class="view-title">Clusters</h1>
-          <p class="view-sub">{{ clusters.length }} cluster(s) Garage · admin</p>
-        </div>
-        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Novo cluster</button>
-      </div>
-      <div v-if="clusters.length === 0" class="empty-files">
-        <Icon name="gauge" :size="30" />
-        <p>Nenhum cluster ainda.</p>
-        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />Adicionar cluster</button>
-      </div>
-      <div v-else class="conn-list">
-        <div v-for="c in clusters" :key="c.id" class="conn-item">
-          <div class="conn-ic"><Icon name="gauge" :size="22" /></div>
-          <div class="conn-main">
-            <div class="conn-name">{{ c.name }}</div>
-            <div class="conn-sub">
-              admin {{ c.adminEndpoint }} · s3 {{ c.s3Endpoint }} · {{ c.region }}
-              · {{ c.adminConfigured ? 'token ✓' : 'sem token' }}
-            </div>
-          </div>
-          <div class="conn-acts">
-            <button class="iconbtn" title="Editar" @click="openEditCluster(c)"><Icon name="cpu" :size="17" /></button>
-            <button class="iconbtn iconbtn-danger" title="Remover" @click="clusterToDelete = c"><Icon name="trash" :size="17" /></button>
-          </div>
+          <button class="iconbtn" title="Editar" @click="s.kind === 'cluster' ? openEditCluster(s.data) : openEdit(s.data)"><Icon name="cpu" :size="17" /></button>
+          <button class="iconbtn iconbtn-danger" title="Remover" @click="s.kind === 'cluster' ? (clusterToDelete = s.data) : (toDelete = s.data)"><Icon name="trash" :size="17" /></button>
         </div>
       </div>
     </div>
@@ -320,5 +309,12 @@ async function confirmDeleteCluster() {
 </template>
 
 <style scoped>
-.cluster-section { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line-2); }
+.head-acts { display: flex; gap: 10px; flex-wrap: wrap; }
+.conn-name { display: flex; align-items: center; gap: 8px; }
+.conn-tag {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid currentColor; line-height: 1.4;
+}
+.tag-cluster { color: var(--amber, #ffb02e); }
+.tag-conn { color: var(--neon, #2dd4ff); }
 </style>
