@@ -121,6 +121,10 @@ export const api = {
   buckets: () => req<Bucket[]>('GET', '/buckets'),
   bucketStats: (bucketId: string) => req<BucketStats>('GET', `/buckets/${encodeURIComponent(bucketId)}/stats`),
   createBucket: (connectionId: string, name: string) => req<Bucket>('POST', '/buckets', { body: { connectionId, name } }),
+  setBucketAlias: (id: string, alias: string) =>
+    req<{ ok: true; alias: string | null }>('PATCH', '/buckets/alias', { body: { id, alias } }),
+  deleteBucket: (id: string) =>
+    req<{ ok: true }>('DELETE', `/buckets/${encodeURIComponent(id)}`),
 
   // objects
   list: (bucketId: string, path = '', token?: string) => req<ObjectListing>('GET', `/buckets/${encodeURIComponent(bucketId)}/objects`, { params: token ? { path, token } : { path } }),

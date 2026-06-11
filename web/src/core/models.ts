@@ -51,6 +51,8 @@ export interface Bucket {
   id: string;
   /** display name (the bucket name within its connection). */
   name?: string;
+  /** apelido definido pelo usuário; quando ausente, usa `name`. */
+  alias?: string;
   /** connection display name. */
   connection?: string;
   region: string;
