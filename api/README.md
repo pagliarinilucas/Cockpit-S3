@@ -54,7 +54,8 @@ src/users/            user store + admin CRUD routes (+ grants por prefixo, bloc
 src/groups/           grupos de permissão (CRUD + grants) + /api/groups (admin)
 src/auth/permissions  resolução de permissão por chave (deny absoluto, união de allows)
 src/storage/          Garage S3 client + bucket/object routes (list/upload/download/
-                      preview/delete/folders) com autorização por PASTA (prefixo)
+                      preview/delete/folders/excluir-bucket) com autorização por PASTA (prefixo)
+src/buckets/          apelido por bucket (tabela bucket_aliases) + regra mayDeleteBucket
 src/audit/            SQLite activity log + /api/activity
 src/connections/      multiple Garage/S3 connections in DB + /api/connections (admin)
 src/settings/         legacy single-config store (kept only to migrate into a connection)
@@ -75,6 +76,15 @@ Duas formas de apontar pro Garage:
 
 `GET /api/buckets` agrega buckets das duas fontes; `bucketId = <sourceId>:<bucket>`. O resto (auth,
 usuários + permissões por pasta, objetos S3, audit) é real.
+
+### Apelido por bucket e exclusão
+
+- `GET /api/buckets` inclui `alias?: string` por bucket (apelido definido pelo usuário; ausente = usa o nome do bucket).
+- `PATCH /api/buckets/alias` — body `{ id, alias }`. Define o apelido; `alias` vazio remove (volta ao nome).
+  Requer acesso de **escrita** ao bucket (owner ou read-write). Apelido é global por `bucketId` (tabela `bucket_aliases`).
+- `DELETE /api/buckets/:id` — exige **owner** e bucket **vazio** (revalidado no servidor via `isEmpty`, contando
+  marcadores de pasta); responde `409 bucket_not_empty` caso contrário. Roteia conexão→S3 `DeleteBucket` /
+  cluster→Garage Admin `DeleteBucket` (resolvendo alias→UUID) e limpa o apelido + cache de stats/grant.
 
 ## Notes
 
