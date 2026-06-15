@@ -3,6 +3,8 @@ import { authDerive, requireUser } from '../auth/guard';
 import { connectionsStore } from '../connections/store';
 import { audit } from '../audit/store';
 import { s3 } from './s3';
+import { mergeToPdf } from './merge';
+import { makeThumb } from './thumb';
 import { perms } from '../auth/permissions';
 import type { Perm } from '../types';
 import { clustersStore } from '../clusters/store';
@@ -189,6 +191,57 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         const res = await s3.object(ref.cid, ref.bucket, key, mode);
         if (mode === 'download') audit.log('download', user!.username, params.id, key);
         return res;
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+    })
+
+    // junta imagens/PDFs selecionados (na ordem recebida) num único PDF — só leitura
+    .post('/buckets/:id/merge-pdf', async ({ user, params, body, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      const access = perms.access(user!, params.id);
+      if (!access) { set.status = 403; return { error: 'forbidden' }; }
+      for (const k of body.keys) if (!perms.canRead(access, k)) { set.status = 403; return { error: 'forbidden' }; }
+      try {
+        await ensureSource(ref);
+        const { pdf, skipped } = await mergeToPdf(body.keys, (key) => s3.bytes(ref.cid, ref.bucket, key));
+        if (!pdf) { set.status = 422; return { error: 'no_mergeable_content', skipped }; }
+        const name = (body.filename?.trim() || 'combinado').replace(/\.pdf$/i, '');
+        audit.log('download', user!.username, params.id, `merge-pdf (${body.keys.length} itens) -> ${name}.pdf`);
+        return new Response(pdf, { headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name + '.pdf')}`,
+          'Cache-Control': 'no-store',
+          ...(skipped.length ? { 'X-Merge-Skipped': String(skipped.length) } : {}),
+        } });
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+    }, { body: t.Object({
+      keys: t.Array(t.String({ minLength: 1 }), { minItems: 1, maxItems: 100 }),
+      filename: t.Optional(t.String({ maxLength: 200 })),
+    }) })
+
+    // miniatura (imagem redimensionada / 1ª página do PDF) — só leitura, cacheável
+    .get('/buckets/:id/thumb', async ({ user, params, query, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      const access = perms.access(user!, params.id);
+      const key = (query as Record<string, string>)['key'];
+      if (!key) { set.status = 400; return { error: 'missing_key' }; }
+      if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      try {
+        await ensureSource(ref);
+        const data = await s3.bytes(ref.cid, ref.bucket, key);
+        const thumb = await makeThumb(data);
+        if (!thumb) { set.status = 415; return { error: 'no_thumbnail' }; }   // front cai no ícone
+        return new Response(thumb.bytes, { headers: {
+          'Content-Type': thumb.mime,
+          'Cache-Control': 'private, max-age=3600',
+        } });
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 502; return { error: 's3_error' };

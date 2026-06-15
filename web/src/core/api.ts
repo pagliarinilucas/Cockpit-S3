@@ -96,6 +96,21 @@ async function fetchBlob(path: string, params: Record<string, string>, retry = f
   return res.blob();
 }
 
+/** Authenticated POST with a JSON body that returns a Blob (same 401→refresh→retry flow). */
+async function postBlob(path: string, body: unknown, retry = false): Promise<{ blob: Blob; skipped: number }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  let res: Response;
+  try { res = await fetch(BASE + path, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(body) }); }
+  catch { throw new ApiError(0, 'network'); }
+  if (res.status === 401 && !retry) {
+    if (await doRefresh()) return postBlob(path, body, true);
+    accessToken = null; onUnauthorized?.();
+  }
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return { blob: await res.blob(), skipped: Number(res.headers.get('X-Merge-Skipped')) || 0 };
+}
+
 interface AuthResponse { accessToken: string; expiresIn: number; user: Me }
 
 export const api = {
@@ -139,6 +154,11 @@ export const api = {
   async objectUrl(bucketId: string, key: string, mode: 'preview' | 'download' = 'preview'): Promise<string> {
     return URL.createObjectURL(await fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/raw`, { key, mode }));
   },
+  /** Combina imagens/PDFs (na ordem dada) num único PDF; devolve o blob e quantos foram pulados. */
+  mergePdf: (bucketId: string, keys: string[], filename?: string) =>
+    postBlob(`/buckets/${encodeURIComponent(bucketId)}/merge-pdf`, { keys, filename }),
+  /** Miniatura (imagem/1ª página de PDF) como Blob; rejeita (415) quando não há thumb. */
+  thumbBlob: (bucketId: string, key: string) => fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/thumb`, { key }),
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
   deleteObjects: (bucketId: string, keys: string[]) => req('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 

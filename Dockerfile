@@ -21,6 +21,10 @@ ENV NODE_ENV=production \
     WEB_DIR=/app/public \
     PORT=3000
 
+# poppler-utils: gera miniaturas de PDF (pdftoppm) usadas pelo endpoint /thumb
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 # API deps (production only — Bun runs the TS sources directly)
 COPY api/package.json api/bun.lock ./
 RUN bun install --frozen-lockfile --production

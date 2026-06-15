@@ -237,6 +237,12 @@ export const s3 = {
     return new Response(stream, { headers });
   },
 
+  /** Bytes crus de um objeto (para processamento server-side, ex.: merge de PDF). */
+  async bytes(cid: string, bucket: string, key: string): Promise<Uint8Array> {
+    const out = await client(cid).send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    return (out.Body as { transformToByteArray(): Promise<Uint8Array> }).transformToByteArray();
+  },
+
   async put(cid: string, bucket: string, key: string, data: Uint8Array, contentType?: string): Promise<void> {
     await client(cid).send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: data, ContentType: contentType }));
   },
