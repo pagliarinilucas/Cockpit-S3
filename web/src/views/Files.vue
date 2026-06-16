@@ -11,6 +11,8 @@ import Modal from '../components/Modal.vue';
 import InputModal from '../components/InputModal.vue';
 import Preview from './Preview.vue';
 import UploadDock from './UploadDock.vue';
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
+import Thumb from '../components/Thumb.vue';
 
 const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean }>();
 const emit = defineEmits<{ back: []; openFolder: [name: string]; crumb: [index: number] }>();
@@ -30,6 +32,9 @@ const preview = ref<string | null>(null);
 const showFolder = ref(false);
 const renamingBucket = ref(false);
 const toDelete = ref<{ keys: string[]; label: string } | null>(null);
+const merge = ref<{ items: ObjectItem[]; name: string } | null>(null);
+const merging = ref(false);
+const ctx = ref<{ x: number; y: number; item: ObjectItem } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const pathPerm = ref<Perm | null>(props.bucket.perm);
@@ -114,6 +119,11 @@ const ordered = computed(() => {
   return [...items.value.filter((i) => i.kind === 'folder'), ...items.value.filter((i) => i.kind === 'file')];
 });
 const previewItems = computed(() => ordered.value.filter((i) => i.kind === 'file' && isPreviewable(i.type || 'file')));
+// arquivos selecionados que podem virar páginas de PDF, na ordem da lista. Inclui o tipo
+// 'file' (sem extensão) porque o backend detecta o conteúdo real por magic bytes e ignora
+// o que não for imagem/PDF — muitos objetos no Garage não têm extensão.
+const MERGEABLE = new Set<FileType>(['image', 'pdf', 'file']);
+const mergeables = computed(() => ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key) && MERGEABLE.has(i.type || 'file')));
 const allSel = computed(() => ordered.value.length > 0 && ordered.value.every((i) => selection.value.has(i.key)));
 const folderCount = computed(() => ordered.value.filter((i) => i.kind === 'folder').length);
 const fileCount = computed(() => ordered.value.filter((i) => i.kind === 'file').length);
@@ -122,6 +132,7 @@ const totalSize = computed(() => ordered.value.filter((i) => i.kind === 'file').
 // navigation
 function rowClick(it: ObjectItem, e: MouseEvent) {
   if ((e.target as HTMLElement).closest('.frow-check,.frow-actions,.fcard-check,.fcard-actions')) return;
+  if (e.ctrlKey || e.metaKey) { toggle(it); return; }   // ctrl/cmd+clique alterna a seleção
   if (it.kind === 'folder') openFolder(it);
   else if (previewable(it)) openPreview(it);
 }
@@ -138,6 +149,30 @@ const canGoUp = computed(() => props.path.length > 0 || !!props.canBack);
 function toggle(it: ObjectItem) { const n = new Set(selection.value); n.has(it.key) ? n.delete(it.key) : n.add(it.key); selection.value = n; }
 function selectAll() { selection.value = selection.value.size === ordered.value.length ? new Set() : new Set(ordered.value.map((i) => i.key)); }
 function clearSel() { selection.value = new Set(); }
+
+// menu de contexto (clique direito) — ações do item apontado, espelhando os botões da linha
+function onContext(it: ObjectItem, e: MouseEvent) { ctx.value = { x: e.clientX, y: e.clientY, item: it }; }
+const ctxItems = computed<MenuItem[]>(() => {
+  const it = ctx.value?.item; if (!it) return [];
+  if (it.kind === 'folder') return [
+    { key: 'open', label: 'Abrir', icon: 'folder' },
+    ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
+  ];
+  return [
+    ...(previewable(it) ? [{ key: 'preview', label: 'Visualizar', icon: 'eye' } as MenuItem] : []),
+    { key: 'download', label: 'Baixar', icon: 'download' },
+    { key: 'copy', label: 'Copiar link', icon: 'copy' },
+    ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
+  ];
+});
+function onCtxSelect(key: string) {
+  const it = ctx.value?.item; ctx.value = null; if (!it) return;
+  if (key === 'open') openFolder(it);
+  else if (key === 'preview') openPreview(it);
+  else if (key === 'download') downloadItem(it);
+  else if (key === 'copy') copyLink(it);
+  else if (key === 'delete') askDelete(it);
+}
 
 // preview
 function openPreview(it: ObjectItem) { preview.value = it.key; }
@@ -165,6 +200,37 @@ async function batchDownload() {
   const files = ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key));
   if (!files.length) { toast.info('Selecione arquivos para baixar'); return; }
   for (const f of files) { await downloadItem(f); await new Promise((r) => setTimeout(r, 300)); }
+}
+
+// juntar em PDF
+function openMerge() { merge.value = { items: [...mergeables.value], name: 'combinado' }; }
+function removeMerge(i: number) { merge.value?.items.splice(i, 1); }
+
+// reordenação por arrastar (drag nativo): move o item em tempo real ao passar sobre outra linha
+const dragIdx = ref<number | null>(null);
+function onDragStart(i: number) { dragIdx.value = i; }
+function onDragEnter(i: number) {
+  const from = dragIdx.value, m = merge.value;
+  if (from === null || from === i || !m) return;
+  const arr = m.items; const [moved] = arr.splice(from, 1); arr.splice(i, 0, moved);
+  dragIdx.value = i;
+}
+function onDragEnd() { dragIdx.value = null; }
+async function confirmMerge() {
+  const m = merge.value; if (!m || !m.items.length || merging.value) return;
+  merging.value = true;
+  try {
+    const { blob, skipped } = await api.mergePdf(props.bucket.id, m.items.map((i) => i.key), m.name.trim() || 'combinado');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = (m.name.trim() || 'combinado') + '.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+    merge.value = null;
+    toast.success('PDF gerado');
+    if (skipped) toast.info(`${skipped} arquivo${skipped > 1 ? 's' : ''} ignorado${skipped > 1 ? 's' : ''} (formato não suportado)`);
+  } catch (e) { toast.error(apiErrMsg(e, 'gerar PDF')); }
+  finally { merging.value = false; }
 }
 
 // delete
@@ -227,6 +293,8 @@ function onDrop(e: DragEvent) {
 const tp = (it: ObjectItem): FileType => it.type || typeFromName(it.name);
 const iconFor = (it: ObjectItem) => ICON_FOR[tp(it)];
 const iconBoxClass = (it: ObjectItem, base: string) => it.kind === 'folder' ? `${base} is-folder` : `${base} ft-${tp(it)}`;
+// tenta miniatura para imagens/PDFs e arquivos sem extensão (backend fareja o conteúdo)
+const thumbable = (it: ObjectItem) => it.kind === 'file' && MERGEABLE.has(tp(it));
 
 async function saveBucketAlias(value: string) {
   renamingBucket.value = false;
@@ -262,6 +330,9 @@ defineExpose({ reload });
         <button v-if="query" class="iconbtn" @click="query = ''"><Icon name="x" :size="14" /></button>
       </div>
       <div class="ftoolbar-right">
+        <button v-if="ordered.length > 0" class="btn" @click="selectAll" :title="allSel ? 'Desmarcar todos' : 'Selecionar todos'">
+          <Icon name="check" :size="16" />{{ allSel ? 'Desmarcar' : 'Selecionar tudo' }}
+        </button>
         <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />Pasta</button>
         <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Upload</button>
         <input ref="fileInput" type="file" multiple hidden @change="onPick" />
@@ -277,6 +348,7 @@ defineExpose({ reload });
       <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
       <div class="selbar-actions">
         <button class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button v-if="mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
         <button v-if="canWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
         <button class="btn" @click="clearSel"><Icon name="x" :size="16" />Limpar</button>
       </div>
@@ -309,11 +381,14 @@ defineExpose({ reload });
       <div class="flist">
         <div v-for="it in ordered" :key="it.key" class="frow"
              :class="{ 'frow-sel': selection.has(it.key), 'frow-click': it.kind === 'folder' || previewable(it) }"
-             @click="rowClick(it, $event)">
+             @click="rowClick(it, $event)" @contextmenu.prevent="onContext(it, $event)">
           <label class="frow-check" @click.stop>
             <input type="checkbox" :checked="selection.has(it.key)" @change="toggle(it)" /><span class="cbox"><Icon name="check" :size="12" /></span>
           </label>
-          <div :class="iconBoxClass(it, 'frow-icon')"><Icon :name="it.kind === 'folder' ? 'folder' : iconFor(it)" :size="18" /></div>
+          <div :class="iconBoxClass(it, 'frow-icon')">
+            <Thumb v-if="thumbable(it)" :bucket-id="bucket.id" :obj-key="it.key" :icon="iconFor(it)" :size="18" />
+            <Icon v-else :name="it.kind === 'folder' ? 'folder' : iconFor(it)" :size="18" />
+          </div>
           <div class="frow-name">
             <span class="frow-title">{{ it.name }}</span>
             <span v-if="it.kind === 'folder'" class="frow-meta">pasta</span>
@@ -336,11 +411,14 @@ defineExpose({ reload });
     <div v-else class="fgrid">
       <div v-for="it in ordered" :key="it.key" class="fcard"
            :class="{ 'fcard-sel': selection.has(it.key), 'fcard-folder': it.kind === 'folder' || previewable(it) }"
-           @click="rowClick(it, $event)">
+           @click="rowClick(it, $event)" @contextmenu.prevent="onContext(it, $event)">
         <label class="fcard-check" @click.stop>
           <input type="checkbox" :checked="selection.has(it.key)" @change="toggle(it)" /><span class="cbox"><Icon name="check" :size="12" /></span>
         </label>
-        <div :class="iconBoxClass(it, 'fcard-thumb')"><Icon :name="it.kind === 'folder' ? 'folder' : iconFor(it)" :size="34" /></div>
+        <div :class="iconBoxClass(it, 'fcard-thumb')">
+          <Thumb v-if="thumbable(it)" :bucket-id="bucket.id" :obj-key="it.key" :icon="iconFor(it)" :size="34" />
+          <Icon v-else :name="it.kind === 'folder' ? 'folder' : iconFor(it)" :size="34" />
+        </div>
         <div class="fcard-name" :title="isSearch && relDir(it) ? relDir(it) + it.name : it.name">{{ it.name }}</div>
         <div v-if="isSearch && relDir(it)" class="fcard-meta fcard-dir" :title="relDir(it)"><Icon name="folder" :size="11" /> {{ relDir(it) }}</div>
         <div class="fcard-meta">{{ it.kind === 'folder' ? 'pasta' : fmtBytes(it.size) }}<span class="dot-sep">·</span>{{ timeAgo(it.modified) }}</div>
@@ -378,6 +456,8 @@ defineExpose({ reload });
 
   <UploadDock :uploads="uploads" @clear="uploads = []" />
 
+  <ContextMenu v-if="ctx" :x="ctx.x" :y="ctx.y" :items="ctxItems" @select="onCtxSelect" @close="ctx = null" />
+
   <Preview v-if="preview" :bucket-id="bucket.id" :bucket-perm="bucket.perm" :path="prefix"
     :items="previewItems" :start-key="preview" :can-write="canWrite"
     @close="preview = null" @download="downloadItem" @copy-link="copyLink" @delete="askDelete" />
@@ -396,6 +476,30 @@ defineExpose({ reload });
     <template #foot>
       <button class="btn" @click="toDelete = null">Cancelar</button>
       <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />Excluir definitivamente</button>
+    </template>
+  </Modal>
+
+  <Modal v-if="merge" title="Criar PDF" icon="pdf" wide @close="merge = null">
+    <p class="modal-text">{{ merge.items.length }} arquivo{{ merge.items.length !== 1 ? 's' : '' }} serão combinados nesta ordem:</p>
+    <ul class="merge-grid">
+      <li v-for="(it, i) in merge.items" :key="it.key" class="merge-cell" :class="{ 'merge-dragging': dragIdx === i }"
+          title="Arraste para reordenar" draggable="true"
+          @dragstart="onDragStart(i)" @dragenter.prevent="onDragEnter(i)" @dragover.prevent @dragend="onDragEnd">
+        <span class="merge-thumb"><Thumb :bucket-id="bucket.id" :obj-key="it.key" :icon="ICON_FOR[it.type || 'file']" :size="30" /></span>
+        <span class="merge-ord">{{ i + 1 }}</span>
+        <button class="merge-del" title="Remover" :disabled="merge.items.length <= 1" @click="removeMerge(i)"><Icon name="x" :size="14" /></button>
+        <span class="merge-name" :title="it.name">{{ it.name }}</span>
+      </li>
+    </ul>
+    <label class="merge-namefield">
+      <span>Nome do arquivo</span>
+      <input v-model="merge.name" type="text" placeholder="combinado" @keyup.enter="confirmMerge" />
+    </label>
+    <template #foot>
+      <button class="btn" @click="merge = null">Cancelar</button>
+      <button class="btn btn-primary" :disabled="merging || merge.items.length < 1" @click="confirmMerge">
+        <Icon name="pdf" :size="16" />{{ merging ? 'Gerando…' : 'Gerar PDF' }}
+      </button>
     </template>
   </Modal>
 </template>

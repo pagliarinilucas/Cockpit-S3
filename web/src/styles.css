@@ -343,7 +343,7 @@ html.no-scanlines body::after { display: none; }
 .cbox .ic { opacity: 0; }
 input:checked + .cbox { background: var(--neon); border-color: var(--neon); }
 input:checked + .cbox .ic { opacity: 1; color: var(--bg-0); }
-.frow-icon { width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
+.frow-icon { position: relative; overflow: hidden; width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
 .is-folder { color: var(--amber) !important; background: color-mix(in srgb, var(--amber) 8%, var(--bg-2)) !important; border-color: color-mix(in srgb, var(--amber) 20%, var(--line)) !important; }
 .ft-image { color: #67e8c5 !important; } .ft-video { color: #b78bff !important; } .ft-audio { color: #ff9ad1 !important; }
 .ft-pdf { color: #ff7a85 !important; } .ft-sheet { color: var(--green) !important; } .ft-code { color: var(--neon) !important; }
@@ -362,9 +362,11 @@ input:checked + .cbox .ic { opacity: 1; color: var(--bg-0); }
 .fcard-folder { cursor: pointer; }
 .fcard:hover { border-color: var(--line-2); background: var(--bg-2); }
 .fcard-sel { border-color: color-mix(in srgb, var(--neon) 38%, transparent) !important; background: color-mix(in srgb, var(--neon) 8%, var(--bg-1)) !important; }
-.fcard-check { position: absolute; top: 11px; left: 11px; z-index: 2; cursor: pointer; opacity: 0; transition: opacity .14s; }
-.fcard:hover .fcard-check, .fcard-sel .fcard-check { opacity: 1; }
-.fcard-thumb { height: 76px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 12px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
+.fcard-check { position: absolute; top: 10px; left: 10px; z-index: 2; cursor: pointer; opacity: 1; }
+/* alvo de clique maior no grid: checkbox sempre visível e mais fácil de acertar */
+.fcard-check .cbox { width: 24px; height: 24px; border-radius: 7px; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.fcard-check .cbox .ic { width: 15px; height: 15px; }
+.fcard-thumb { position: relative; overflow: hidden; height: 76px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 12px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); }
 .fcard-name { font-size: 13px; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fcard-meta { font-family: var(--mono); font-size: 10px; color: var(--text-3); margin-top: 4px; }
 .fcard-dir { display: flex; align-items: center; gap: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
@@ -469,6 +471,7 @@ select.modal-input { appearance: none; cursor: pointer; }
 .modal-back { position: fixed; inset: 0; z-index: 9500; display: grid; place-items: center; background: rgba(2,4,8,0.72); backdrop-filter: blur(4px); animation: fade .15s ease; }
 @keyframes fade { from { opacity: 0; } }
 .modal { width: 440px; max-width: 92vw; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); overflow: hidden; animation: pop .18s cubic-bezier(.2,.9,.3,1.2); }
+.modal.modal-wide { width: 680px; }
 @keyframes pop { from { transform: scale(.96) translateY(8px); opacity: 0; } }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .modal-title { display: flex; align-items: center; gap: 10px; font-family: var(--display-font); font-weight: 700; font-size: 16px; }
@@ -482,6 +485,25 @@ select.modal-input { appearance: none; cursor: pointer; }
 .modal-input:focus { border-color: color-mix(in srgb, var(--neon) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--neon) 12%, transparent); }
 .modal-hint { margin-top: 11px; font-size: 12.5px; color: var(--text-3); line-height: 1.45; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--bg-1); }
+
+/* grade de reordenação do "Criar PDF" — quadrados lado a lado, arrastáveis */
+.merge-grid { list-style: none; margin: 14px 0 0; padding: 2px; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; max-height: 60vh; overflow-y: auto; }
+.merge-cell { position: relative; display: flex; flex-direction: column; gap: 6px; cursor: grab; }
+.merge-cell:active { cursor: grabbing; }
+.merge-cell.merge-dragging { opacity: .45; }
+.merge-thumb { position: relative; overflow: hidden; width: 100%; aspect-ratio: 1 / 1; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); color: var(--text-2); display: grid; place-items: center; transition: border-color .14s; }
+.merge-cell:hover .merge-thumb { border-color: var(--line-2); }
+.merge-cell.merge-dragging .merge-thumb { border-color: color-mix(in srgb, var(--neon) 55%, transparent); }
+.merge-name { font-size: 12px; color: var(--text-2); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* número da ordem (= página no PDF) */
+.merge-ord { position: absolute; top: 6px; left: 6px; z-index: 2; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 6px; background: var(--neon); color: var(--bg-0); font-family: var(--mono); font-size: 12px; font-weight: 700; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.merge-del { position: absolute; top: 6px; right: 6px; z-index: 2; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; border: 0; background: rgba(0,0,0,.55); color: #fff; cursor: pointer; opacity: 0; transition: opacity .14s; }
+.merge-cell:hover .merge-del { opacity: 1; }
+.merge-del:hover { background: var(--danger); }
+.merge-del:disabled { opacity: 0 !important; cursor: default; }
+.merge-namefield { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; font-size: 12.5px; color: var(--text-2); }
+.merge-namefield input { height: 42px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--bg-0); color: var(--text); font-family: var(--mono); font-size: 14px; outline: none; }
+.merge-namefield input:focus { border-color: color-mix(in srgb, var(--neon) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--neon) 12%, transparent); }
 
 /* ============ PREVIEW / LIGHTBOX ============ */
 .pv-back { position: fixed; inset: 0; z-index: 9600; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 20px; background: rgba(2,4,8,0.85); backdrop-filter: blur(7px); animation: fade .16s ease; }
