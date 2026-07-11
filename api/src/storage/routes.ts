@@ -159,7 +159,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const access = perms.access(user!, params.id);
       const key = (query as Record<string, string>)['key'];
       if (!key) { set.status = 400; return { error: 'missing_key' }; }
-      if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      if (!access || !perms.canDownload(access, key)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
       const r = await s3.presign(ref.cid, ref.bucket, key, 'download');
       audit.log('download', user!.username, params.id, key);
@@ -173,6 +173,8 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const key = (query as Record<string, string>)['key'];
       if (!key) { set.status = 400; return { error: 'missing_key' }; }
       if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      // view-only só pré-visualiza tipos inline; tipos não-inline virariam attachment (=download).
+      if (!perms.canDownload(access, key) && !s3.inlinePreviewable(key)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
       return s3.presign(ref.cid, ref.bucket, key, 'preview');
     })
@@ -186,6 +188,9 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!key) { set.status = 400; return { error: 'missing_key' }; }
       if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
       const mode = q['mode'] === 'download' ? 'download' : 'preview';
+      if (mode === 'download' && !perms.canDownload(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      // view-only: preview de tipo não-inline seria attachment (=download) → bloqueia.
+      if (mode === 'preview' && !perms.canDownload(access, key) && !s3.inlinePreviewable(key)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
         const res = await s3.object(ref.cid, ref.bucket, key, mode);
@@ -203,7 +208,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
       const access = perms.access(user!, params.id);
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
-      for (const k of body.keys) if (!perms.canRead(access, k)) { set.status = 403; return { error: 'forbidden' }; }
+      for (const k of body.keys) if (!perms.canDownload(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
         const { pdf, skipped } = await mergeToPdf(body.keys, (key) => s3.bytes(ref.cid, ref.bucket, key));

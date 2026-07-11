@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test';
-import { resolvePerm, folderVisible, maxBucketPerm, type Allow } from './permissions';
+import { resolvePerm, folderVisible, maxBucketPerm, perms, type Allow, type Access } from './permissions';
+
+const access = (allows: Allow[], denies: string[] = []): Access => ({ all: false, allows, denies });
 
 describe('resolvePerm', () => {
   it('allow no bucket inteiro concede em qualquer chave', () => {
@@ -56,5 +58,47 @@ describe('maxBucketPerm', () => {
   });
   it('allow exatamente sombreado por deny → null (não autoriza listagem)', () => {
     expect(maxBucketPerm([{ prefix: 'fin/reports/', perm: 'read-write' }], ['fin/reports/'])).toBe(null);
+  });
+  it('view-only é o maior allow → retorna view-only', () => {
+    expect(maxBucketPerm([{ prefix: '', perm: 'view-only' }], [])).toBe('view-only');
+  });
+  it('view-only perde para read-only na união', () => {
+    expect(maxBucketPerm([{ prefix: 'a/', perm: 'view-only' }, { prefix: 'b/', perm: 'read-only' }], [])).toBe('read-only');
+  });
+});
+
+describe('view-only na hierarquia', () => {
+  it('resolvePerm resolve view-only quando é o único allow', () => {
+    expect(resolvePerm([{ prefix: '', perm: 'view-only' }], [], 'a/b.txt')).toBe('view-only');
+  });
+});
+
+describe('perms.canRead / canWrite / canDownload', () => {
+  it('view-only → canRead true, canWrite false, canDownload false', () => {
+    const a = access([{ prefix: '', perm: 'view-only' }]);
+    expect(perms.canRead(a, 'x.pdf')).toBe(true);
+    expect(perms.canWrite(a, 'x.pdf')).toBe(false);
+    expect(perms.canDownload(a, 'x.pdf')).toBe(false);
+  });
+  it('read-only → canDownload true, canWrite false', () => {
+    const a = access([{ prefix: '', perm: 'read-only' }]);
+    expect(perms.canDownload(a, 'x.pdf')).toBe(true);
+    expect(perms.canWrite(a, 'x.pdf')).toBe(false);
+  });
+  it('read-write → canDownload true', () => {
+    const a = access([{ prefix: '', perm: 'read-write' }]);
+    expect(perms.canDownload(a, 'x.pdf')).toBe(true);
+  });
+  it('owner → canDownload true', () => {
+    const a = access([{ prefix: '', perm: 'owner' }]);
+    expect(perms.canDownload(a, 'x.pdf')).toBe(true);
+  });
+  it('admin (access.all) → canDownload true', () => {
+    expect(perms.canDownload({ all: true, allows: [], denies: [] }, 'x.pdf')).toBe(true);
+  });
+  it('deny sobre uma key view-only continua ocultando (canRead false)', () => {
+    const a = access([{ prefix: '', perm: 'view-only' }], ['sec/']);
+    expect(perms.canRead(a, 'sec/s.txt')).toBe(false);
+    expect(perms.canDownload(a, 'sec/s.txt')).toBe(false);
   });
 });

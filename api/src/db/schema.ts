@@ -106,7 +106,7 @@ export const grants = sqliteTable(
     subjectId: text('subject_id').notNull(), // username | group id
     bucketId: text('bucket_id').notNull(), // connectionId:bucketName
     prefix: text('prefix').notNull().default(''), // '' = bucket todo; senão termina em '/'
-    perm: text('perm').$type<Perm>().notNull(), // owner|read-write|read-only
+    perm: text('perm').$type<Perm>().notNull(), // owner|read-write|read-only|view-only
   },
   (t) => ({
     pk: primaryKey({ columns: [t.subjectType, t.subjectId, t.bucketId, t.prefix] }),

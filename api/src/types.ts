@@ -1,4 +1,4 @@
-export type Perm = 'owner' | 'read-write' | 'read-only';
+export type Perm = 'owner' | 'read-write' | 'read-only' | 'view-only';
 export type Role = 'admin' | 'user';
 
 export interface UserGrant { bucketId: string; prefix: string; perm: Perm }

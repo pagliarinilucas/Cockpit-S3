@@ -6,7 +6,7 @@
    loading / empty / error states). Build the backend to match.
    ============================================================ */
 
-export type Perm = 'owner' | 'read-write' | 'read-only';
+export type Perm = 'owner' | 'read-write' | 'read-only' | 'view-only';
 export type Role = 'admin' | 'user';
 
 export type FileType =

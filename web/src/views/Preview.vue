@@ -8,7 +8,7 @@ import PermBadge from '../components/PermBadge.vue';
 
 const props = defineProps<{
   bucketId: string; bucketPerm: Perm; path: string;
-  items: ObjectItem[]; startKey: string; canWrite: boolean;
+  items: ObjectItem[]; startKey: string; canWrite: boolean; canDownload: boolean;
 }>();
 const emit = defineEmits<{ close: []; download: [ObjectItem]; copyLink: [ObjectItem]; delete: [ObjectItem] }>();
 
@@ -127,8 +127,8 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
             </div>
           </div>
           <div class="pv-head-r">
-            <button class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
-            <button class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
+            <button v-if="canDownload" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
+            <button v-if="canDownload" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>
             <button class="iconbtn iconbtn-lg" @click="emit('close')"><Icon name="x" :size="18" /></button>
           </div>
@@ -161,7 +161,7 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
                 <Icon name="file" :size="46" />
                 <div class="pv-noprev-name">{{ item.name }}</div>
                 <div class="pv-noprev-sub">Sem prévia para este arquivo</div>
-                <button class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Baixar</button>
+                <button v-if="canDownload" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Baixar</button>
               </div>
             </template>
             <template v-else-if="url">

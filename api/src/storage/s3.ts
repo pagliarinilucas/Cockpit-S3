@@ -96,6 +96,11 @@ export const s3 = {
   },
   removeOne(cid: string): void { clients.delete(cid); metas.delete(cid); },
 
+  /** True se a extensão da key é pré-visualizável inline (mesmo Set usado no presign/object). */
+  inlinePreviewable(key: string): boolean {
+    return INLINE.has(key.toLowerCase().split('.').pop() || '');
+  },
+
   hasAny(): boolean { return clients.size > 0; },
   has(cid: string): boolean { return clients.has(cid); },
   region(cid: string): string { return metas.get(cid)?.region || 'garage'; },

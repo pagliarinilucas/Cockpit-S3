@@ -269,6 +269,7 @@ html.no-scanlines body::after { display: none; }
 .perm-owner { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 10%, transparent); }
 .perm-rw { color: var(--neon); border-color: color-mix(in srgb, var(--neon) 40%, transparent); background: color-mix(in srgb, var(--neon) 10%, transparent); }
 .perm-ro { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+.perm-vo { color: var(--text-2); border-color: color-mix(in srgb, var(--text-2) 35%, transparent); background: color-mix(in srgb, var(--text-2) 9%, transparent); }
 
 /* ============ CLUSTER PANEL ============ */
 .cluster { display: grid; grid-template-columns: auto 1fr 1.3fr; gap: 28px; align-items: center; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 16px; padding: 22px 26px; margin-bottom: 26px; }
@@ -437,6 +438,7 @@ input:checked + .cbox .ic { opacity: 1; color: var(--bg-0); }
 .kmcell.perm-owner { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); }
 .kmcell.perm-rw { background: color-mix(in srgb, var(--neon) 12%, transparent); color: var(--neon); }
 .kmcell.perm-ro { background: color-mix(in srgb, var(--amber) 12%, transparent); color: var(--amber); }
+.kmcell.perm-vo { background: color-mix(in srgb, var(--text-2) 12%, transparent); color: var(--text-2); }
 .kmrow-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .kmrow-acts { display: flex; gap: 2px; opacity: 0; transition: opacity .14s; }
 .kmrow:hover .kmrow-acts { opacity: 1; }
