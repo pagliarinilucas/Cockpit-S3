@@ -1,6 +1,6 @@
 import {
   S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand,
-  PutObjectCommand, GetObjectCommand, CreateBucketCommand, DeleteBucketCommand,
+  PutObjectCommand, GetObjectCommand, HeadObjectCommand, CreateBucketCommand, DeleteBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConnFull } from '../connections/store';
@@ -240,6 +240,12 @@ export const s3 = {
       ? body.transformToWebStream()
       : await body.transformToByteArray!();
     return new Response(stream, { headers });
+  },
+
+  /** Metadados do objeto (HEAD, sem baixar o corpo). Tamanho null se não informado. */
+  async head(cid: string, bucket: string, key: string): Promise<{ size: number | null; contentType: string | null }> {
+    const out = await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return { size: out.ContentLength ?? null, contentType: out.ContentType ?? null };
   },
 
   /** Bytes crus de um objeto (para processamento server-side, ex.: merge de PDF). */

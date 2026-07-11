@@ -12,9 +12,15 @@ import Activity from './views/Activity.vue';
 import Users from './views/Users.vue';
 import Cluster from './views/Cluster.vue';
 import Settings from './views/Settings.vue';
+import SharePage from './views/SharePage.vue';
 
 type View = 'buckets' | 'files' | 'activity' | 'users' | 'cluster' | 'settings';
 interface Reloadable { reload: () => void }
+
+// Public share route: `/s/:token`. Detected before any auth flow — this page must
+// render without a session (no restore, no login gate, no sidebar).
+const shareMatch = window.location.pathname.match(/^\/s\/([^/]+)\/?$/);
+const shareToken = shareMatch ? decodeURIComponent(shareMatch[1]!) : null;
 
 // Buckets is for everyone; cluster/activity/users/settings are admin-only.
 const NAV_BUCKETS = { id: 'buckets' as View, label: 'Buckets', icon: 'database' };
@@ -47,6 +53,7 @@ const isAdmin = computed(() => me.value?.role === 'admin');
 // with a single bucket their home IS that bucket and there's no list to browse.
 const canBrowseBuckets = computed(() => isAdmin.value || bucketCount.value > 1);
 const minimalSidebar = computed(() => !!me.value && !isAdmin.value);
+const canShare = computed(() => !!me.value?.canShare || isAdmin.value);
 
 const nav = computed(() => {
   if (isAdmin.value) return [NAV_BUCKETS, ...NAV_ADMIN];
@@ -104,6 +111,8 @@ function onPop(e: PopStateEvent) {
 }
 
 onMounted(async () => {
+  // Public share page short-circuits the whole app boot — no session needed.
+  if (shareToken) { booting.value = false; return; }
   // if a refresh token mid-session goes invalid, drop to the login screen
   setOnUnauthorized(() => { me.value = null; activeBucket.value = null; });
   window.addEventListener('popstate', onPop);
@@ -182,6 +191,9 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
 </script>
 
 <template>
+  <SharePage v-if="shareToken" :token="shareToken" />
+
+  <template v-else>
   <div v-if="booting" class="loading" style="height:100vh;justify-content:center"><div class="spinner"></div>INICIANDO COCKPIT…</div>
 
   <template v-else-if="!me">
@@ -244,7 +256,7 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
           <Buckets v-if="view === 'buckets'" ref="bucketsRef" :query="query" :is-admin="me?.role === 'admin'"
                    @open="openBucket" @go-settings="view = 'settings'" @loaded="onBucketsLoaded" />
           <Files v-else-if="view === 'files' && activeBucket" ref="filesRef" :bucket="activeBucket" :path="filePath"
-                 :can-back="canBrowseBuckets" @back="backToBuckets" @open-folder="openFolder" @crumb="gotoCrumb" />
+                 :can-back="canBrowseBuckets" :can-share="canShare" @back="backToBuckets" @open-folder="openFolder" @crumb="gotoCrumb" />
           <Activity v-else-if="view === 'activity'" ref="activityRef" :query="query" />
           <Users v-else-if="view === 'users'" ref="usersRef" />
           <Cluster v-else-if="view === 'cluster'" ref="clusterRef" />
@@ -254,6 +266,7 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
     </div>
 
     <ThemePanel />
+  </template>
   </template>
 
   <Toasts />

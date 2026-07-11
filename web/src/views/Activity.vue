@@ -15,6 +15,7 @@ const ACT_META: Record<ActivityAction, { icon: string; col: string; verb: string
   revoke:   { icon: 'x',        col: 'var(--danger)', verb: 'revogou' },
   key:      { icon: 'key',      col: 'var(--amber)',  verb: '' },
   bucket:   { icon: 'database', col: 'var(--neon)',   verb: '' },
+  share:    { icon: 'share',    col: 'var(--neon)',   verb: 'compartilhou' },
 };
 
 const events = ref<ActivityEvent[]>([]);

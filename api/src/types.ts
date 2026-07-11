@@ -11,9 +11,25 @@ export interface PublicUser {
   created?: string;
   lastLogin?: string;
   active?: boolean;
+  canShare: boolean;         // pode gerar links públicos de compartilhamento
   groups: string[];          // group ids the user belongs to
   grants: UserGrant[];       // direct allow grants
   blocks: UserBlock[];       // direct deny blocks
+}
+
+export type ShareStatus = 'active' | 'expired' | 'revoked';
+
+/** Um link de compartilhamento, como retornado ao criador em GET /api/shares. */
+export interface Share {
+  token: string;
+  key: string;
+  bucketId: string;
+  createdAt: string;
+  expiresAt: string;
+  revoked: boolean;
+  lockIp: boolean;
+  boundIp: string | null;
+  status: ShareStatus;
 }
 
 /** Access-token payload (the part we control). */

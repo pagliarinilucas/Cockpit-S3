@@ -138,6 +138,29 @@ sqlite.run(`
   );
 `);
 
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS shares (
+    token       TEXT PRIMARY KEY,
+    bucket_id   TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    created_by  TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    revoked     INTEGER NOT NULL DEFAULT 0,
+    lock_ip     INTEGER NOT NULL DEFAULT 0,
+    bound_ip    TEXT
+  );
+`);
+sqlite.run('CREATE INDEX IF NOT EXISTS idx_shares_creator ON shares(created_by)');
+
+// Additive migration (idempotent): users.can_share for DBs created before share links existed.
+{
+  const cols = sqlite.query('PRAGMA table_info(users)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'can_share')) {
+    sqlite.run('ALTER TABLE users ADD COLUMN can_share INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 // One-time migration: legacy users.grants JSON -> grants rows (prefix='' = whole bucket).
 // Idempotent; guarded by a settings flag. The users.grants column stays but is unused after.
 if (!sqlite.query("SELECT 1 FROM settings WHERE key = 'grants_migrated'").get()) {

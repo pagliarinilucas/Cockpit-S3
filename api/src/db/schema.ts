@@ -11,6 +11,7 @@ export const users = sqliteTable('users', {
   tokenVersion: integer('token_version').notNull().default(1),
   grants: text('grants').notNull().default('{}'), // coluna legada (JSON antigo), mantida
   active: integer('active').notNull().default(1),
+  canShare: integer('can_share').notNull().default(0), // pode gerar links públicos
   createdAt: text('created_at').notNull(),
   lastLogin: text('last_login'),
 });
@@ -113,6 +114,24 @@ export const grants = sqliteTable(
     subjectIdx: index('idx_grants_subject').on(t.subjectType, t.subjectId),
     bucketIdx: index('idx_grants_bucket').on(t.bucketId),
   }),
+);
+
+export const shares = sqliteTable(
+  'shares',
+  {
+    token: text('token').primaryKey(), // credencial aleatória (>=128 bits, base64url)
+    bucketId: text('bucket_id').notNull(), // `<cid>:<bucket>`
+    key: text('key').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.username, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    revoked: integer('revoked').notNull().default(0),
+    lockIp: integer('lock_ip').notNull().default(0),
+    boundIp: text('bound_ip'), // IP gravado no 1º acesso (null até lá)
+  },
+  (t) => ({ creatorIdx: index('idx_shares_creator').on(t.createdBy) }),
 );
 
 export const userBlocks = sqliteTable(

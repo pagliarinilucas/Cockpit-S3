@@ -2,7 +2,7 @@ import { desc } from 'drizzle-orm';
 import { db } from '../db';
 import { activity } from '../db/schema';
 
-export type ActivityAction = 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket';
+export type ActivityAction = 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket' | 'share';
 
 export interface ActivityEvent {
   action: ActivityAction;

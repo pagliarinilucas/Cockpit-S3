@@ -14,6 +14,8 @@ import { connectionsRoutes } from './connections/routes';
 import { activityRoutes } from './audit/routes';
 import { clusterRoutes, configureClusterS3 } from './clusters/routes';
 import { clustersStore } from './clusters/store';
+import { shareRoutes } from './shares/routes';
+import { publicShareRoutes } from './shares/public';
 import { staticRoutes } from './web/static';
 
 await bootstrap();
@@ -61,6 +63,8 @@ const app = new Elysia()
   .use(connectionsRoutes)
   .use(clusterRoutes)
   .use(activityRoutes)
+  .use(shareRoutes)         // authenticated share-link management (/api/shares)
+  .use(publicShareRoutes)   // public, login-less share access (/api/share/:token) — before staticRoutes
   .use(staticRoutes)        // serves the SPA in single-container deploys (WEB_DIR set)
   .listen(config.port);
 

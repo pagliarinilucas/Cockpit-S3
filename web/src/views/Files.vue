@@ -13,8 +13,10 @@ import Preview from './Preview.vue';
 import UploadDock from './UploadDock.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import Thumb from '../components/Thumb.vue';
+import ShareCreate from '../components/ShareCreate.vue';
+import ShareLinks from '../components/ShareLinks.vue';
 
-const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean }>();
+const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean; canShare?: boolean }>();
 const emit = defineEmits<{ back: []; openFolder: [name: string]; crumb: [index: number] }>();
 const toast = useToast();
 
@@ -36,6 +38,8 @@ const merge = ref<{ items: ObjectItem[]; name: string } | null>(null);
 const merging = ref(false);
 const ctx = ref<{ x: number; y: number; item: ObjectItem } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
+const shareItem = ref<ObjectItem | null>(null);   // arquivo a compartilhar (abre ShareCreate)
+const showLinks = ref(false);                       // modal de gerenciamento de links
 
 const pathPerm = ref<Perm | null>(props.bucket.perm);
 const canWrite = computed(() => pathPerm.value === 'owner' || pathPerm.value === 'read-write');
@@ -164,6 +168,7 @@ const ctxItems = computed<MenuItem[]>(() => {
     ...(previewable(it) ? [{ key: 'preview', label: 'Visualizar', icon: 'eye' } as MenuItem] : []),
     ...(canDownload.value ? [{ key: 'download', label: 'Baixar', icon: 'download' } as MenuItem] : []),
     ...(canDownload.value ? [{ key: 'copy', label: 'Copiar link', icon: 'copy' } as MenuItem] : []),
+    ...(props.canShare && canDownload.value ? [{ key: 'share', label: 'Compartilhar', icon: 'share' } as MenuItem] : []),
     ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
   ];
 });
@@ -173,8 +178,10 @@ function onCtxSelect(key: string) {
   else if (key === 'preview') openPreview(it);
   else if (key === 'download') downloadItem(it);
   else if (key === 'copy') copyLink(it);
+  else if (key === 'share') openShare(it);
   else if (key === 'delete') askDelete(it);
 }
+function openShare(it: ObjectItem) { if (it.kind === 'file') shareItem.value = it; }
 
 // preview
 function openPreview(it: ObjectItem) { preview.value = it.key; }
@@ -335,6 +342,7 @@ defineExpose({ reload });
         <button v-if="ordered.length > 0" class="btn" @click="selectAll" :title="allSel ? 'Desmarcar todos' : 'Selecionar todos'">
           <Icon name="check" :size="16" />{{ allSel ? 'Desmarcar' : 'Selecionar tudo' }}
         </button>
+        <button v-if="canShare" class="btn" @click="showLinks = true"><Icon name="link" :size="16" />Links</button>
         <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />Pasta</button>
         <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Upload</button>
         <input ref="fileInput" type="file" multiple hidden @change="onPick" />
@@ -403,6 +411,7 @@ defineExpose({ reload });
             <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
             <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
             <button v-if="canDownload" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
+            <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="16" /></button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
           </div>
         </div>
@@ -427,6 +436,7 @@ defineExpose({ reload });
         <div class="fcard-actions" @click.stop>
           <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
           <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="15" /></button>
           <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
         </div>
       </div>
@@ -460,6 +470,11 @@ defineExpose({ reload });
   <UploadDock :uploads="uploads" @clear="uploads = []" />
 
   <ContextMenu v-if="ctx" :x="ctx.x" :y="ctx.y" :items="ctxItems" @select="onCtxSelect" @close="ctx = null" />
+
+  <ShareCreate v-if="shareItem" :bucket-id="bucket.id" :obj-key="shareItem.key" :filename="shareItem.name"
+    @close="shareItem = null" />
+
+  <ShareLinks v-if="showLinks" @close="showLinks = false" />
 
   <Preview v-if="preview" :bucket-id="bucket.id" :bucket-perm="bucket.perm" :path="prefix"
     :items="previewItems" :start-key="preview" :can-write="canWrite" :can-download="canDownload"
