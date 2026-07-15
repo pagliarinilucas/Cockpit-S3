@@ -53,7 +53,7 @@ describe('sodium-native fase 0', () => {
 
     // Corrupção de 1 byte do ciphertext deve falhar a autenticação.
     const tampered = Buffer.from(ciphertext);
-    tampered[0] ^= 0x01;
+    tampered[0]! ^= 0x01;
     expect(() =>
       sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(decrypted, null, tampered, ad, nonce, key),
     ).toThrow();
@@ -94,7 +94,7 @@ describe('sodium-native fase 0', () => {
     encChunks.forEach((c, i) => {
       const m = Buffer.alloc(c.length - ABYTES);
       sodium.crypto_secretstream_xchacha20poly1305_pull(pullState, m, tagOut, c, null);
-      expect(m.equals(chunks[i])).toBe(true);
+      expect(m.equals(chunks[i]!)).toBe(true);
       const expectedTag = i === encChunks.length - 1 ? TAG_FINAL : TAG_MESSAGE;
       expect(tagOut[0]).toBe(expectedTag);
     });
@@ -119,7 +119,7 @@ describe('sodium-native fase 0', () => {
       const pullState = Buffer.alloc(sodium.crypto_secretstream_xchacha20poly1305_STATEBYTES);
       sodium.crypto_secretstream_xchacha20poly1305_init_pull(pullState, header, key);
       const bad = Buffer.from(c0);
-      bad[0] ^= 0x01;
+      bad[0]! ^= 0x01;
       const m = Buffer.alloc(bad.length - ABYTES);
       const tagOut = Buffer.alloc(1);
       expect(() => sodium.crypto_secretstream_xchacha20poly1305_pull(pullState, m, tagOut, bad, null)).toThrow();

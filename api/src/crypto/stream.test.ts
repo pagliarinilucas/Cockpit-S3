@@ -43,7 +43,7 @@ describe('encrypt/decrypt stream', () => {
     const dek = generateDek();
     const { header, transform } = encryptStream(dek);
     const cipher = await pump(Buffer.alloc(5000, 7), transform);
-    cipher[10] ^= 0x01;
+    cipher[10]! ^= 0x01;
     await expect(pump(cipher, decryptStream(dek, header))).rejects.toBeDefined();
   });
 

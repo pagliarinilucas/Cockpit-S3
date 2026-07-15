@@ -26,7 +26,7 @@ describe('crypto keys', () => {
   it('unwrap com blob corrompido falha', () => {
     const kek = generateKek();
     const wrapped = wrapDek(generateDek(), kek);
-    wrapped[wrapped.length - 1] ^= 0x01;
+    wrapped[wrapped.length - 1]! ^= 0x01;
     expect(() => unwrapDek(wrapped, kek)).toThrow();
   });
 
