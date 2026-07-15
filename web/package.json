@@ -2,6 +2,8 @@
   "name": "cockpit-s3",
   "version": "1.0.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Lucas Pagliarini",
   "type": "module",
   "scripts": {
     "dev": "vite",

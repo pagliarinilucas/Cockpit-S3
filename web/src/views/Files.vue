@@ -1,3 +1,7 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Lucas Pagliarini
+-->
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import type { Bucket, ObjectItem, FileType, Perm } from '../core/models';

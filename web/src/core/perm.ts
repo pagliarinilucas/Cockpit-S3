@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import type { Perm } from './models';
 
 export const PERM_META: Record<Perm, { label: string; cls: string; icon: string }> = {

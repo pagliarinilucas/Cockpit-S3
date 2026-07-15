@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 export type Perm = 'owner' | 'read-write' | 'read-only' | 'view-only';
 export type Role = 'admin' | 'user';
 

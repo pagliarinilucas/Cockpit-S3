@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import type { FileType, Bucket } from './models';
 
 const GB = 1024 ** 3, MB = 1024 ** 2, KB = 1024;

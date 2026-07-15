@@ -227,6 +227,9 @@ html.no-scanlines body::after { display: none; }
 .user-info { min-width: 0; flex: 1; }
 .user-name { font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-role { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+.source-offer { display: flex; align-items: center; gap: 6px; padding: 2px 4px; font-family: var(--mono);
+  font-size: 9.5px; letter-spacing: .5px; color: var(--text-3); text-decoration: none; opacity: .7; transition: opacity .16s, color .16s; }
+.source-offer:hover { opacity: 1; color: var(--neon); }
 
 /* ---------- MAIN ---------- */
 .main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }

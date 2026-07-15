@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { Elysia, t } from 'elysia';
 import { authDerive, requireAdmin } from '../auth/guard';
 import { usersStore } from './store';

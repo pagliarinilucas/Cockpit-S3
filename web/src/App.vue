@@ -1,3 +1,7 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Lucas Pagliarini
+-->
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { Bucket, Me } from './core/models';
@@ -237,6 +241,11 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
             </div>
             <button class="iconbtn user-logout" title="Sair" @click="logout"><Icon name="logout" :size="17" /></button>
           </div>
+          <!-- AGPL §13: offer the corresponding source to every network user. -->
+          <a class="source-offer" href="https://github.com/pagliarinilucas/Cockpit-S3" target="_blank" rel="noopener"
+             title="Código-fonte (AGPL v3)">
+            <Icon name="database" :size="12" /> <span>Código-fonte · AGPL v3</span>
+          </a>
         </div>
       </aside>
 

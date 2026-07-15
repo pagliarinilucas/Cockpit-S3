@@ -1,3 +1,7 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Lucas Pagliarini
+-->
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import type { Cluster, ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey } from '../core/models';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 type Headers = Record<string, string | undefined>;
 interface RequestIPServer { requestIP?: (req: Request) => { address?: string } | null }
 

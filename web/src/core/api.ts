@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import type {
   Me, Bucket, BucketStats, ObjectListing, PresignedUrl,
   ActivityEvent, Perm, User, Role, Connection, Group,

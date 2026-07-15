@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { grants, userGroups, userBlocks } from '../db/schema';

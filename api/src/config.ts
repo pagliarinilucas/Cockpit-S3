@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 /** Central env config. Fails fast on missing critical secrets in production. */
 const env = (k: string, def?: string) => process.env[k] ?? def;
 

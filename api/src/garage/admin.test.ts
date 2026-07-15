@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { describe, it, expect } from 'bun:test';
 import { normCluster, desiredPermCalls, type RawStatus, type RawHealth, type RawStats } from './admin';
 

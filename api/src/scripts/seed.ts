@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 /**
  * Create or reset a user from the CLI:
  *   bun run seed <username> <password> [admin|user]
