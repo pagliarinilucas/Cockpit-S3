@@ -2,6 +2,8 @@
   "name": "cockpit-s3-api",
   "version": "1.0.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Lucas Pagliarini",
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/index.ts",
@@ -20,7 +22,8 @@
     "elysia": "^1.2.10",
     "jose": "^5.9.6",
     "pdf-lib": "^1.17.1",
-    "sharp": "^0.35.1"
+    "sharp": "^0.35.1",
+    "sodium-native": "5.1.0"
   },
   "devDependencies": {
     "bun-types": "^1.1.42",
