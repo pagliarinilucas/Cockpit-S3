@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
+import { readFileSync } from 'node:fs';
+
 /** Central env config. Fails fast on missing critical secrets in production. */
 const env = (k: string, def?: string) => process.env[k] ?? def;
 
@@ -52,5 +54,30 @@ export const config = {
     // buckets que o app gerencia (csv). vazio = lista via S3 ListBuckets.
     buckets: (env('BUCKETS', '') || '').split(',').map((s) => s.trim()).filter(Boolean),
   },
+
+  // Criptografia at-rest (Fase 1): KEK via arquivo (preferido) ou base64 em env.
+  kekFile: env('COCKPIT_KEK_FILE'),
+  kek: env('COCKPIT_KEK'),
+  // Teto de corpo de upload (Bun default é 128 MiB). Default 6 GiB p/ cobrir o
+  // teto de single-PUT do S3 (~5 GiB) em objetos cifrados.
+  uploadMaxBytes: Number(env('UPLOAD_MAX_BYTES', String(6 * 1024 * 1024 * 1024))),
 };
+
+/** Lê a KEK bruta (32 bytes) de COCKPIT_KEK_FILE ou COCKPIT_KEK (base64). null se ausente. */
+export function readKekBytes(): Buffer | null {
+  if (config.kekFile) {
+    const raw = readFileSync(config.kekFile);
+    // aceita 32 bytes crus OU base64 de 32 bytes
+    if (raw.length === 32) return raw;
+    const b64 = Buffer.from(raw.toString('utf8').trim(), 'base64');
+    if (b64.length === 32) return b64;
+    throw new Error('COCKPIT_KEK_FILE deve conter 32 bytes (crus ou base64)');
+  }
+  if (config.kek) {
+    const b = Buffer.from(config.kek.trim(), 'base64');
+    if (b.length !== 32) throw new Error('COCKPIT_KEK deve ser base64 de 32 bytes');
+    return b;
+  }
+  return null;
+}
 
