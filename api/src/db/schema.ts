@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
-import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, blob, primaryKey, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { Perm, Role } from '../types';
 
 // Espelha EXATAMENTE o schema criado em src/db.ts (CREATE TABLE IF NOT EXISTS).
@@ -147,3 +147,41 @@ export const userBlocks = sqliteTable(
   },
   (t) => ({ pk: primaryKey({ columns: [t.username, t.bucketId, t.prefix] }) }),
 );
+
+export const orgKeys = sqliteTable(
+  'org_keys',
+  {
+    orgId: text('org_id').notNull(),
+    version: integer('version').notNull(),
+    kekState: text('kek_state').notNull(), // 'plaintext_env' | 'sealed'
+    verifier: blob('verifier', { mode: 'buffer' }).notNull(),
+    createdAt: text('created_at').notNull(),
+    retiredAt: text('retired_at'),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.version] })],
+);
+
+export const objects = sqliteTable(
+  'objects',
+  {
+    bucketId: text('bucket_id').notNull(),
+    key: text('key').notNull(),
+    s3Key: text('s3_key').notNull(),
+    encrypted: integer('encrypted').notNull().default(1),
+    dekWrapped: blob('dek_wrapped', { mode: 'buffer' }).notNull(),
+    kekVersion: integer('kek_version').notNull(),
+    streamHeader: blob('stream_header', { mode: 'buffer' }).notNull(),
+    chunkSize: integer('chunk_size').notNull().default(1048576),
+    sizePlain: integer('size_plain').notNull(),
+    sizeCipher: integer('size_cipher').notNull(),
+    contentType: text('content_type'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.bucketId, t.key] }), uniqueIndex('idx_objects_s3key').on(t.bucketId, t.s3Key)],
+);
+
+export const bucketCrypto = sqliteTable('bucket_crypto', {
+  bucketId: text('bucket_id').primaryKey(),
+  enabled: integer('enabled').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});

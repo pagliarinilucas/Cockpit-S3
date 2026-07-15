@@ -155,6 +155,45 @@ sqlite.run(`
 `);
 sqlite.run('CREATE INDEX IF NOT EXISTS idx_shares_creator ON shares(created_by)');
 
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS org_keys (
+    org_id     TEXT NOT NULL,
+    version    INTEGER NOT NULL,
+    kek_state  TEXT NOT NULL,       -- 'plaintext_env' | 'sealed'
+    verifier   BLOB NOT NULL,       -- sentinela cifrado com a KEK (fail-fast)
+    created_at TEXT NOT NULL,
+    retired_at TEXT,
+    PRIMARY KEY (org_id, version)
+  );
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS objects (
+    bucket_id     TEXT NOT NULL,    -- connectionId:bucketName
+    key           TEXT NOT NULL,    -- caminho+nome REAL exibido ao usuário
+    s3_key        TEXT NOT NULL,    -- UUID opaco usado no bucket
+    encrypted     INTEGER NOT NULL DEFAULT 1,
+    dek_wrapped   BLOB NOT NULL,
+    kek_version   INTEGER NOT NULL,
+    stream_header BLOB NOT NULL,
+    chunk_size    INTEGER NOT NULL DEFAULT 1048576,
+    size_plain    INTEGER NOT NULL,
+    size_cipher   INTEGER NOT NULL,
+    content_type  TEXT,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (bucket_id, key)
+  );
+`);
+sqlite.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_objects_s3key ON objects(bucket_id, s3_key)');
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS bucket_crypto (
+    bucket_id  TEXT PRIMARY KEY,    -- connectionId:bucketName
+    enabled    INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+`);
+
 // Additive migration (idempotent): users.can_share for DBs created before share links existed.
 {
   const cols = sqlite.query('PRAGMA table_info(users)').all() as { name: string }[];
