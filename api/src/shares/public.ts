@@ -6,6 +6,9 @@ import { audit } from '../audit/store';
 import { isCluster, ensureClusterBucketAccess } from '../clusters/access';
 import { sharesStore, isUsable } from './store';
 import { clientIp } from './ip';
+import { objectsStore } from '../objects/store';
+import { getKekProvider } from '../crypto/kek';
+import { downloadEncrypted } from '../storage/crypto-pipeline';
 
 type Row = NonNullable<ReturnType<typeof sharesStore.get>>;
 
@@ -56,7 +59,8 @@ export const publicShareRoutes = new Elysia({ prefix: '/api' })
     let size: number | null = null;
     try {
       await ensureSource(ref);
-      size = (await s3.head(ref.cid, ref.bucket, res.key)).size;
+      const row = objectsStore.get(res.bucketId, res.key);
+      size = row ? row.sizePlain : (await s3.head(ref.cid, ref.bucket, res.key)).size;
     } catch { /* meta best-effort; size stays null */ }
     return {
       filename,
@@ -77,6 +81,24 @@ export const publicShareRoutes = new Elysia({ prefix: '/api' })
     const mode = (query as Record<string, string>)['mode'] === 'download' ? 'download' : 'preview';
     try {
       await ensureSource(ref);
+      const row = objectsStore.get(res.bucketId, res.key);
+      if (row) {
+        // objeto cifrado: decifra via proxy (mesma DEK/stream do fluxo autenticado)
+        if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+        const stream = await downloadEncrypted(row, ref.cid, ref.bucket);
+        if (mode === 'download') audit.log('download', 'link:' + params.token, res.bucketId, res.key);
+        const filename = res.key.split('/').pop() || 'file';
+        const disposition = mode === 'download'
+          ? `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+          : 'inline';
+        return new Response(stream, {
+          headers: {
+            'Content-Type': row.contentType || 'application/octet-stream',
+            'Content-Length': String(row.sizePlain),
+            'Content-Disposition': disposition,
+          },
+        });
+      }
       const out = await s3.object(ref.cid, ref.bucket, res.key, mode);
       if (mode === 'download') audit.log('download', 'link:' + params.token, res.bucketId, res.key);
       return out;

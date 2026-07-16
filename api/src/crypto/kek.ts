@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { orgKeys } from '../db/schema';
 import { readKekBytes } from '../config';
-import { generateKek, makeVerifier, checkVerifier, wrapDek, unwrapDek } from './index';
+import { makeVerifier, checkVerifier, wrapDek, unwrapDek } from './index';
 import { DEFAULT_ORG } from './constants';
 
 export interface KekStatus {

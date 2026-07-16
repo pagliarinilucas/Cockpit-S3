@@ -127,8 +127,12 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       try {
         await ensureSource(ref);
         const { items, nextToken } = await s3.list(ref.cid, ref.bucket, path, { token, limit });
+        // oculta os blobs opacos (s3_key UUID) que o s3.list devolve — eles nunca devem
+        // aparecer na API; os nomes reais vêm da mescla com a tabela `objects` abaixo.
+        const s3keys = objectsStore.listS3Keys(params.id);
+        const realItems = items.filter((it) => !(it.kind === 'file' && s3keys.has(it.key)));
         // cópia defensiva: evita mutar o array retornado por s3.list quando access.all (o push abaixo alteraria a origem)
-        let visible = access.all ? items.slice() : items.filter((it) =>
+        let visible = access.all ? realItems.slice() : realItems.filter((it) =>
           it.kind === 'folder' ? perms.folderVisible(access, it.key) : perms.canRead(access, it.key));
         // mescla objetos cifrados (linhas em `objects`) neste prefixo — só na 1ª página, p/ não duplicar entre páginas
         if (!token) {
@@ -137,6 +141,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
           const folderKeys = new Set(visible.filter((i) => i.kind === 'folder').map((i) => i.key));
           for (const r of encRows) {
             const rest = r.key.slice(path.length);
+            if (!rest) continue; // marcador da própria pasta corrente
             const slash = rest.indexOf('/');
             if (slash >= 0) {
               // arquivo cifrado em subpasta ainda não listada: sintetiza a pasta virtual
@@ -408,6 +413,15 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const key = norm(body.path ?? '') + body.name + '/';
       if (!access || !perms.canWrite(access, key)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
+      if (bucketCryptoStore.isEnabled(params.id)) {
+        // Bucket cifrado: NÃO grava marcador com nome real (vazaria a estrutura no bucket).
+        // Cria um marcador de pasta CIFRADO (objeto de 0 bytes com key = caminho da pasta):
+        // o blob no bucket é um UUID opaco e a pasta aparece como virtual na listagem.
+        if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+        const empty = new ReadableStream<Uint8Array>({ start(c) { c.close(); } });
+        await uploadEncrypted({ cid: ref.cid, bucket: ref.bucket, bucketId: params.id, key, sizePlain: 0, contentType: 'application/x-directory', body: empty });
+        return { ok: true, key };
+      }
       await s3.createFolder(ref.cid, ref.bucket, key);
       return { ok: true, key };
     }, { body: t.Object({ path: t.Optional(t.String()), name: t.String({ minLength: 1 }) }) })

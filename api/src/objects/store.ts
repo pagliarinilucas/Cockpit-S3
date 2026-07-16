@@ -26,6 +26,12 @@ export const objectsStore = {
   getByS3Key(bucketId: string, s3Key: string) {
     return db.select().from(objects).where(and(eq(objects.bucketId, bucketId), eq(objects.s3Key, s3Key))).get() ?? null;
   },
+  /** Conjunto de todos os s3_key (UUID opacos) do bucket — usado p/ ocultá-los da listagem. */
+  listS3Keys(bucketId: string): Set<string> {
+    return new Set(
+      db.select({ s3Key: objects.s3Key }).from(objects).where(eq(objects.bucketId, bucketId)).all().map((r) => r.s3Key),
+    );
+  },
   listPrefix(bucketId: string, prefix: string) {
     // Escapa \, % e _ (nessa ordem) e usa ESCAPE explícito — sem isso o SQLite trata
     // o backslash como caractere literal e não neutraliza % / _ no prefixo do usuário.

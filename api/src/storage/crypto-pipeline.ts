@@ -30,11 +30,20 @@ export async function uploadEncrypted(a: UploadArgs): Promise<void> {
     const { header, transform } = encryptStream(dek);
     const sizeCipher = cipherBlobSize(a.sizePlain);
 
+    // guarda de tamanho: conta o plaintext ANTES de cifrar; se o cliente declarou um
+    // sizePlain menor que o corpo real, o Content-Length trunca o PUT e commitaria um
+    // objeto CORROMPIDO. O mismatch dispara aqui, falha o PUT e aciona a compensação.
+    let counted = 0;
+    const guard = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, ctrl) { counted += chunk.byteLength; ctrl.enqueue(chunk); },
+      flush() { if (counted !== a.sizePlain) throw new Error(`size_mismatch_${counted}_${a.sizePlain}`); },
+    });
+
     // 1) PUT streaming via presigned + fetch
     const url = await s3.presignPut(a.cid, a.bucket, s3Key, 'application/octet-stream');
     const res = await fetch(url, {
       method: 'PUT',
-      body: a.body.pipeThrough(transform) as unknown as Bun.BodyInit,
+      body: a.body.pipeThrough(guard).pipeThrough(transform) as unknown as Bun.BodyInit,
       duplex: 'half',
       headers: { 'content-type': 'application/octet-stream', 'content-length': String(sizeCipher) },
     });
