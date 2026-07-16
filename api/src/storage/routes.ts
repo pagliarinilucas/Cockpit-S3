@@ -192,7 +192,20 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       try {
         await ensureSource(ref);
         const items = await s3.search(ref.cid, ref.bucket, path, q, limit);
-        const visible = access.all ? items : items.filter((it) => perms.canRead(access, it.key));
+        let visible = access.all ? items : items.filter((it) => perms.canRead(access, it.key));
+        // mescla objetos cifrados (linhas em `objects`) cuja key bate com a busca — não passam pelo s3.search legado
+        const encRows = objectsStore.listPrefix(params.id, path);
+        const ql = q.toLowerCase();
+        const seen = new Set(visible.map((it) => it.key));
+        for (const r of encRows) {
+          const base = r.key.slice(path.length);
+          if (!base.toLowerCase().includes(ql)) continue;
+          if (seen.has(r.key)) continue;
+          if (!access.all && !perms.canRead(access, r.key)) continue;
+          seen.add(r.key);
+          visible.push({ kind: 'file', name: r.key.split('/').pop() || r.key, key: r.key, size: r.sizePlain, modified: r.createdAt });
+        }
+        if (visible.length > limit) visible = visible.slice(0, limit);
         return { bucket: params.id, path, items: visible };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
@@ -228,6 +241,10 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       // view-only só pré-visualiza tipos inline; tipos não-inline virariam attachment (=download).
       if (!perms.canDownload(access, key) && !s3.inlinePreviewable(key)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
+      // objeto cifrado: não há URL presignada de plaintext — devolve URL de proxy same-origin (/raw decifra em streaming)
+      if (objectsStore.get(params.id, key)) {
+        return { url: `/api/buckets/${params.id}/raw?key=${encodeURIComponent(key)}&mode=preview`, disposition: 'inline' as const };
+      }
       return s3.presign(ref.cid, ref.bucket, key, 'preview');
     })
 
@@ -310,7 +327,19 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
-        const data = await s3.bytes(ref.cid, ref.bucket, key);
+        // objeto cifrado: decifra em memória antes de gerar a miniatura
+        const row = objectsStore.get(params.id, key);
+        let data: Uint8Array;
+        if (row) {
+          if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+          const stream = await downloadEncrypted(row, ref.cid, ref.bucket);
+          const chunks: Buffer[] = [];
+          const reader = stream.getReader();
+          for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(Buffer.from(value)); }
+          data = new Uint8Array(Buffer.concat(chunks));
+        } else {
+          data = await s3.bytes(ref.cid, ref.bucket, key);
+        }
         const thumb = await makeThumb(data);
         if (!thumb) { set.status = 415; return { error: 'no_thumbnail' }; }   // front cai no ícone
         return new Response(thumb.bytes, { headers: {
