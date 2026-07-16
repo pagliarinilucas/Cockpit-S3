@@ -17,6 +17,7 @@ import { mayDeleteBucket } from '../buckets/guard';
 import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
 import { uploadEncrypted, downloadEncrypted } from './crypto-pipeline';
+import { config } from '../config';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -29,6 +30,14 @@ function parse(id: string): { cid: string; bucket: string } | null {
   const i = id.indexOf(':');
   if (i <= 0) return null;
   return { cid: id.slice(0, i), bucket: id.slice(i + 1) };
+}
+
+/** Lê um ReadableStream<Uint8Array> por completo, concatenando os chunks. */
+async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+  return new Uint8Array(await new Response(new Blob(chunks)).arrayBuffer());
 }
 
 /** Cluster buckets precisam da key interna liberada (lazy) antes de qualquer op S3. No-op para conexões. */
@@ -155,7 +164,12 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
               visible.push({ kind: 'file', name: rest, key: r.key, size: r.sizePlain, modified: r.createdAt });
             }
           }
+          // re-ordena após a mescla: pastas primeiro, depois por nome (mesmo critério do s3.list).
+          // Nota (Fase 1): a paginação mesclando S3+DB para pastas cifradas enormes ainda não é
+          // exata entre páginas — limitação documentada, ok para os volumes atuais.
+          visible.sort((a, b) => a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name));
         }
+        if (limit) visible = visible.slice(0, limit);
         return { bucket: params.id, path, items: visible, perm: perms.permForKey(access, path), nextToken };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
@@ -174,8 +188,15 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (hit && Date.now() - hit.at < STATS_TTL) return { used: hit.used, objects: hit.objects, truncated: hit.truncated };
       try {
         await ensureSource(ref);
-        const keep = access.all ? undefined : (k: string) => perms.canRead(access, k);
+        // objetos cifrados aparecem no S3 como blobs opacos (UUID) com tamanho de
+        // CIFRADO — exclui esses s3_keys da soma do S3 e soma o plaintext deles à parte.
+        const encS3Keys = objectsStore.listS3Keys(params.id);
+        const keep = (k: string) => (access.all || perms.canRead(access, k)) && !encS3Keys.has(k);
         const s = await s3.stats(ref.cid, ref.bucket, keep);
+        for (const row of objectsStore.listPrefix(params.id, '')) {
+          if (row.key.endsWith('/')) continue;   // marcador de pasta cifrada — não conta como objeto
+          if (access.all || perms.canRead(access, row.key)) { s.used += row.sizePlain; s.objects++; }
+        }
         statsCache.set(cacheKey, { at: Date.now(), ...s });
         return s;
       } catch (e) {
@@ -210,6 +231,8 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
           seen.add(r.key);
           visible.push({ kind: 'file', name: r.key.split('/').pop() || r.key, key: r.key, size: r.sizePlain, modified: r.createdAt });
         }
+        // re-ordena após a mescla: pastas primeiro, depois por nome (mesmo critério do s3.list).
+        visible.sort((a, b) => a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name));
         if (visible.length > limit) visible = visible.slice(0, limit);
         return { bucket: params.id, path, items: visible };
       } catch (e) {
@@ -303,7 +326,17 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       for (const k of body.keys) if (!perms.canDownload(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
-        const { pdf, skipped } = await mergeToPdf(body.keys, (key) => s3.bytes(ref.cid, ref.bucket, key));
+        // objeto cifrado: o blob real está sob uma key UUID opaca — decifra em memória
+        // antes de entregar ao merge; objeto legado segue lendo direto do S3.
+        const fetchBytes = async (key: string): Promise<Uint8Array> => {
+          const row = objectsStore.get(params.id, key);
+          if (row) {
+            if (!getKekProvider()) throw new Error('sealed');
+            return readAll(await downloadEncrypted(row, ref.cid, ref.bucket));
+          }
+          return s3.bytes(ref.cid, ref.bucket, key);
+        };
+        const { pdf, skipped } = await mergeToPdf(body.keys, fetchBytes);
         if (!pdf) { set.status = 422; return { error: 'no_mergeable_content', skipped }; }
         const name = (body.filename?.trim() || 'combinado').replace(/\.pdf$/i, '');
         audit.log('download', user!.username, params.id, `merge-pdf (${body.keys.length} itens) -> ${name}.pdf`);
@@ -337,11 +370,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         let data: Uint8Array;
         if (row) {
           if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
-          const stream = await downloadEncrypted(row, ref.cid, ref.bucket);
-          const chunks: Buffer[] = [];
-          const reader = stream.getReader();
-          for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(Buffer.from(value)); }
-          data = new Uint8Array(Buffer.concat(chunks));
+          data = await readAll(await downloadEncrypted(row, ref.cid, ref.bucket));
         } else {
           data = await s3.bytes(ref.cid, ref.bucket, key);
         }
@@ -365,6 +394,10 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const file = body.file;
       const key = path + file.name;
       if (!access || !perms.canWrite(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      // bucket cifrado: o upload legado grava plaintext direto no bucket — bloqueia e
+      // manda o cliente usar o endpoint cifrado (streaming) em vez deste.
+      if (bucketCryptoStore.isEnabled(params.id)) { set.status = 400; return { error: 'bucket_encrypted_use_encrypted_endpoint' }; }
+      if (file.size > config.uploadMaxInMemoryBytes) { set.status = 413; return { error: 'file_too_large' }; }
       await ensureSource(ref);
       const data = new Uint8Array(await file.arrayBuffer());
       await s3.put(ref.cid, ref.bucket, key, data, file.type || undefined);
@@ -404,7 +437,11 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 500; return { error: 'upload_failed' };
       }
-    })
+    }, { parse: 'none' })
+    // `parse: 'none'` desliga o body parser embutido do Elysia (que bufferiza tudo via
+    // arrayBuffer() ANTES do handler — um upload de 256 MiB chegava a ~3 GiB de RSS). Com
+    // isso `request.body` permanece o ReadableStream cru da requisição, e o pipeline de
+    // criptografia acima consome-o em streaming direto para o PUT presigned no S3.
 
     .post('/buckets/:id/folders', async ({ user, params, body, set }) => {
       const ref = parse(params.id);
@@ -433,14 +470,18 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
       for (const k of body.keys) if (!perms.canWrite(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
-      // objetos cifrados (linha em `objects`) apagam o blob opaco + a linha; keys legadas seguem o delete em lote
+      // objetos cifrados (linha em `objects`) apagam a linha da DB e coletam o blob opaco;
+      // keys legadas vão direto pro lote. Os dois lotes são deletados numa única chamada
+      // DeleteObjects (batch), em vez de um round-trip por key.
+      const encS3Keys: string[] = [];
       const legacyKeys: string[] = [];
       for (const k of body.keys) {
         const removed = objectsStore.remove(params.id, k);
-        if (removed) { await s3.removeKey(ref.cid, ref.bucket, removed.s3Key).catch((e) => console.error('[crypto] falha ao remover blob', removed.s3Key, (e as Error).message)); }
-        else { legacyKeys.push(k); }
+        if (removed) encS3Keys.push(removed.s3Key);
+        else legacyKeys.push(k);
       }
-      if (legacyKeys.length) await s3.remove(ref.cid, ref.bucket, legacyKeys);
+      const batch = [...encS3Keys, ...legacyKeys];
+      if (batch.length) await s3.remove(ref.cid, ref.bucket, batch);
       for (const k of body.keys) audit.log('delete', user!.username, params.id, k);
       return { ok: true };
     }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1 }) }) })

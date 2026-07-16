@@ -61,6 +61,10 @@ export const config = {
   // Teto de corpo de upload (Bun default é 128 MiB). Default 6 GiB p/ cobrir o
   // teto de single-PUT do S3 (~5 GiB) em objetos cifrados.
   uploadMaxBytes: Number(env('UPLOAD_MAX_BYTES', String(6 * 1024 * 1024 * 1024))),
+  // Teto do upload LEGADO (multipart, bufferizado em memória via file.arrayBuffer()).
+  // O teto global acima (uploadMaxBytes) cobre a rota cifrada em streaming; este é bem
+  // menor pois cada byte aceito aqui vira RSS do processo. Default 128 MiB.
+  uploadMaxInMemoryBytes: Number(env('UPLOAD_MAX_INMEMORY_BYTES', String(128 * 1024 * 1024))),
 };
 
 /** Lê a KEK bruta (32 bytes) de COCKPIT_KEK_FILE ou COCKPIT_KEK (base64). null se ausente. */
