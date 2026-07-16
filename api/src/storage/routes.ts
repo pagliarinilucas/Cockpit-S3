@@ -16,6 +16,7 @@ import { bucketAliasStore } from '../buckets/store';
 import { mayDeleteBucket } from '../buckets/guard';
 import { bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
+import { uploadEncrypted } from './crypto-pipeline';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -291,6 +292,39 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       audit.log('upload', user!.username, params.id, key);
       return { ok: true, key };
     }, { body: t.Object({ path: t.Optional(t.String()), file: t.File() }) })
+
+    // Upload cifrado (corpo cru streaming). Só quando o bucket é cifrado.
+    .post('/buckets/:id/objects-encrypted', async ({ user, params, query, request, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      const bucketId = params.id;
+      if (!s3.hasAny()) { set.status = 503; return { error: 's3_not_configured' }; }
+      if (!bucketCryptoStore.isEnabled(bucketId)) { set.status = 400; return { error: 'bucket_not_encrypted' }; }
+      if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+      const access = perms.access(user!, bucketId);
+      const q = query as Record<string, string>;
+      const path = norm(q['path'] ?? '');
+      const name = String(q['name'] ?? '');
+      const key = path + name;
+      if (!name) { set.status = 400; return { error: 'missing_name' }; }
+      if (!access || !perms.canWrite(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      const sizePlain = Number(q['size'] ?? request.headers.get('x-plain-size') ?? NaN);
+      if (!Number.isFinite(sizePlain) || sizePlain < 0) { set.status = 400; return { error: 'bad_size' }; }
+      if (!request.body) { set.status = 400; return { error: 'no_body' }; }
+      try {
+        await ensureSource(ref);
+        await uploadEncrypted({
+          cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain,
+          contentType: request.headers.get('x-content-type') || 'application/octet-stream',
+          body: request.body as ReadableStream<Uint8Array>,
+        });
+        audit.log('upload', user!.username, bucketId, key);
+        set.status = 201; return { ok: true, key };
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 500; return { error: 'upload_failed' };
+      }
+    })
 
     .post('/buckets/:id/folders', async ({ user, params, body, set }) => {
       const ref = parse(params.id);
