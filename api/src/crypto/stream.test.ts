@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'bun:test';
 import { encryptStream, decryptStream } from './stream';
 import { generateDek } from './index';
-import { cipherBlobSize, CHUNK_SIZE } from './constants';
+import { cipherBlobSize, CHUNK_SIZE, ABYTES } from './constants';
 
 async function pump(input: Uint8Array, ts: TransformStream<Uint8Array, Uint8Array>): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -52,6 +52,17 @@ describe('encrypt/decrypt stream', () => {
     const { header, transform } = encryptStream(dek);
     const cipher = await pump(Buffer.alloc(5000, 7), transform);
     await expect(pump(cipher.subarray(0, cipher.length - 1), decryptStream(dek, header))).rejects.toBeDefined();
+  });
+
+  it('remoção do chunk final inteiro (blob truncado) falha', async () => {
+    const dek = generateDek();
+    const { header, transform } = encryptStream(dek);
+    const lastPlainLen = 500;
+    const size = CHUNK_SIZE + lastPlainLen; // 2 chunks: 1 cheio + 1 resto
+    const cipher = await pump(Buffer.alloc(size, 7), transform);
+    const lastChunkLen = lastPlainLen + ABYTES;
+    const truncated = cipher.subarray(0, cipher.length - lastChunkLen);
+    await expect(pump(truncated, decryptStream(dek, header))).rejects.toBeDefined();
   });
 
   it('DEK errada falha', async () => {

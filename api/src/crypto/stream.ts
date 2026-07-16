@@ -57,10 +57,12 @@ export function decryptStream(dek: Buffer, header: Buffer): TransformStream<Uint
   let buflen = 0;
   const ENC = CHUNK_SIZE + ABYTES;
   const tagOut = Buffer.alloc(1);
+  let sawFinal = false; // true só quando o último bloco decifrado carregava TAG_FINAL
 
   const pull = (ctrl: TransformStreamDefaultController<Uint8Array>, cipher: Buffer) => {
     const m = Buffer.alloc(cipher.length - ABYTES);
     sodium.crypto_secretstream_xchacha20poly1305_pull(state, m, tagOut, cipher, null);
+    sawFinal = tagOut[0] === TAG_FINAL;
     ctrl.enqueue(new Uint8Array(m));
   };
 
@@ -79,6 +81,9 @@ export function decryptStream(dek: Buffer, header: Buffer): TransformStream<Uint
     },
     flush(ctrl) {
       if (buflen) pull(ctrl, Buffer.concat(buf, buflen));
+      // se o stream terminar sem que o último bloco decifrado tivesse TAG_FINAL,
+      // o blob foi truncado (ex.: chunk final inteiro removido) — rejeita.
+      if (!sawFinal) throw new Error('stream_truncated');
     },
   });
 }
