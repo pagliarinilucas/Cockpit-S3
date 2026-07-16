@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import {
-  S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand,
+  S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand, DeleteObjectCommand,
   PutObjectCommand, GetObjectCommand, HeadObjectCommand, CreateBucketCommand, DeleteBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -264,5 +264,25 @@ export const s3 = {
   },
   async remove(cid: string, bucket: string, keys: string[]): Promise<void> {
     await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
+  },
+
+  /** URL presigned PUT (uso interno do servidor; nunca entregue ao cliente). */
+  async presignPut(cid: string, bucket: string, s3Key: string, contentType: string): Promise<string> {
+    const cmd = new PutObjectCommand({ Bucket: bucket, Key: s3Key, ContentType: contentType });
+    return getSignedUrl(client(cid), cmd, { expiresIn: 300 });
+  },
+  /** URL presigned GET crua (uso interno; sem override de disposition). */
+  async presignGetRaw(cid: string, bucket: string, s3Key: string): Promise<string> {
+    const cmd = new GetObjectCommand({ Bucket: bucket, Key: s3Key });
+    return getSignedUrl(client(cid), cmd, { expiresIn: 300 });
+  },
+  /** Deleta um único objeto (por s3_key opaco ou key legada). */
+  async removeKey(cid: string, bucket: string, key: string): Promise<void> {
+    await client(cid).send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  },
+  /** True se existe objeto com essa key (usado p/ detectar plaintext legado). */
+  async headExists(cid: string, bucket: string, key: string): Promise<boolean> {
+    try { await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key })); return true; }
+    catch { return false; }
   },
 };
