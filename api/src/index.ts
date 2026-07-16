@@ -19,6 +19,7 @@ import { clustersStore } from './clusters/store';
 import { shareRoutes } from './shares/routes';
 import { publicShareRoutes } from './shares/public';
 import { staticRoutes } from './web/static';
+import { bootKekProvider } from './crypto/kek';
 
 await bootstrap();
 sessions.prune();
@@ -43,7 +44,10 @@ if (connectionsStore.count() === 0) {
 s3.configureAll(connectionsStore.listFull());
 for (const c of clustersStore.listFull()) configureClusterS3(c);
 
-const app = new Elysia()
+// Inicializa o provedor de KEK (criptografia em repouso), se configurado; no-op se não houver COCKPIT_KEK/COCKPIT_KEK_FILE.
+bootKekProvider();
+
+const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(cors({
     origin: config.corsOrigin,
     credentials: true,

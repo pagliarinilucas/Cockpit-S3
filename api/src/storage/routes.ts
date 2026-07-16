@@ -14,6 +14,8 @@ import { garageAdmin } from '../garage/admin';
 import { isCluster, ensureClusterBucketAccess, revokeClusterBucketAccess } from '../clusters/access';
 import { bucketAliasStore } from '../buckets/store';
 import { mayDeleteBucket } from '../buckets/guard';
+import { bucketCryptoStore } from '../objects/store';
+import { getKekProvider } from '../crypto/kek';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -90,6 +92,26 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       audit.log('bucket', user!.username, body.id, alias ? `apelido: ${alias}` : 'apelido removido');
       return { ok: true, alias: alias || null };
     }, { body: t.Object({ id: t.String({ minLength: 1 }), alias: t.String({ maxLength: 200 }) }) })
+
+    // consulta se a criptografia em repouso está habilitada no bucket (dono/admin)
+    .get('/buckets/:id/encryption', ({ user, params, set }) => {
+      const perm = perms.bucketPermFor(user!, params.id);
+      if (user!.role !== 'admin' && perm !== 'owner') { set.status = 403; return { error: 'forbidden' }; }
+      return {
+        enabled: bucketCryptoStore.isEnabled(params.id),
+        provider: getKekProvider()?.status() ?? { mode: 'none', sealed: false, currentVersion: null },
+      };
+    })
+
+    // liga/desliga a criptografia em repouso do bucket (dono/admin); exige provedor de KEK configurado
+    .post('/buckets/:id/encryption', ({ user, params, body, set }) => {
+      const perm = perms.bucketPermFor(user!, params.id);
+      if (user!.role !== 'admin' && perm !== 'owner') { set.status = 403; return { error: 'forbidden' }; }
+      if (body.enabled && !getKekProvider()) { set.status = 400; return { error: 'kek_not_configured' }; }
+      bucketCryptoStore.setEnabled(params.id, !!body.enabled);
+      audit.log('key', user!.username, params.id, body.enabled ? 'encryption:on' : 'encryption:off');
+      return { enabled: bucketCryptoStore.isEnabled(params.id) };
+    }, { body: t.Object({ enabled: t.Boolean() }) })
 
     // list objects (paginated) — filtered to what the caller can see at `path`
     .get('/buckets/:id/objects', async ({ user, params, query, set }) => {
