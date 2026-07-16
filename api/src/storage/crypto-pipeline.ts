@@ -49,17 +49,20 @@ export async function uploadEncrypted(a: UploadArgs): Promise<void> {
       }));
     } catch (e) {
       // metadata falhou -> deleta o blob novo (sem órfão)
-      await s3.removeKey(a.cid, a.bucket, s3Key).catch(() => {});
+      await s3.removeKey(a.cid, a.bucket, s3Key).catch((err) =>
+        console.error('[crypto] falha ao remover blob órfão', s3Key, (err as Error).message));
       throw e;
     }
 
     // 3) pós-commit: deletar blob antigo (overwrite cifrado) OU plaintext legado na mesma key
     if (oldS3Key && oldS3Key !== s3Key) {
-      await s3.removeKey(a.cid, a.bucket, oldS3Key).catch(() => {});
+      await s3.removeKey(a.cid, a.bucket, oldS3Key).catch((err) =>
+        console.error('[crypto] falha ao remover blob órfão', oldS3Key, (err as Error).message));
     } else if (!oldS3Key) {
       // primeira vez cifrando esta key: se havia plaintext legado com o nome real, remover
       if (await s3.headExists(a.cid, a.bucket, a.key)) {
-        await s3.removeKey(a.cid, a.bucket, a.key).catch(() => {});
+        await s3.removeKey(a.cid, a.bucket, a.key).catch((err) =>
+          console.error('[crypto] falha ao remover blob órfão', a.key, (err as Error).message));
       }
     }
   } finally {
@@ -76,17 +79,24 @@ export async function downloadEncrypted(
   if (!provider) throw new Error('sealed_or_unconfigured');
   const dek = provider.unwrapDek(DEFAULT_ORG, row.kekVersion, row.dekWrapped as Buffer);
 
-  const url = await s3.presignGetRaw(cid, bucket, row.s3Key);
-  const res = await fetch(url);
-  if (!res.ok || !res.body) { sodium.sodium_memzero(dek); throw new Error(`s3_get_failed_${res.status}`); }
+  try {
+    const url = await s3.presignGetRaw(cid, bucket, row.s3Key);
+    const res = await fetch(url);
+    if (!res.ok || !res.body) throw new Error(`s3_get_failed_${res.status}`);
 
-  const plain = res.body.pipeThrough(decryptStream(dek, row.streamHeader as Buffer));
-  // memzero quando o stream termina/aborta
-  return plain.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(c, ctrl) { ctrl.enqueue(c); },
-    flush() { sodium.sodium_memzero(dek); },
-    // @ts-expect-error 'cancel' não faz parte do tipo Transformer do lib.dom/bun-types,
-    // mas o runtime do Bun invoca ao cancelar o lado readable (zera a DEK em abort).
-    cancel() { sodium.sodium_memzero(dek); },
-  }));
+    const plain = res.body.pipeThrough(decryptStream(dek, row.streamHeader as Buffer));
+    // memzero quando o stream termina/aborta (sucesso: NÃO zera aqui, os hooks abaixo cuidam disso)
+    return plain.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(c, ctrl) { ctrl.enqueue(c); },
+      flush() { sodium.sodium_memzero(dek); },
+      // @ts-expect-error 'cancel' não faz parte do tipo Transformer do lib.dom/bun-types,
+      // mas o runtime do Bun invoca ao cancelar o lado readable (zera a DEK em abort).
+      cancel() { sodium.sodium_memzero(dek); },
+    }));
+  } catch (e) {
+    // falha antes de entregar o stream (presign, fetch ou init_pull do streamHeader corrompido)
+    // -> zera a DEK aqui, pois os hooks do stream retornado nunca serão acionados
+    sodium.sodium_memzero(dek);
+    throw e;
+  }
 }
