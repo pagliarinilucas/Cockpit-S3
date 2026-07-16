@@ -14,9 +14,9 @@ import { garageAdmin } from '../garage/admin';
 import { isCluster, ensureClusterBucketAccess, revokeClusterBucketAccess } from '../clusters/access';
 import { bucketAliasStore } from '../buckets/store';
 import { mayDeleteBucket } from '../buckets/guard';
-import { bucketCryptoStore } from '../objects/store';
+import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
-import { uploadEncrypted } from './crypto-pipeline';
+import { uploadEncrypted, downloadEncrypted } from './crypto-pipeline';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -186,6 +186,11 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!key) { set.status = 400; return { error: 'missing_key' }; }
       if (!access || !perms.canDownload(access, key)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
+      // objeto cifrado: não há URL presignada de plaintext — devolve URL de proxy same-origin (/raw decifra em streaming)
+      if (objectsStore.get(params.id, key)) {
+        audit.log('download', user!.username, params.id, key);
+        return { url: `/api/buckets/${params.id}/raw?key=${encodeURIComponent(key)}&mode=download`, disposition: 'attachment' };
+      }
       const r = await s3.presign(ref.cid, ref.bucket, key, 'download');
       audit.log('download', user!.username, params.id, key);
       return r;
@@ -218,6 +223,24 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (mode === 'preview' && !perms.canDownload(access, key) && !s3.inlinePreviewable(key)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
+        // objeto cifrado: decifra em streaming a partir do blob real (s3Key), sem tocar no plaintext em disco
+        const row = objectsStore.get(params.id, key);
+        if (row) {
+          if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+          const stream = await downloadEncrypted(row, ref.cid, ref.bucket);
+          if (mode === 'download') audit.log('download', user!.username, params.id, key);
+          const filename = key.split('/').pop() || 'file';
+          const disposition = mode === 'download'
+            ? `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+            : 'inline';
+          return new Response(stream, {
+            headers: {
+              'Content-Type': row.contentType || 'application/octet-stream',
+              'Content-Length': String(row.sizePlain),
+              'Content-Disposition': disposition,
+            },
+          });
+        }
         const res = await s3.object(ref.cid, ref.bucket, key, mode);
         if (mode === 'download') audit.log('download', user!.username, params.id, key);
         return res;
