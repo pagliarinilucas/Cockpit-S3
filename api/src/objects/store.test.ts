@@ -43,6 +43,16 @@ describe('objectsStore', () => {
     expect(keys).toEqual(['docs/x.txt', 'docs/y.txt']);
   });
 
+  it('listPrefix escapa % literal no prefixo (não deve casar com curinga)', () => {
+    // Chave real cujo prefixo contém um % literal.
+    objectsStore.upsertReturningOld(row('50%/real.txt', 'u6'));
+    // Decoy que só seria casado se o % do prefixo NÃO fosse escapado
+    // (LIKE '50%/%' sem ESCAPE casaria com qualquer coisa entre "50" e "/").
+    objectsStore.upsertReturningOld(row('50Xoff/decoy.txt', 'u7'));
+    const keys = objectsStore.listPrefix('c:b', '50%/').map((r) => r.key);
+    expect(keys).toEqual(['50%/real.txt']);
+  });
+
   it('remove apaga e retorna a linha', () => {
     objectsStore.upsertReturningOld(row('del.txt', 'u5'));
     expect(objectsStore.remove('c:b', 'del.txt')?.s3Key).toBe('u5');

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 /** Metadata de objetos cifrados e flag de criptografia por bucket. */
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, sqlite } from '../db';
 import { objects, bucketCrypto } from '../db/schema';
 
@@ -27,8 +27,11 @@ export const objectsStore = {
     return db.select().from(objects).where(and(eq(objects.bucketId, bucketId), eq(objects.s3Key, s3Key))).get() ?? null;
   },
   listPrefix(bucketId: string, prefix: string) {
+    // Escapa \, % e _ (nessa ordem) e usa ESCAPE explícito — sem isso o SQLite trata
+    // o backslash como caractere literal e não neutraliza % / _ no prefixo do usuário.
+    const pat = prefix.replace(/[\\%_]/g, '\\$&') + '%';
     return db.select().from(objects)
-      .where(and(eq(objects.bucketId, bucketId), like(objects.key, `${prefix.replace(/[%_]/g, '\\$&')}%`)))
+      .where(and(eq(objects.bucketId, bucketId), sql`${objects.key} LIKE ${pat} ESCAPE '\\'`))
       .all();
   },
   /** Insere/atualiza a linha e devolve o s3_key anterior (p/ deletar o blob velho). Atômico (WAL serializa o writer). */
