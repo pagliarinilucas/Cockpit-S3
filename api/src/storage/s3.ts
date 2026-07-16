@@ -3,6 +3,7 @@
 import {
   S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand, DeleteObjectCommand,
   PutObjectCommand, GetObjectCommand, HeadObjectCommand, CreateBucketCommand, DeleteBucketCommand,
+  CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConnFull } from '../connections/store';
@@ -284,5 +285,32 @@ export const s3 = {
   async headExists(cid: string, bucket: string, key: string): Promise<boolean> {
     try { await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key })); return true; }
     catch { return false; }
+  },
+
+  /**
+   * Multipart upload manual: usado pelo upload cifrado para limitar memória (partes
+   * de tamanho fixo, upload sequencial). Não streama a parte em si — cada UploadPart
+   * recebe um Buffer já montado (funciona igual no Garage/MinIO, sem chunked encoding).
+   */
+  async createMultipart(cid: string, bucket: string, key: string, contentType: string): Promise<string> {
+    const out = await client(cid).send(new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: contentType }));
+    if (!out.UploadId) throw new Error('multipart_create_failed');
+    return out.UploadId;
+  },
+  async uploadPart(cid: string, bucket: string, key: string, uploadId: string, partNumber: number, body: Uint8Array): Promise<{ ETag: string; PartNumber: number }> {
+    const out = await client(cid).send(new UploadPartCommand({
+      Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: partNumber, Body: body,
+    }));
+    if (!out.ETag) throw new Error('multipart_part_no_etag');
+    return { ETag: out.ETag, PartNumber: partNumber };
+  },
+  async completeMultipart(cid: string, bucket: string, key: string, uploadId: string, parts: { ETag: string; PartNumber: number }[]): Promise<void> {
+    await client(cid).send(new CompleteMultipartUploadCommand({
+      Bucket: bucket, Key: key, UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((p) => ({ ETag: p.ETag, PartNumber: p.PartNumber })) },
+    }));
+  },
+  async abortMultipart(cid: string, bucket: string, key: string, uploadId: string): Promise<void> {
+    await client(cid).send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }));
   },
 };

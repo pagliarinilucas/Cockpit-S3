@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 /**
- * Upload/download cifrado em streaming, via URLs presigned internas + fetch do Bun
- * (o AWS SDK bufferiza/rejeita streams no Bun — validado em spike). Atomicidade:
- * PUT primeiro; metadata depois; compensação em falha. Nunca loga material de chave.
+ * Upload/download cifrado em streaming. Upload usa multipart manual do S3 (partes
+ * de tamanho fixo, upload sequencial e AWAITED antes de ler a próxima) — isso é o
+ * que limita a memória: enquanto uma parte está subindo, o reader do stream de
+ * origem fica parado, então o backpressure REALMENTE propaga até o corpo da
+ * requisição HTTP de entrada (um `fetch` com `body: stream` direto para uma URL
+ * presigned NÃO propaga esse backpressure no Bun — testado empiricamente: memória
+ * cresce proporcionalmente ao tamanho do arquivo e uploads grandes derrubam o processo).
+ * Download continua via GET presigned + streaming (sem esse problema, pois é o
+ * cliente do lado de fora que dita a velocidade de leitura). Atomicidade do upload:
+ * multipart completo primeiro; metadata depois; compensação (abort/delete) em falha.
+ * Nunca loga material de chave.
  */
 import sodium from 'sodium-native';
 import { s3 } from './s3';
@@ -13,6 +21,11 @@ import { cipherBlobSize } from '../crypto/constants';
 import { generateDek } from '../crypto/index';
 import { objectsStore } from '../objects/store';
 import { DEFAULT_ORG } from '../crypto/constants';
+
+// Tamanho de parte do multipart: acima do mínimo do S3 (5 MiB, exceto a última
+// parte) e pequeno o bastante para manter a memória limitada independente do
+// tamanho total do arquivo.
+const PART_SIZE = 16 * 1024 * 1024;
 
 interface UploadArgs {
   cid: string; bucket: string; bucketId: string; key: string;
@@ -39,15 +52,57 @@ export async function uploadEncrypted(a: UploadArgs): Promise<void> {
       flush() { if (counted !== a.sizePlain) throw new Error(`size_mismatch_${counted}_${a.sizePlain}`); },
     });
 
-    // 1) PUT streaming via presigned + fetch
-    const url = await s3.presignPut(a.cid, a.bucket, s3Key, 'application/octet-stream');
-    const res = await fetch(url, {
-      method: 'PUT',
-      body: a.body.pipeThrough(guard).pipeThrough(transform) as unknown as Bun.BodyInit,
-      duplex: 'half',
-      headers: { 'content-type': 'application/octet-stream', 'content-length': String(sizeCipher) },
-    });
-    if (!res.ok) throw new Error(`s3_put_failed_${res.status}`);
+    // 1) upload multipart manual: lê o ciphertext em partes de tamanho fixo e
+    // aguarda cada UploadPart antes de ler a próxima -> memória limitada a ~1 parte,
+    // independente do tamanho do arquivo ou da velocidade do cliente.
+    const uploadId = await s3.createMultipart(a.cid, a.bucket, s3Key, 'application/octet-stream');
+    const parts: { ETag: string; PartNumber: number }[] = [];
+    try {
+      const reader = a.body.pipeThrough(guard).pipeThrough(transform).getReader();
+      let bufs: Uint8Array[] = [];
+      let buflen = 0;
+      let partNumber = 1;
+
+      const flushPart = async (last: boolean) => {
+        if (!last && buflen < PART_SIZE) return;
+        if (buflen === 0) return; // nada acumulado (só ocorre se last e vazio)
+        const body = buflen === bufs[0]?.byteLength && bufs.length === 1
+          ? bufs[0]
+          : Buffer.concat(bufs.map((b) => Buffer.from(b)), buflen);
+        const part = await s3.uploadPart(a.cid, a.bucket, s3Key, uploadId, partNumber, body);
+        parts.push(part);
+        partNumber++;
+        bufs = [];
+        buflen = 0;
+        // O coletor de lixo do Bun/JSC é "lazy" para memória externa (ArrayBuffers dos
+        // chunks cifrados): sem forçar aqui, o lixo de partes já enviadas não é liberado
+        // no ritmo da entrada, e o RSS cresce quase proporcionalmente ao tamanho total do
+        // arquivo (validado empiricamente). Cada parte concluída é um checkpoint natural:
+        // os buffers dela viraram lixo, então força a coleta aqui.
+        if (typeof Bun !== 'undefined' && typeof Bun.gc === 'function') Bun.gc(true);
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bufs.push(value);
+        buflen += value.byteLength;
+        while (buflen >= PART_SIZE) await flushPart(false);
+      }
+      await flushPart(true); // remanescente final (pode ser < 5 MiB, S3 permite na última parte)
+
+      if (parts.length === 0) {
+        // arquivo de 0 bytes: multipart exige ao menos 1 parte -> sobe uma parte vazia
+        const part = await s3.uploadPart(a.cid, a.bucket, s3Key, uploadId, 1, new Uint8Array(0));
+        parts.push(part);
+      }
+
+      await s3.completeMultipart(a.cid, a.bucket, s3Key, uploadId, parts);
+    } catch (e) {
+      await s3.abortMultipart(a.cid, a.bucket, s3Key, uploadId).catch((err) =>
+        console.error('[crypto] falha ao abortar multipart', s3Key, (err as Error).message));
+      throw e;
+    }
 
     // 2) metadata atômica; retorna s3_key antigo (se overwrite)
     let oldS3Key: string | null = null;
