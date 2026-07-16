@@ -127,7 +127,8 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       try {
         await ensureSource(ref);
         const { items, nextToken } = await s3.list(ref.cid, ref.bucket, path, { token, limit });
-        let visible = access.all ? items : items.filter((it) =>
+        // cópia defensiva: evita mutar o array retornado por s3.list quando access.all (o push abaixo alteraria a origem)
+        let visible = access.all ? items.slice() : items.filter((it) =>
           it.kind === 'folder' ? perms.folderVisible(access, it.key) : perms.canRead(access, it.key));
         // mescla objetos cifrados (linhas em `objects`) neste prefixo — só na 1ª página, p/ não duplicar entre páginas
         if (!token) {
@@ -342,16 +343,17 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const ref = parse(params.id);
       if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
       const bucketId = params.id;
-      if (!s3.hasAny()) { set.status = 503; return { error: 's3_not_configured' }; }
-      if (!bucketCryptoStore.isEnabled(bucketId)) { set.status = 400; return { error: 'bucket_not_encrypted' }; }
-      if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
       const access = perms.access(user!, bucketId);
       const q = query as Record<string, string>;
       const path = norm(q['path'] ?? '');
       const name = String(q['name'] ?? '');
       const key = path + name;
       if (!name) { set.status = 400; return { error: 'missing_name' }; }
+      // autoriza antes de checar config do bucket/provedor — evita que quem não tem acesso sonde essas infos
       if (!access || !perms.canWrite(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+      if (!s3.hasAny()) { set.status = 503; return { error: 's3_not_configured' }; }
+      if (!bucketCryptoStore.isEnabled(bucketId)) { set.status = 400; return { error: 'bucket_not_encrypted' }; }
+      if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
       const sizePlain = Number(q['size'] ?? request.headers.get('x-plain-size') ?? NaN);
       if (!Number.isFinite(sizePlain) || sizePlain < 0) { set.status = 400; return { error: 'bad_size' }; }
       if (!request.body) { set.status = 400; return { error: 'no_body' }; }
