@@ -127,8 +127,29 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       try {
         await ensureSource(ref);
         const { items, nextToken } = await s3.list(ref.cid, ref.bucket, path, { token, limit });
-        const visible = access.all ? items : items.filter((it) =>
+        let visible = access.all ? items : items.filter((it) =>
           it.kind === 'folder' ? perms.folderVisible(access, it.key) : perms.canRead(access, it.key));
+        // mescla objetos cifrados (linhas em `objects`) neste prefixo — só na 1ª página, p/ não duplicar entre páginas
+        if (!token) {
+          const encRows = objectsStore.listPrefix(params.id, path);
+          const seen = new Set(visible.map((i) => i.key));
+          const folderKeys = new Set(visible.filter((i) => i.kind === 'folder').map((i) => i.key));
+          for (const r of encRows) {
+            const rest = r.key.slice(path.length);
+            const slash = rest.indexOf('/');
+            if (slash >= 0) {
+              // arquivo cifrado em subpasta ainda não listada: sintetiza a pasta virtual
+              const fk = path + rest.slice(0, slash + 1);
+              if (!folderKeys.has(fk) && (access.all || perms.folderVisible(access, fk))) {
+                folderKeys.add(fk);
+                visible.push({ kind: 'folder', name: rest.slice(0, slash), key: fk });
+              }
+            } else if (!seen.has(r.key) && (access.all || perms.canRead(access, r.key))) {
+              seen.add(r.key);
+              visible.push({ kind: 'file', name: rest, key: r.key, size: r.sizePlain, modified: r.createdAt });
+            }
+          }
+        }
         return { bucket: params.id, path, items: visible, perm: perms.permForKey(access, path), nextToken };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
@@ -367,7 +388,14 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
       for (const k of body.keys) if (!perms.canWrite(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
-      await s3.remove(ref.cid, ref.bucket, body.keys);
+      // objetos cifrados (linha em `objects`) apagam o blob opaco + a linha; keys legadas seguem o delete em lote
+      const legacyKeys: string[] = [];
+      for (const k of body.keys) {
+        const removed = objectsStore.remove(params.id, k);
+        if (removed) { await s3.removeKey(ref.cid, ref.bucket, removed.s3Key).catch((e) => console.error('[crypto] falha ao remover blob', removed.s3Key, (e as Error).message)); }
+        else { legacyKeys.push(k); }
+      }
+      if (legacyKeys.length) await s3.remove(ref.cid, ref.bucket, legacyKeys);
       for (const k of body.keys) audit.log('delete', user!.username, params.id, k);
       return { ok: true };
     }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1 }) }) })
