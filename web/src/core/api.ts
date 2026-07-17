@@ -162,7 +162,8 @@ export const api = {
   /** Miniatura (imagem/1ª página de PDF) como Blob; rejeita (415) quando não há thumb. */
   thumbBlob: (bucketId: string, key: string) => fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/thumb`, { key }),
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
-  deleteObjects: (bucketId: string, keys: string[]) => req('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
+  deleteObjects: (bucketId: string, keys: string[]) =>
+    req<{ ok: boolean; failed?: string[] }>('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 
   /** Upload one file with progress via XHR (fetch can't report upload progress). */
   upload(bucketId: string, path: string, file: File, onProgress: (p: number) => void): Promise<void> {

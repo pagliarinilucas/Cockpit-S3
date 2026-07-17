@@ -253,8 +253,13 @@ async function confirmDelete() {
   const d = toDelete.value; if (!d) return;
   toDelete.value = null;
   try {
-    await api.deleteObjects(props.bucket.id, d.keys);
-    toast.success(d.keys.length > 1 ? `${d.keys.length} itens excluídos` : `${d.label} excluído`);
+    const res = await api.deleteObjects(props.bucket.id, d.keys);
+    if (res.ok === false) {
+      const failed = res.failed ?? [];
+      toast.error(`Não foi possível excluir ${failed.length} item${failed.length > 1 ? 's' : ''}: ${failed.join(', ')}`);
+    } else {
+      toast.success(d.keys.length > 1 ? `${d.keys.length} itens excluídos` : `${d.label} excluído`);
+    }
     reload();
   } catch { toast.error('Falha ao excluir'); }
 }
