@@ -423,6 +423,12 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
       const sizePlain = Number(q['size'] ?? request.headers.get('x-plain-size') ?? NaN);
       if (!Number.isFinite(sizePlain) || sizePlain < 0) { set.status = 400; return { error: 'bad_size' }; }
+      // Teto de tamanho: o Bun bufferiza o corpo em RAM (ver config.ts), então usamos o
+      // maior entre o tamanho declarado e o content-length para rejeitar cedo uploads
+      // grandes demais, antes de consumir o stream.
+      const contentLength = Number(request.headers.get('content-length') ?? NaN);
+      const effectiveSize = Math.max(sizePlain, Number.isFinite(contentLength) ? contentLength : 0);
+      if (effectiveSize > config.uploadMaxEncryptedBytes) { set.status = 413; return { error: 'file_too_large' }; }
       if (!request.body) { set.status = 400; return { error: 'no_body' }; }
       try {
         await ensureSource(ref);
