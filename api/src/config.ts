@@ -58,9 +58,17 @@ export const config = {
   // Criptografia at-rest (Fase 1): KEK via arquivo (preferido) ou base64 em env.
   kekFile: env('COCKPIT_KEK_FILE'),
   kek: env('COCKPIT_KEK'),
-  // Teto de corpo de upload (Bun default é 128 MiB). Default 6 GiB p/ cobrir o
-  // teto de single-PUT do S3 (~5 GiB) em objetos cifrados.
-  uploadMaxBytes: Number(env('UPLOAD_MAX_BYTES', String(6 * 1024 * 1024 * 1024))),
+  // Teto de corpo de upload do Bun (maxRequestBodySize). Por padrão "ilimitado"
+  // (1 PiB): o único limite real de um upload cifrado é a capacidade do bucket,
+  // não um teto artificial do servidor. A rota cifrada usa spool em disco p/
+  // arquivos grandes, então aceitar corpos enormes não estoura a RAM.
+  uploadMaxBytes: Number(env('UPLOAD_MAX_BYTES', String(1024 ** 5))),
+  // Acima deste tamanho o upload cifrado é derramado em DISCO (spool); abaixo,
+  // é mantido em memória (mais rápido, sem I/O de disco). Default 2 GiB.
+  uploadSpoolThreshold: Number(env('UPLOAD_SPOOL_THRESHOLD', String(2 * 1024 * 1024 * 1024))),
+  // Teto do tamanho TOTAL dos arquivos que o /merge-pdf carrega em memória de uma vez.
+  // Default 2 GiB (o pdf-lib precisa dos bytes inteiros de cada arquivo).
+  mergePdfMaxTotalBytes: Number(env('MERGE_PDF_MAX_TOTAL_BYTES', String(2 * 1024 * 1024 * 1024))),
   // Teto do upload LEGADO (multipart, bufferizado em memória via file.arrayBuffer()).
   // O teto global acima (uploadMaxBytes) cobre a rota cifrada em streaming; este é bem
   // menor pois cada byte aceito aqui vira RSS do processo. Default 128 MiB.

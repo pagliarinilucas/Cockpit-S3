@@ -20,7 +20,7 @@ import { uploadEncrypted, downloadEncrypted } from './crypto-pipeline';
 import { config } from '../config';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { statSync, rmSync } from 'node:fs';
+import { statSync, statfsSync, rmSync } from 'node:fs';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -42,6 +42,20 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
   for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
   return new Uint8Array(await new Response(new Blob(chunks)).arrayBuffer());
 }
+
+/** ReadableStream de um único buffer (fonte auto-pausada p/ o upload em memória). */
+function streamOf(data: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({ start(c) { c.enqueue(data); c.close(); } });
+}
+
+// Cadência de flush do spool em disco: empurra a cada 8 MiB em vez de a cada chunk
+// (o corpo chega em pedaços pequenos; flush por chunk = milhares de syscalls por upload).
+const SPOOL_FLUSH_INTERVAL = 8 * 1024 * 1024;
+
+// s3_key de objeto cifrado é sempre um UUID v4 (crypto.randomUUID()); usado p/ reconhecer
+// blobs opacos (inclusive órfãos) e excluí-los da contagem de uso em /stats.
+const OPAQUE_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const isOpaqueBlobKey = (k: string): boolean => OPAQUE_KEY_RE.test(k);
 
 /** Cluster buckets precisam da key interna liberada (lazy) antes de qualquer op S3. No-op para conexões. */
 async function ensureSource(ref: { cid: string; bucket: string }): Promise<void> {
@@ -193,10 +207,11 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (hit && Date.now() - hit.at < STATS_TTL) return { used: hit.used, objects: hit.objects, truncated: hit.truncated };
       try {
         await ensureSource(ref);
-        // objetos cifrados aparecem no S3 como blobs opacos (UUID) com tamanho de
-        // CIFRADO — exclui esses s3_keys da soma do S3 e soma o plaintext deles à parte.
-        const encS3Keys = objectsStore.listS3Keys(params.id);
-        const keep = (k: string) => (access.all || perms.canRead(access, k)) && !encS3Keys.has(k);
+        // objetos cifrados aparecem no S3 como blobs opacos (UUID v4) com tamanho de
+        // CIFRADO — exclui QUALQUER chave com forma de s3_key opaco da soma do S3
+        // (inclusive blobs órfãos de limpezas best-effort que falharam, que não estão
+        // mais em `objects` e antes eram contados em dobro) e soma o plaintext à parte.
+        const keep = (k: string) => (access.all || perms.canRead(access, k)) && !isOpaqueBlobKey(k);
         const s = await s3.stats(ref.cid, ref.bucket, keep);
         for (const row of objectsStore.listPrefix(params.id, '')) {
           if (row.key.endsWith('/')) continue;   // marcador de pasta cifrada — não conta como objeto
@@ -331,6 +346,15 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       for (const k of body.keys) if (!perms.canDownload(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
+        // Teto de tamanho TOTAL: o merge carrega cada arquivo inteiro em memória (pdf-lib
+        // precisa dos bytes completos), então a soma dos selecionados vira RSS. Recusa acima
+        // do teto (default 2 GiB) em vez de arriscar estourar a memória do servidor.
+        let totalBytes = 0;
+        for (const k of body.keys) {
+          const row = objectsStore.get(params.id, k);
+          totalBytes += row ? row.sizePlain : ((await s3.head(ref.cid, ref.bucket, k)).size ?? 0);
+        }
+        if (totalBytes > config.mergePdfMaxTotalBytes) { set.status = 413; return { error: 'merge_too_large' }; }
         // objeto cifrado: o blob real está sob uma key UUID opaca — decifra em memória
         // antes de entregar ao merge; objeto legado segue lendo direto do S3.
         const fetchBytes = async (key: string): Promise<Uint8Array> => {
@@ -427,52 +451,72 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!bucketCryptoStore.isEnabled(bucketId)) { set.status = 400; return { error: 'bucket_not_encrypted' }; }
       if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
       if (!request.body) { set.status = 400; return { error: 'no_body' }; }
-      // Derrama (spool) o corpo cru para um arquivo temporário local — um sink rápido
-      // o bastante para o Bun NÃO bufferizar o corpo em RAM (diferente de escrever
-      // direto no S3, que é mais lento que o cliente e aciona o buffer interno do Bun).
-      // O tamanho real do arquivo derramado é a fonte de verdade para sizePlain: o
-      // parâmetro/header do cliente não é mais confiável nem necessário para o teto.
-      const tmp = join(config.uploadSpoolDir || tmpdir(), 'cockpit-upload-' + crypto.randomUUID());
+      const contentType = request.headers.get('x-content-type') || 'application/octet-stream';
+      // Duas checagens antes de subir (roteamento por tamanho):
+      //   1) tamanho declarado (Content-Length; fallback: ?size). Se ausente → trata como grande.
+      //   2) grande (> uploadSpoolThreshold) → DERRAMA em disco (RAM baixa), mas antes confere
+      //      se o disco do spool tem espaço; pequeno → mantém em MEMÓRIA (rápido, sem I/O).
+      // Não há teto artificial de tamanho: o único limite é a capacidade do bucket.
+      const declared = Number(request.headers.get('content-length') ?? q['size'] ?? NaN);
+      const useDisk = !Number.isFinite(declared) || declared > config.uploadSpoolThreshold;
       try {
-        const sink = Bun.file(tmp).writer();
-        try {
-          const reader = (request.body as ReadableStream<Uint8Array>).getReader();
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            sink.write(value);
-            await sink.flush();
-          }
-        } finally {
-          // Fecha o fd SEMPRE (sucesso, erro ou desconexão do cliente no meio do upload).
-          // Sem isso, o rmSync abaixo desvincula o arquivo mas o fd aberto segura o
-          // espaço em disco até o processo sair — vazamento sob uploads grandes abortados.
-          try { await sink.end(); } catch { /* fd já fechado / erro no flush final */ }
-        }
-        const sizePlain = statSync(tmp).size;
         await ensureSource(ref);
-        await uploadEncrypted({
-          cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain,
-          contentType: request.headers.get('x-content-type') || 'application/octet-stream',
-          body: Bun.file(tmp).stream(),
-        });
+        if (!useDisk) {
+          // Pequeno: bufferiza em memória e sobe do buffer (fonte auto-pausada).
+          const data = await readAll(request.body as ReadableStream<Uint8Array>);
+          await uploadEncrypted({
+            cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain: data.byteLength,
+            contentType, body: streamOf(data),
+          });
+        } else {
+          // Grande: confere espaço em disco ANTES de derramar; senão 507.
+          const spoolDir = config.uploadSpoolDir || tmpdir();
+          if (Number.isFinite(declared)) {
+            try {
+              const fsinfo = statfsSync(spoolDir);
+              if (fsinfo.bsize * fsinfo.bavail < declared) { set.status = 507; return { error: 'insufficient_storage' }; }
+            } catch { /* statfs indisponível: segue; a própria escrita falha se faltar espaço */ }
+          }
+          const tmp = join(spoolDir, 'cockpit-upload-' + crypto.randomUUID());
+          try {
+            const sink = Bun.file(tmp).writer();
+            let sinceFlush = 0;
+            try {
+              const reader = (request.body as ReadableStream<Uint8Array>).getReader();
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                sink.write(value);
+                sinceFlush += value.byteLength;
+                if (sinceFlush >= SPOOL_FLUSH_INTERVAL) { await sink.flush(); sinceFlush = 0; }
+              }
+            } finally {
+              // Fecha o fd SEMPRE (sucesso, erro ou desconexão no meio do upload) — senão o
+              // rmSync desvincula o arquivo mas o fd aberto segura o espaço até o processo sair.
+              try { await sink.end(); } catch { /* fd já fechado / erro no flush final */ }
+            }
+            // O tamanho real do arquivo derramado é a fonte de verdade para sizePlain.
+            const sizePlain = statSync(tmp).size;
+            await uploadEncrypted({
+              cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain,
+              contentType, body: Bun.file(tmp).stream(),
+            });
+          } finally {
+            rmSync(tmp, { force: true });
+          }
+        }
         audit.log('upload', user!.username, bucketId, key);
         set.status = 201; return { ok: true, key };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 500; return { error: 'upload_failed' };
-      } finally {
-        rmSync(tmp, { force: true });
       }
     }, { parse: 'none' })
     // `parse: 'none'` desliga o body parser embutido do Elysia (que bufferiza tudo via
-    // arrayBuffer() ANTES do handler — um upload de 256 MiB chegava a ~3 GiB de RSS). Com
-    // isso `request.body` permanece o ReadableStream cru da requisição. Em vez de subir
-    // direto para o S3 em streaming (o que reintroduziria o buffer interno do Bun, pois
-    // o PUT no S3 é mais lento que o cliente), derramamos o corpo para um arquivo
-    // temporário local (sink rápido, sem buffer) e só então subimos do arquivo para o
-    // S3 no nosso próprio ritmo — RAM do servidor fica baixa e limitada pelo disco, não
-    // pelo tamanho do arquivo.
+    // arrayBuffer() ANTES do handler). Assim `request.body` continua o ReadableStream cru:
+    // arquivos grandes vão para spool em disco (RAM baixa, limitada pelo disco); pequenos
+    // ficam em memória. Subir direto ao S3 em streaming reintroduziria o buffer interno do
+    // Bun (o PUT é mais lento que o cliente), por isso o desvio via arquivo/memória.
 
     .post('/buckets/:id/folders', async ({ user, params, body, set }) => {
       const ref = parse(params.id);

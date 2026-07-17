@@ -110,15 +110,24 @@ Os UPLOADS cifrados esbarram numa limitação do próprio servidor HTTP do Bun:
 quando o cliente envia dados mais rápido do que conseguimos escrevê-los no
 S3, o Bun bufferiza o corpo da requisição inteiro em RAM antes de entregá-lo
 ao handler — algo que não controlamos diretamente no pipeline de streaming
-para o S3. A solução é evitar esse cenário: em vez de consumir o corpo cru
-direto para o S3, o handler primeiro **derrama (spool) o corpo para um
-arquivo temporário local** — um sink rápido o bastante para o Bun nunca
-acionar o buffer interno — e só então sobe o conteúdo do arquivo para o S3,
-no ritmo do próprio pipeline (multipart, parte por parte).
+para o S3. O handler evita esse cenário roteando por tamanho:
 
-Com isso a RAM do servidor fica baixa e praticamente constante durante o
-upload (dezenas de MiB), independente do tamanho do arquivo — o limite
-prático passa a ser o espaço em DISCO disponível no diretório de spool, não
-mais a RAM nem um teto artificial de tamanho de objeto. O diretório de spool
-é `os.tmpdir()` por padrão, configurável via `UPLOAD_SPOOL_DIR`. O arquivo
-temporário é sempre apagado ao final do upload, com sucesso ou falha.
+- **Arquivos grandes** (acima de `UPLOAD_SPOOL_THRESHOLD`, default **2 GiB**):
+  o corpo é **derramado (spool) para um arquivo temporário local** — um sink
+  rápido o bastante para o Bun nunca acionar o buffer interno — e só então
+  sobe do arquivo para o S3 no ritmo do pipeline (multipart, parte por parte).
+  A RAM fica baixa e constante (dezenas de MiB), independente do tamanho.
+  Antes de derramar, o servidor **confere se o disco do spool tem espaço**
+  para o arquivo; se não tiver, responde `507 insufficient_storage`.
+- **Arquivos pequenos** (até o threshold): ficam em memória (mais rápido, sem
+  I/O de disco).
+
+**Não há teto artificial de tamanho de upload** — o único limite real é a
+capacidade do bucket de destino (o `maxRequestBodySize` do Bun é configurado
+como praticamente ilimitado). O diretório de spool é `os.tmpdir()` por padrão,
+configurável via `UPLOAD_SPOOL_DIR`; o arquivo temporário é sempre apagado ao
+final, com sucesso ou falha.
+
+**merge-pdf:** o combinador de PDFs carrega cada arquivo inteiro em memória
+(o pdf-lib exige os bytes completos), então a soma dos selecionados é limitada
+por `MERGE_PDF_MAX_TOTAL_BYTES` (default **2 GiB**); acima disso responde `413`.
