@@ -263,8 +263,14 @@ export const s3 = {
   async createFolder(cid: string, bucket: string, key: string): Promise<void> {
     await client(cid).send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: new Uint8Array(0) }));
   },
-  async remove(cid: string, bucket: string, keys: string[]): Promise<void> {
-    await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
+  /**
+   * Deleta em lote. O S3 responde HTTP 200 mesmo com falha PARCIAL (per-key em `Errors[]`) —
+   * não lança nesse caso. Devolve as keys que FALHARAM para o chamador decidir o que fazer
+   * com cada uma (ex.: não apagar a linha da DB de um blob que não foi de fato removido).
+   */
+  async remove(cid: string, bucket: string, keys: string[]): Promise<string[]> {
+    const res = await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
+    return (res.Errors ?? []).map((e) => e.Key!).filter(Boolean);
   },
 
   /** URL presigned PUT (uso interno do servidor; nunca entregue ao cliente). */
