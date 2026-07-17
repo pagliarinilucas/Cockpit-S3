@@ -74,12 +74,9 @@ export async function uploadEncrypted(a: UploadArgs): Promise<void> {
         partNumber++;
         bufs = [];
         buflen = 0;
-        // O coletor de lixo do Bun/JSC é "lazy" para memória externa (ArrayBuffers dos
-        // chunks cifrados): sem forçar aqui, o lixo de partes já enviadas não é liberado
-        // no ritmo da entrada, e o RSS cresce quase proporcionalmente ao tamanho total do
-        // arquivo (validado empiricamente). Cada parte concluída é um checkpoint natural:
-        // os buffers dela viraram lixo, então força a coleta aqui.
-        if (typeof Bun !== 'undefined' && typeof Bun.gc === 'function') Bun.gc(true);
+        // Memória já é limitada pelo spool em disco (o corpo vira arquivo temp) + o buffer
+        // de uma única parte; não é preciso forçar GC por parte (um Bun.gc(true) síncrono aqui
+        // travaria o event loop a cada 16 MiB, afetando todas as requisições concorrentes).
       };
 
       for (;;) {
