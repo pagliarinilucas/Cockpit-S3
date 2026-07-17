@@ -4,7 +4,7 @@ import { Elysia, t } from 'elysia';
 import { authDerive, requireUser } from '../auth/guard';
 import { connectionsStore } from '../connections/store';
 import { audit } from '../audit/store';
-import { s3 } from './s3';
+import { s3, resolveObjectSize } from './s3';
 import { mergeToPdf } from './merge';
 import { makeThumb } from './thumb';
 import { perms } from '../auth/permissions';
@@ -16,9 +16,8 @@ import { bucketAliasStore } from '../buckets/store';
 import { mayDeleteBucket } from '../buckets/guard';
 import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
-import { uploadEncrypted, downloadEncrypted, spoolRequestBody, type SpooledBody } from './crypto-pipeline';
+import { downloadEncrypted, uploadEncryptedFromRequest } from './crypto-pipeline';
 import { config } from '../config';
-import { tmpdir } from 'node:os';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -336,18 +335,8 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         // precisa dos bytes completos), então a soma dos selecionados vira RSS. Recusa acima
         // do teto (default 2 GiB) em vez de arriscar estourar a memória do servidor.
         // Em paralelo (não sequencial): cada HEAD é uma chamada de rede independente.
-        // Key legada que sumiu (404) não deve derrubar a soma — conta como 0.
-        const sizes = await Promise.all(body.keys.map(async (k) => {
-          const row = objectsStore.get(params.id, k);
-          if (row) return row.sizePlain;
-          // só trata como 0 um not-found genuíno (key legada que sumiu); qualquer outro
-          // erro de HEAD (rede, timeout, etc.) é repropagado — senão subcontaria o total
-          // e furaria o teto de tamanho.
-          return s3.head(ref.cid, ref.bucket, k).then((h) => h.size ?? 0).catch((err) => {
-            if (String(err).includes('NotFound') || String(err).includes('NoSuchKey') || (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode === 404) return 0;
-            throw err;
-          });
-        }));
+        // Key legada que sumiu (404 estruturado) não derruba a soma — conta como 0.
+        const sizes = await Promise.all(body.keys.map((k) => resolveObjectSize(ref.cid, ref.bucket, params.id, k)));
         const totalBytes = sizes.reduce((a, b) => a + b, 0);
         if (totalBytes > config.mergePdfMaxTotalBytes) { set.status = 413; return { error: 'merge_too_large' }; }
         // objeto cifrado: o blob real está sob uma key UUID opaca — decifra em memória
@@ -449,20 +438,17 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const contentType = request.headers.get('x-content-type') || 'application/octet-stream';
       // Roteamento por BYTES REAIS, nunca pelo tamanho declarado pelo cliente (Content-Length
       // e ?size são auto-declarados — um cliente malicioso pode mentir, inclusive via chunked
-      // encoding). spoolRequestBody acumula em memória até o teto e derrama pra disco se estourar
-      // (teto de RAM é propriedade do pipeline, não inline aqui).
-      let spooled: SpooledBody | null = null;
+      // encoding). uploadEncryptedFromRequest cuida do spool (memória/disco) + dispose do temp.
       try {
         await ensureSource(ref);
-        spooled = await spoolRequestBody(request.body as ReadableStream<Uint8Array>, config.uploadSpoolThreshold, config.uploadSpoolDir || tmpdir());
-        await uploadEncrypted({ cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain: spooled.sizePlain, contentType, body: spooled.body });
+        await uploadEncryptedFromRequest({ cid: ref.cid, bucket: ref.bucket, bucketId, key, contentType, body: request.body as ReadableStream<Uint8Array> });
         audit.log('upload', user!.username, bucketId, key);
         set.status = 201; return { ok: true, key };
       } catch (e) {
         if ((e as NodeJS.ErrnoException)?.code === 'ENOSPC' || String(e).includes('ENOSPC')) { set.status = 507; return { error: 'insufficient_storage' }; }
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 500; return { error: 'upload_failed' };
-      } finally { spooled?.dispose(); }
+      }
     }, { parse: 'none' })
     // `parse: 'none'` desliga o body parser embutido do Elysia (que bufferiza tudo via
     // arrayBuffer() ANTES do handler). Assim `request.body` continua o ReadableStream cru,
@@ -482,7 +468,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         // o blob no bucket é um UUID opaco e a pasta aparece como virtual na listagem.
         if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
         const empty = new ReadableStream<Uint8Array>({ start(c) { c.close(); } });
-        await uploadEncrypted({ cid: ref.cid, bucket: ref.bucket, bucketId: params.id, key, sizePlain: 0, contentType: 'application/x-directory', body: empty });
+        await uploadEncryptedFromRequest({ cid: ref.cid, bucket: ref.bucket, bucketId: params.id, key, contentType: 'application/x-directory', body: empty });
         return { ok: true, key };
       }
       await s3.createFolder(ref.cid, ref.bucket, key);
@@ -519,9 +505,10 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         if (e.enc) objectsStore.deleteRow(params.id, e.key);
         audit.log('delete', user!.username, params.id, e.key);
       }
-      // Falha parcial: contrato 200 (não 502) — o cliente recarrega a listagem e vê o
-      // estado real; `failed` traz as keys LÓGICAS (não os s3_key opacos) que não confirmaram.
-      if (failedKeys.length) { return { ok: false, failed: failedKeys }; }
+      // Falha parcial: 207 (Multi-Status) em vez de 200 — ainda é 2xx (cliente recarrega a
+      // listagem e vê o estado real, sem lançar), mas monitores baseados em status enxergam
+      // que nem tudo confirmou. `failed` traz as keys LÓGICAS (não os s3_key opacos).
+      if (failedKeys.length) { set.status = 207; return { ok: false, failed: failedKeys }; }
       return { ok: true };
       // maxItems=1000: limite do DeleteObjects do S3 numa única chamada.
     }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1, maxItems: 1000 }) }) })

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import { Elysia } from 'elysia';
-import { s3 } from '../storage/s3';
+import { s3, resolveObjectSize } from '../storage/s3';
 import { audit } from '../audit/store';
 import { isCluster, ensureClusterBucketAccess } from '../clusters/access';
 import { sharesStore, isUsable } from './store';
@@ -59,8 +59,7 @@ export const publicShareRoutes = new Elysia({ prefix: '/api' })
     let size: number | null = null;
     try {
       await ensureSource(ref);
-      const row = objectsStore.get(res.bucketId, res.key);
-      size = row ? row.sizePlain : (await s3.head(ref.cid, ref.bucket, res.key)).size;
+      size = await resolveObjectSize(ref.cid, ref.bucket, res.bucketId, res.key);
     } catch { /* meta best-effort; size stays null */ }
     return {
       filename,

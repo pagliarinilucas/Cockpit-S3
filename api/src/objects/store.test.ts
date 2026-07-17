@@ -52,12 +52,6 @@ describe('objectsStore', () => {
     const keys = objectsStore.listPrefix('c:b', '50%/').map((r) => r.key);
     expect(keys).toEqual(['50%/real.txt']);
   });
-
-  it('remove apaga e retorna a linha', () => {
-    objectsStore.upsertReturningOld(row('del.txt', 'u5'));
-    expect(objectsStore.remove('c:b', 'del.txt')?.s3Key).toBe('u5');
-    expect(objectsStore.get('c:b', 'del.txt')).toBeNull();
-  });
 });
 
 describe('bucketCryptoStore', () => {

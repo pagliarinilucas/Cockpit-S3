@@ -23,6 +23,8 @@ import { objectsStore } from '../objects/store';
 import { DEFAULT_ORG } from '../crypto/constants';
 import { join } from 'node:path';
 import { statSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { config } from '../config';
 
 // Tamanho de parte do multipart: acima do mínimo do S3 (5 MiB, exceto a última
 // parte) e pequeno o bastante para manter a memória limitada independente do
@@ -59,12 +61,15 @@ export async function spoolRequestBody(
   const spillMemToDisk = async (spillTmp: string): Promise<Sink> => {
     const s = Bun.file(spillTmp).writer();
     let acc = 0;
-    while (mem.length) {
-      const ch = mem.shift()!;
+    // Passada única pra frente (nunca shift): shift() reindexa o array inteiro a
+    // cada chamada -> O(n²) num buffer grande. `for..of` é O(n); libera as
+    // referências dos chunks de uma vez (mem = []) ao final, não uma a uma.
+    for (const ch of mem) {
       s.write(ch);
       acc += ch.byteLength;
       if (acc >= SPOOL_FLUSH_INTERVAL) { await s.flush(); acc = 0; }
     }
+    mem = [];
     memBytes = 0;
     return s;
   };
@@ -85,19 +90,47 @@ export async function spoolRequestBody(
       }
     }
   } catch (e) {
+    // Qualquer falha a partir daqui (inclusive as que ocorrem DEPOIS de `tmp` já
+    // atribuído) precisa apagar o temp -- como a função lança em vez de devolver
+    // {dispose}, ninguém mais vai limpar esse arquivo.
     if (sink) { try { await (sink as Sink).end(); } catch { /* fd já fechado */ } }
+    if (tmp) rmSync(tmp, { force: true });
     throw e;
   }
 
   if (sink) {
     try { await sink.end(); } catch { /* fd já fechado */ }
-    const sizePlain = statSync(tmp!).size;
-    const body = Bun.file(tmp!).stream();
-    return { sizePlain, body, dispose: () => rmSync(tmp!, { force: true }) };
+    try {
+      const sizePlain = statSync(tmp!).size;
+      const body = Bun.file(tmp!).stream();
+      return { sizePlain, body, dispose: () => rmSync(tmp!, { force: true }) };
+    } catch (e) {
+      rmSync(tmp!, { force: true });
+      throw e;
+    }
   }
   const chunks = mem;   // fonte auto-pausada, sem concat (1 cópia = os próprios chunks)
   const body = new ReadableStream<Uint8Array>({ start(c) { for (const ch of chunks) c.enqueue(ch); c.close(); } });
   return { sizePlain: memBytes, body, dispose: () => {} };
+}
+
+/**
+ * Ponto de entrada seguro p/ upload cifrado a partir do corpo cru de uma requisição:
+ * cuida do spool (memória/disco) + dispose do temp, então nenhuma rota precisa
+ * reimplementar esse acoplamento (é o que motivou o vazamento de temp em erro, FIX #1).
+ */
+export async function uploadEncryptedFromRequest(a: {
+  cid: string; bucket: string; bucketId: string; key: string; contentType: string; body: ReadableStream<Uint8Array>;
+}): Promise<void> {
+  const spooled = await spoolRequestBody(a.body, config.uploadSpoolThreshold, config.uploadSpoolDir || tmpdir());
+  try {
+    await uploadEncrypted({
+      cid: a.cid, bucket: a.bucket, bucketId: a.bucketId, key: a.key,
+      sizePlain: spooled.sizePlain, contentType: a.contentType, body: spooled.body,
+    });
+  } finally {
+    spooled.dispose();
+  }
 }
 
 interface UploadArgs {

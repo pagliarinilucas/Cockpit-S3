@@ -62,13 +62,6 @@ export const objectsStore = {
     });
     return { oldS3Key: tx() };
   },
-  remove(bucketId: string, key: string): { s3Key: string } | null {
-    const existing = db.select({ s3Key: objects.s3Key }).from(objects)
-      .where(and(eq(objects.bucketId, bucketId), eq(objects.key, key))).get();
-    if (!existing) return null;
-    db.delete(objects).where(and(eq(objects.bucketId, bucketId), eq(objects.key, key))).run();
-    return { s3Key: existing.s3Key };
-  },
   /** Remove a linha direto, sem o SELECT redundante (chamador já sabe que ela existe). */
   deleteRow(bucketId: string, key: string): void {
     db.delete(objects).where(and(eq(objects.bucketId, bucketId), eq(objects.key, key))).run();
