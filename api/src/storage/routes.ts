@@ -114,10 +114,26 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
     })
 
     // liga/desliga a criptografia em repouso do bucket (dono/admin); exige provedor de KEK configurado
-    .post('/buckets/:id/encryption', ({ user, params, body, set }) => {
+    .post('/buckets/:id/encryption', async ({ user, params, body, set }) => {
       const perm = perms.bucketPermFor(user!, params.id);
       if (user!.role !== 'admin' && perm !== 'owner') { set.status = 403; return { error: 'forbidden' }; }
-      if (body.enabled && !getKekProvider()) { set.status = 400; return { error: 'kek_not_configured' }; }
+      if (body.enabled) {
+        if (!getKekProvider()) { set.status = 400; return { error: 'kek_not_configured' }; }
+        // Ao LIGAR a criptografia, o bucket precisa estar VAZIO. Senão ele viraria um bucket
+        // "cifrado" contendo objetos plaintext legados que continuam legíveis — mistura
+        // confusa e vazamento do que a feature promete esconder. Exige zero objetos no S3
+        // E zero metadados cifrados (cobre também blobs órfãos de uma limpeza que falhou).
+        const ref = parse(params.id);
+        if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+        try {
+          await ensureSource(ref);
+          const empty = (await s3.isEmpty(ref.cid, ref.bucket)) && objectsStore.listS3Keys(params.id).size === 0;
+          if (!empty) { set.status = 409; return { error: 'bucket_not_empty' }; }
+        } catch (e) {
+          if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+          set.status = 502; return { error: 's3_error' };
+        }
+      }
       bucketCryptoStore.setEnabled(params.id, !!body.enabled);
       audit.log('key', user!.username, params.id, body.enabled ? 'encryption:on' : 'encryption:off');
       return { enabled: bucketCryptoStore.isEnabled(params.id) };

@@ -87,6 +87,18 @@ S3_TEST_CID=test-conn \
 nix develop --command bash -c 'cd api && bun test src/storage/crypto-pipeline.test.ts'
 ```
 
+### Habilitar criptografia exige bucket vazio
+
+`POST /api/buckets/:id/encryption {enabled:true}` só é aceito se o bucket
+estiver **vazio** no momento (zero objetos no S3 e zero metadados cifrados);
+caso contrário responde `409 bucket_not_empty` e a criptografia NÃO é ligada.
+Isso evita um bucket "cifrado" contendo objetos plaintext legados que
+continuariam legíveis — exatamente a estrutura que a feature promete esconder.
+**Desligar** a criptografia não exige bucket vazio (objetos já cifrados
+continuam legíveis; apenas uploads novos deixam de ser cifrados). Para cifrar
+um bucket que já tem dados, migre/mova os objetos para um bucket cifrado novo
+(a migração automática de legados fica para a Fase 4).
+
 ### KEK (Key Encryption Key) para rodar API/testes com criptografia habilitada
 
 Sem uma KEK configurada, buckets cifrados não podem ser habilitados — o
