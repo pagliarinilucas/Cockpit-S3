@@ -168,11 +168,13 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
             }
           }
           // re-ordena após a mescla: pastas primeiro, depois por nome (mesmo critério do s3.list).
-          // Nota (Fase 1): a paginação mesclando S3+DB para pastas cifradas enormes ainda não é
-          // exata entre páginas — limitação documentada, ok para os volumes atuais.
+          // Nota (Fase 1): NÃO truncamos por `limit` aqui — como a mescla de linhas cifradas só
+          // ocorre na 1ª página (!token) e o nextToken do S3 não as inclui, aplicar slice(limit)
+          // esconderia itens cifrados que nunca apareceriam em página nenhuma. Para pastas
+          // cifradas grandes a 1ª página pode exceder `limit` — limitação documentada da Fase 1,
+          // preferível a ocultar itens silenciosamente.
           visible.sort((a, b) => a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name));
         }
-        if (limit) visible = visible.slice(0, limit);
         return { bucket: params.id, path, items: visible, perm: perms.permForKey(access, path), nextToken };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
@@ -499,21 +501,29 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
       for (const k of body.keys) if (!perms.canWrite(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
-      // objetos cifrados (linha em `objects`) apagam a linha da DB e coletam o blob opaco;
-      // keys legadas vão direto pro lote. Os dois lotes são deletados numa única chamada
-      // DeleteObjects (batch), em vez de um round-trip por key.
-      const encS3Keys: string[] = [];
+      // Coleta as chaves: cifradas (linha em `objects`) mapeiam pro blob opaco s3_key;
+      // legadas usam a própria key. Deleta no S3 PRIMEIRO; só remove as linhas da DB
+      // depois do sucesso — assim uma falha no S3 não órfã o blob nem perde o mapeamento
+      // (a linha guarda a DEK/stream_header; sem ela o blob fica indecifrável).
+      const encKeys: { key: string; s3Key: string }[] = [];
       const legacyKeys: string[] = [];
       for (const k of body.keys) {
-        const removed = objectsStore.remove(params.id, k);
-        if (removed) encS3Keys.push(removed.s3Key);
+        const row = objectsStore.get(params.id, k);
+        if (row) encKeys.push({ key: k, s3Key: row.s3Key });
         else legacyKeys.push(k);
       }
-      const batch = [...encS3Keys, ...legacyKeys];
-      if (batch.length) await s3.remove(ref.cid, ref.bucket, batch);
+      const batch = [...encKeys.map((e) => e.s3Key), ...legacyKeys];
+      try {
+        if (batch.length) await s3.remove(ref.cid, ref.bucket, batch);
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+      for (const e of encKeys) objectsStore.remove(params.id, e.key);
       for (const k of body.keys) audit.log('delete', user!.username, params.id, k);
       return { ok: true };
-    }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1 }) }) })
+      // maxItems=1000: limite do DeleteObjects do S3 numa única chamada.
+    }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1, maxItems: 1000 }) }) })
 
     .delete('/buckets/:id', async ({ user, params, set }) => {
       const ref = parse(params.id);
