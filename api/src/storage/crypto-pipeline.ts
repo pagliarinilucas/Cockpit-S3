@@ -21,11 +21,84 @@ import { cipherBlobSize } from '../crypto/constants';
 import { generateDek } from '../crypto/index';
 import { objectsStore } from '../objects/store';
 import { DEFAULT_ORG } from '../crypto/constants';
+import { join } from 'node:path';
+import { statSync, rmSync } from 'node:fs';
 
 // Tamanho de parte do multipart: acima do mínimo do S3 (5 MiB, exceto a última
 // parte) e pequeno o bastante para manter a memória limitada independente do
 // tamanho total do arquivo.
 const PART_SIZE = 16 * 1024 * 1024;
+
+// Cadência de flush do spool em disco: empurra a cada 8 MiB em vez de a cada chunk
+// (o corpo chega em pedaços pequenos; flush por chunk = milhares de syscalls por upload).
+const SPOOL_FLUSH_INTERVAL = 8 * 1024 * 1024;
+
+export interface SpooledBody { sizePlain: number; body: ReadableStream<Uint8Array>; dispose: () => void; }
+
+/**
+ * Bufferiza o corpo da requisição em memória até `threshold` bytes; ao estourar,
+ * derrama TUDO (o que já acumulou + o restante do stream) para um arquivo temp e
+ * continua escrevendo em disco. Devolve a fonte (auto-pausada, sem 2ª cópia) +
+ * dispose() que apaga o temp. Roteamento por bytes REAIS lidos, nunca pelo tamanho
+ * declarado pelo cliente (Content-Length/​?size são auto-declarados e podem mentir).
+ */
+export async function spoolRequestBody(
+  stream: ReadableStream<Uint8Array>, threshold: number, spoolDir: string,
+): Promise<SpooledBody> {
+  type Sink = ReturnType<ReturnType<typeof Bun.file>['writer']>;
+  const reader = stream.getReader();
+  let mem: Uint8Array[] = [];
+  let memBytes = 0;
+  let tmp: string | null = null;
+  let sink: Sink | null = null;
+  let sinceFlush = 0;
+
+  // Derrama o que já acumulou em `mem` pra disco, incrementalmente (shift + write),
+  // liberando cada chunk assim que escrito — nunca mantém uma 2ª cópia inteira do
+  // que já foi acumulado. Devolve o sink já aberto p/ os próximos chunks do stream.
+  const spillMemToDisk = async (spillTmp: string): Promise<Sink> => {
+    const s = Bun.file(spillTmp).writer();
+    let acc = 0;
+    while (mem.length) {
+      const ch = mem.shift()!;
+      s.write(ch);
+      acc += ch.byteLength;
+      if (acc >= SPOOL_FLUSH_INTERVAL) { await s.flush(); acc = 0; }
+    }
+    memBytes = 0;
+    return s;
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (sink) {
+        sink.write(value); sinceFlush += value.byteLength;
+        if (sinceFlush >= SPOOL_FLUSH_INTERVAL) { await sink.flush(); sinceFlush = 0; }
+      } else {
+        mem.push(value); memBytes += value.byteLength;
+        if (memBytes > threshold) {   // estourou o teto de memória → derrama tudo pra disco
+          tmp = join(spoolDir, 'cockpit-upload-' + crypto.randomUUID());
+          sink = await spillMemToDisk(tmp);
+        }
+      }
+    }
+  } catch (e) {
+    if (sink) { try { await (sink as Sink).end(); } catch { /* fd já fechado */ } }
+    throw e;
+  }
+
+  if (sink) {
+    try { await sink.end(); } catch { /* fd já fechado */ }
+    const sizePlain = statSync(tmp!).size;
+    const body = Bun.file(tmp!).stream();
+    return { sizePlain, body, dispose: () => rmSync(tmp!, { force: true }) };
+  }
+  const chunks = mem;   // fonte auto-pausada, sem concat (1 cópia = os próprios chunks)
+  const body = new ReadableStream<Uint8Array>({ start(c) { for (const ch of chunks) c.enqueue(ch); c.close(); } });
+  return { sizePlain: memBytes, body, dispose: () => {} };
+}
 
 interface UploadArgs {
   cid: string; bucket: string; bucketId: string; key: string;

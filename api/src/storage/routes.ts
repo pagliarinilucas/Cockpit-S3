@@ -16,11 +16,9 @@ import { bucketAliasStore } from '../buckets/store';
 import { mayDeleteBucket } from '../buckets/guard';
 import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
-import { uploadEncrypted, downloadEncrypted } from './crypto-pipeline';
+import { uploadEncrypted, downloadEncrypted, spoolRequestBody, type SpooledBody } from './crypto-pipeline';
 import { config } from '../config';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { statSync, rmSync } from 'node:fs';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -42,10 +40,6 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
   for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
   return new Uint8Array(await new Response(new Blob(chunks)).arrayBuffer());
 }
-
-// Cadência de flush do spool em disco: empurra a cada 8 MiB em vez de a cada chunk
-// (o corpo chega em pedaços pequenos; flush por chunk = milhares de syscalls por upload).
-const SPOOL_FLUSH_INTERVAL = 8 * 1024 * 1024;
 
 /** Cluster buckets precisam da key interna liberada (lazy) antes de qualquer op S3. No-op para conexões. */
 async function ensureSource(ref: { cid: string; bucket: string }): Promise<void> {
@@ -346,7 +340,13 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         const sizes = await Promise.all(body.keys.map(async (k) => {
           const row = objectsStore.get(params.id, k);
           if (row) return row.sizePlain;
-          return s3.head(ref.cid, ref.bucket, k).then((h) => h.size ?? 0).catch(() => 0);
+          // só trata como 0 um not-found genuíno (key legada que sumiu); qualquer outro
+          // erro de HEAD (rede, timeout, etc.) é repropagado — senão subcontaria o total
+          // e furaria o teto de tamanho.
+          return s3.head(ref.cid, ref.bucket, k).then((h) => h.size ?? 0).catch((err) => {
+            if (String(err).includes('NotFound') || String(err).includes('NoSuchKey') || (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode === 404) return 0;
+            throw err;
+          });
         }));
         const totalBytes = sizes.reduce((a, b) => a + b, 0);
         if (totalBytes > config.mergePdfMaxTotalBytes) { set.status = 413; return { error: 'merge_too_large' }; }
@@ -449,57 +449,20 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const contentType = request.headers.get('x-content-type') || 'application/octet-stream';
       // Roteamento por BYTES REAIS, nunca pelo tamanho declarado pelo cliente (Content-Length
       // e ?size são auto-declarados — um cliente malicioso pode mentir, inclusive via chunked
-      // encoding). Acumula em memória até THRESHOLD; ao ultrapassar, derrama TUDO (o que já
-      // acumulou + o restante do stream) em disco. Assim o teto de RAM vale sempre, mesmo que
-      // o corpo real seja gigante e o tamanho declarado seja pequeno (ou ausente).
-      const THRESHOLD = config.uploadSpoolThreshold; // acima disso, derrama pra disco
-      const reader = (request.body as ReadableStream<Uint8Array>).getReader();
-      let mem: Uint8Array[] = [];       // acumula em memória até THRESHOLD
-      let memBytes = 0;
-      let tmp: string | null = null;
-      let sink: ReturnType<ReturnType<typeof Bun.file>['writer']> | null = null;
-      let sinceFlush = 0;
+      // encoding). spoolRequestBody acumula em memória até o teto e derrama pra disco se estourar
+      // (teto de RAM é propriedade do pipeline, não inline aqui).
+      let spooled: SpooledBody | null = null;
       try {
         await ensureSource(ref);
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (sink) {                    // já em disco
-            sink.write(value); sinceFlush += value.byteLength;
-            if (sinceFlush >= SPOOL_FLUSH_INTERVAL) { await sink.flush(); sinceFlush = 0; }
-          } else {
-            mem.push(value); memBytes += value.byteLength;
-            if (memBytes > THRESHOLD) {   // estourou o teto de memória → derrama tudo pra disco
-              tmp = join(config.uploadSpoolDir || tmpdir(), 'cockpit-upload-' + crypto.randomUUID());
-              sink = Bun.file(tmp).writer();
-              for (const ch of mem) sink.write(ch);
-              await sink.flush();
-              mem = []; memBytes = 0;      // libera a memória acumulada
-            }
-          }
-        }
-        let sizePlain: number;
-        let body: ReadableStream<Uint8Array>;
-        if (sink) {
-          try { await sink.end(); } catch { /* fd já fechado */ }
-          sizePlain = statSync(tmp!).size;
-          body = Bun.file(tmp!).stream();
-        } else {
-          sizePlain = memBytes;
-          const chunks = mem;             // fonte auto-pausada, sem concat (1 cópia = os próprios chunks)
-          body = new ReadableStream({ start(c) { for (const ch of chunks) c.enqueue(ch); c.close(); } });
-        }
-        await uploadEncrypted({ cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain, contentType, body });
+        spooled = await spoolRequestBody(request.body as ReadableStream<Uint8Array>, config.uploadSpoolThreshold, config.uploadSpoolDir || tmpdir());
+        await uploadEncrypted({ cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain: spooled.sizePlain, contentType, body: spooled.body });
         audit.log('upload', user!.username, bucketId, key);
         set.status = 201; return { ok: true, key };
       } catch (e) {
-        if (sink) { try { await sink.end(); } catch { /* */ } }
-        if (String(e).includes('ENOSPC') || String(e).includes('no space')) { set.status = 507; return { error: 'insufficient_storage' }; }
+        if ((e as NodeJS.ErrnoException)?.code === 'ENOSPC' || String(e).includes('ENOSPC')) { set.status = 507; return { error: 'insufficient_storage' }; }
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 500; return { error: 'upload_failed' };
-      } finally {
-        if (tmp) rmSync(tmp, { force: true });
-      }
+      } finally { spooled?.dispose(); }
     }, { parse: 'none' })
     // `parse: 'none'` desliga o body parser embutido do Elysia (que bufferiza tudo via
     // arrayBuffer() ANTES do handler). Assim `request.body` continua o ReadableStream cru,
@@ -533,37 +496,32 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
       for (const k of body.keys) if (!perms.canWrite(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       await ensureSource(ref);
-      // Coleta as chaves: cifradas (linha em `objects`) mapeiam pro blob opaco s3_key;
-      // legadas usam a própria key. Deleta no S3 PRIMEIRO; só remove as linhas da DB
-      // depois do sucesso — assim uma falha no S3 não órfã o blob nem perde o mapeamento
-      // (a linha guarda a DEK/stream_header; sem ela o blob fica indecifrável).
-      const encKeys: { key: string; s3Key: string }[] = [];
-      const legacyKeys: string[] = [];
-      for (const k of body.keys) {
+      // Uma passada: resolve cada key lógica para {key, s3Key, enc} — cifradas (linha em
+      // `objects`) mapeiam pro blob opaco s3_key; legadas usam a própria key como s3Key.
+      const entries = body.keys.map((k) => {
         const row = objectsStore.get(params.id, k);
-        if (row) encKeys.push({ key: k, s3Key: row.s3Key });
-        else legacyKeys.push(k);
-      }
-      const batch = [...encKeys.map((e) => e.s3Key), ...legacyKeys];
-      let failed: string[] = [];
+        return row ? { key: k, s3Key: row.s3Key, enc: true } : { key: k, s3Key: k, enc: false };
+      });
+      // Deleta no S3 PRIMEIRO; só remove as linhas da DB depois do sucesso — assim uma
+      // falha no S3 não órfã o blob nem perde o mapeamento (a linha guarda a DEK/stream_header;
+      // sem ela o blob fica indecifrável).
+      let failedS3: string[];
       try {
-        if (batch.length) failed = await s3.remove(ref.cid, ref.bucket, batch);
+        failedS3 = await s3.remove(ref.cid, ref.bucket, entries.map((e) => e.s3Key));
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 502; return { error: 's3_error' };
       }
-      // O S3 responde 200 mesmo com falha PARCIAL (per-key em Errors[]) — só remove a
-      // linha da DB (e audita) das keys cifradas cujo blob foi REALMENTE apagado; a linha
-      // de uma que falhou fica intacta (senão o blob órfão vira indecifrável: perderia a DEK).
-      const failedSet = new Set(failed);
-      for (const e of encKeys) if (!failedSet.has(e.s3Key)) objectsStore.remove(params.id, e.key);
-      for (const k of body.keys) {
-        const row = encKeys.find((e) => e.key === k);
-        if (row && failedSet.has(row.s3Key)) continue;
-        if (!row && failedSet.has(k)) continue;   // legado que falhou
-        audit.log('delete', user!.username, params.id, k);
+      const failedSet = new Set(failedS3);
+      const failedKeys: string[] = [];
+      for (const e of entries) {
+        if (failedSet.has(e.s3Key)) { failedKeys.push(e.key); continue; }   // não confirmado no S3: mantém a linha
+        if (e.enc) objectsStore.deleteRow(params.id, e.key);
+        audit.log('delete', user!.username, params.id, e.key);
       }
-      if (failed.length > 0) { set.status = 502; return { error: 'partial_delete', failed }; }
+      // Falha parcial: contrato 200 (não 502) — o cliente recarrega a listagem e vê o
+      // estado real; `failed` traz as keys LÓGICAS (não os s3_key opacos) que não confirmaram.
+      if (failedKeys.length) { return { ok: false, failed: failedKeys }; }
       return { ok: true };
       // maxItems=1000: limite do DeleteObjects do S3 numa única chamada.
     }, { body: t.Object({ keys: t.Array(t.String(), { minItems: 1, maxItems: 1000 }) }) })

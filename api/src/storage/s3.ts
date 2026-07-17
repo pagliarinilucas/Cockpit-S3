@@ -270,7 +270,12 @@ export const s3 = {
    */
   async remove(cid: string, bucket: string, keys: string[]): Promise<string[]> {
     const res = await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
-    return (res.Errors ?? []).map((e) => e.Key!).filter(Boolean);
+    const errors = res.Errors ?? [];
+    // Se algum erro veio sem Key, não dá pra saber qual objeto falhou: melhor lançar
+    // (conservador — o chamador cai em 502 e não remove NENHUMA linha da DB) do que
+    // silenciosamente tratar como sucesso e perder a DEK/stream_header do blob órfão.
+    if (errors.some((e) => !e.Key)) throw new Error('delete_error_unidentified');
+    return errors.map((e) => e.Key!);
   },
 
   /** URL presigned PUT (uso interno do servidor; nunca entregue ao cliente). */

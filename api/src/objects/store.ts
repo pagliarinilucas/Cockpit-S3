@@ -69,6 +69,10 @@ export const objectsStore = {
     db.delete(objects).where(and(eq(objects.bucketId, bucketId), eq(objects.key, key))).run();
     return { s3Key: existing.s3Key };
   },
+  /** Remove a linha direto, sem o SELECT redundante (chamador já sabe que ela existe). */
+  deleteRow(bucketId: string, key: string): void {
+    db.delete(objects).where(and(eq(objects.bucketId, bucketId), eq(objects.key, key))).run();
+  },
 };
 
 export const bucketCryptoStore = {
