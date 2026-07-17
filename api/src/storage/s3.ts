@@ -7,7 +7,6 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConnFull } from '../connections/store';
-import { objectsStore } from '../objects/store';
 
 export interface S3Item {
   kind: 'file' | 'folder';
@@ -76,24 +75,6 @@ const MIME: Record<string, string> = {
 async function listBuckets(cl: S3Client): Promise<string[]> {
   const res = await cl.send(new ListBucketsCommand({}));
   return (res.Buckets ?? []).map((b) => b.Name!).filter(Boolean);
-}
-
-/**
- * Tamanho REAL de um objeto (plaintext se cifrado, senão HEAD no S3). Detecção de
- * 404 ESTRUTURADA (nome do erro / status HTTP), não por match de string no texto
- * do erro — mais robusta a mudanças de mensagem entre SDKs/versões. Erros que não
- * sejam not-found são repropagados (senão subcontaria o total em quem soma tamanhos).
- */
-export async function resolveObjectSize(cid: string, bucket: string, bucketId: string, key: string): Promise<number> {
-  const row = objectsStore.get(bucketId, key);
-  if (row) return row.sizePlain;
-  try {
-    return (await s3.head(cid, bucket, key)).size ?? 0;
-  } catch (e) {
-    const n = (e as { name?: string; $metadata?: { httpStatusCode?: number } });
-    if (n?.name === 'NotFound' || n?.name === 'NoSuchKey' || n?.$metadata?.httpStatusCode === 404) return 0;
-    throw e;
-  }
 }
 
 export const s3 = {
@@ -284,22 +265,18 @@ export const s3 = {
   },
   /**
    * Deleta em lote. O S3 responde HTTP 200 mesmo com falha PARCIAL (per-key em `Errors[]`) —
-   * não lança nesse caso. Devolve as keys que FALHARAM para o chamador decidir o que fazer
-   * com cada uma (ex.: não apagar a linha da DB de um blob que não foi de fato removido).
+   * não lança nesse caso. `Deleted[]` é a lista AUTORITATIVA de keys efetivamente removidas
+   * (inclui as que já não existiam). Falha = key pedida que NÃO aparece em `Deleted[]` —
+   * mais preciso do que inferir a partir de `Errors[]` (que pode vir sem `Key` atribuído) e
+   * nunca deixa uma linha da DB órfã de um blob que o S3 de fato apagou.
    */
   async remove(cid: string, bucket: string, keys: string[]): Promise<string[]> {
     const res = await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
-    const errs = res.Errors ?? [];
-    // Se algum erro veio sem Key, não dá pra saber qual objeto falhou dentre o lote.
-    // Em vez de lançar (o que derrubaria a chamada inteira em 502 sem sinalizar quais
-    // keys já foram removidas), trata TODO o lote como falho: nenhuma linha da DB é
-    // apagada, nada fica órfão, e a operação é idempotente/auto-curável — o cliente pode
-    // tentar de novo com segurança (deletar algo já deletado não é erro no S3).
-    if (errs.some((e) => !e.Key)) {
-      console.error('[s3] DeleteObjects retornou erro sem Key; tratando o lote inteiro como falho', bucket, errs.length);
-      return [...keys];
+    if (res.Errors?.length) {
+      console.error('[s3] DeleteObjects erros', bucket, res.Errors.length, res.Errors.map((e) => e.Code).join(','));
     }
-    return errs.map((e) => e.Key!);
+    const deleted = new Set((res.Deleted ?? []).map((d) => d.Key).filter((k): k is string => !!k));
+    return keys.filter((k) => !deleted.has(k));   // não confirmados = falhos
   },
 
   /** URL presigned PUT (uso interno do servidor; nunca entregue ao cliente). */

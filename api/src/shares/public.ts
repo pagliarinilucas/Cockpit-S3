@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import { Elysia } from 'elysia';
-import { s3, resolveObjectSize } from '../storage/s3';
+import { s3 } from '../storage/s3';
 import { audit } from '../audit/store';
 import { isCluster, ensureClusterBucketAccess } from '../clusters/access';
 import { sharesStore, isUsable } from './store';
 import { clientIp } from './ip';
 import { objectsStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
-import { downloadEncrypted } from '../storage/crypto-pipeline';
+import { downloadEncrypted, resolveObjectSize } from '../storage/crypto-pipeline';
 
 type Row = NonNullable<ReturnType<typeof sharesStore.get>>;
 

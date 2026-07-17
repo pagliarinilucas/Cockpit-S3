@@ -35,7 +35,12 @@ const PART_SIZE = 16 * 1024 * 1024;
 // (o corpo chega em pedaços pequenos; flush por chunk = milhares de syscalls por upload).
 const SPOOL_FLUSH_INTERVAL = 8 * 1024 * 1024;
 
-export interface SpooledBody { sizePlain: number; body: ReadableStream<Uint8Array>; dispose: () => void; }
+interface SpooledBody { sizePlain: number; body: ReadableStream<Uint8Array>; dispose: () => void; }
+
+type Sink = ReturnType<ReturnType<typeof Bun.file>['writer']>;
+
+/** Fecha o sink best-effort (nunca lança) — usado em todo caminho de saída do spool. */
+const closeSink = async (s: Sink): Promise<void> => { try { await s.end(); } catch { /* fd já fechado */ } };
 
 /**
  * Bufferiza o corpo da requisição em memória até `threshold` bytes; ao estourar,
@@ -44,10 +49,9 @@ export interface SpooledBody { sizePlain: number; body: ReadableStream<Uint8Arra
  * dispose() que apaga o temp. Roteamento por bytes REAIS lidos, nunca pelo tamanho
  * declarado pelo cliente (Content-Length/​?size são auto-declarados e podem mentir).
  */
-export async function spoolRequestBody(
+async function spoolRequestBody(
   stream: ReadableStream<Uint8Array>, threshold: number, spoolDir: string,
 ): Promise<SpooledBody> {
-  type Sink = ReturnType<ReturnType<typeof Bun.file>['writer']>;
   const reader = stream.getReader();
   let mem: Uint8Array[] = [];
   let memBytes = 0;
@@ -60,18 +64,25 @@ export async function spoolRequestBody(
   // que já foi acumulado. Devolve o sink já aberto p/ os próximos chunks do stream.
   const spillMemToDisk = async (spillTmp: string): Promise<Sink> => {
     const s = Bun.file(spillTmp).writer();
-    let acc = 0;
-    // Passada única pra frente (nunca shift): shift() reindexa o array inteiro a
-    // cada chamada -> O(n²) num buffer grande. `for..of` é O(n); libera as
-    // referências dos chunks de uma vez (mem = []) ao final, não uma a uma.
-    for (const ch of mem) {
-      s.write(ch);
-      acc += ch.byteLength;
-      if (acc >= SPOOL_FLUSH_INTERVAL) { await s.flush(); acc = 0; }
+    try {
+      let acc = 0;
+      // Passada única pra frente (nunca shift): shift() reindexa o array inteiro a
+      // cada chamada -> O(n²) num buffer grande. `for..of` é O(n); libera as
+      // referências dos chunks de uma vez (mem = []) ao final, não uma a uma.
+      for (const ch of mem) {
+        s.write(ch);
+        acc += ch.byteLength;
+        if (acc >= SPOOL_FLUSH_INTERVAL) { await s.flush(); acc = 0; }
+      }
+      mem = [];
+      memBytes = 0;
+      return s;
+    } catch (e) {
+      // Falha NO MEIO do derrame (write/flush): `s` nunca chega a ser atribuído à
+      // variável `sink` do escopo externo, então ninguém mais fecharia esse fd.
+      await closeSink(s);
+      throw e;
     }
-    mem = [];
-    memBytes = 0;
-    return s;
   };
 
   try {
@@ -93,13 +104,13 @@ export async function spoolRequestBody(
     // Qualquer falha a partir daqui (inclusive as que ocorrem DEPOIS de `tmp` já
     // atribuído) precisa apagar o temp -- como a função lança em vez de devolver
     // {dispose}, ninguém mais vai limpar esse arquivo.
-    if (sink) { try { await (sink as Sink).end(); } catch { /* fd já fechado */ } }
+    if (sink) await closeSink(sink);
     if (tmp) rmSync(tmp, { force: true });
     throw e;
   }
 
   if (sink) {
-    try { await sink.end(); } catch { /* fd já fechado */ }
+    await closeSink(sink);
     try {
       const sizePlain = statSync(tmp!).size;
       const body = Bun.file(tmp!).stream();
@@ -138,6 +149,13 @@ interface UploadArgs {
   sizePlain: number; contentType: string; body: ReadableStream<Uint8Array>;
 }
 
+/**
+ * CONTRATO: `a.body` precisa ser um stream LIMITADO/auto-paceado (arquivo em disco
+ * ou buffer em memória) — esta função não faz spool. Corpo cru de requisição HTTP
+ * (que pode não propagar backpressure e crescer sem limite) DEVE passar antes por
+ * `uploadEncryptedFromRequest`, que faz o spool memória/disco antes de chamar esta.
+ * Exportada porque os testes (crypto-pipeline.test.ts, load.test.ts) chamam direto.
+ */
 export async function uploadEncrypted(a: UploadArgs): Promise<void> {
   const provider = getKekProvider();
   if (!provider) throw new Error('sealed_or_unconfigured');
@@ -234,6 +252,26 @@ export async function uploadEncrypted(a: UploadArgs): Promise<void> {
     }
   } finally {
     sodium.sodium_memzero(dek);
+  }
+}
+
+/**
+ * Tamanho REAL de um objeto (plaintext se cifrado, senão HEAD no S3). Detecção de
+ * 404 ESTRUTURADA (nome do erro / status HTTP), não por match de string no texto
+ * do erro — mais robusta a mudanças de mensagem entre SDKs/versões. Erros que não
+ * sejam not-found são repropagados (senão subcontaria o total em quem soma tamanhos).
+ * `null` = objeto não encontrado (404): o chamador decide se isso conta como 0 ou
+ * se esconde o tamanho (ex.: metadata de share público não deve mostrar "0 B").
+ */
+export async function resolveObjectSize(cid: string, bucket: string, bucketId: string, key: string): Promise<number | null> {
+  const row = objectsStore.get(bucketId, key);
+  if (row) return row.sizePlain;
+  try {
+    return (await s3.head(cid, bucket, key)).size ?? 0;
+  } catch (e) {
+    const n = (e as { name?: string; $metadata?: { httpStatusCode?: number } });
+    if (n?.name === 'NotFound' || n?.name === 'NoSuchKey' || n?.$metadata?.httpStatusCode === 404) return null;
+    throw e;
   }
 }
 

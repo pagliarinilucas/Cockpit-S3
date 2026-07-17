@@ -4,7 +4,7 @@ import { Elysia, t } from 'elysia';
 import { authDerive, requireUser } from '../auth/guard';
 import { connectionsStore } from '../connections/store';
 import { audit } from '../audit/store';
-import { s3, resolveObjectSize } from './s3';
+import { s3 } from './s3';
 import { mergeToPdf } from './merge';
 import { makeThumb } from './thumb';
 import { perms } from '../auth/permissions';
@@ -331,18 +331,34 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       for (const k of body.keys) if (!perms.canDownload(access, k)) { set.status = 403; return { error: 'forbidden' }; }
       try {
         await ensureSource(ref);
+        // Resolve a linha da DB de cada key UMA ÚNICA VEZ (evita 2 lookups por key: um pro
+        // somatório de tamanho, outro pro fetch de bytes do merge em si) e reaproveita tanto
+        // no teto de tamanho quanto no fetchBytes abaixo.
+        const rows = body.keys.map((k) => ({ k, row: objectsStore.get(params.id, k) }));
+
         // Teto de tamanho TOTAL: o merge carrega cada arquivo inteiro em memória (pdf-lib
         // precisa dos bytes completos), então a soma dos selecionados vira RSS. Recusa acima
         // do teto (default 2 GiB) em vez de arriscar estourar a memória do servidor.
         // Em paralelo (não sequencial): cada HEAD é uma chamada de rede independente.
         // Key legada que sumiu (404 estruturado) não derruba a soma — conta como 0.
-        const sizes = await Promise.all(body.keys.map((k) => resolveObjectSize(ref.cid, ref.bucket, params.id, k)));
-        const totalBytes = sizes.reduce((a, b) => a + b, 0);
+        const sizes = await Promise.all(rows.map(async ({ k, row }): Promise<number | null> => {
+          if (row) return row.sizePlain;
+          try {
+            return (await s3.head(ref.cid, ref.bucket, k)).size ?? 0;
+          } catch (e) {
+            const n = (e as { name?: string; $metadata?: { httpStatusCode?: number } });
+            if (n?.name === 'NotFound' || n?.name === 'NoSuchKey' || n?.$metadata?.httpStatusCode === 404) return null;
+            throw e;
+          }
+        }));
+        const totalBytes = sizes.reduce((a: number, s) => a + (s ?? 0), 0);
         if (totalBytes > config.mergePdfMaxTotalBytes) { set.status = 413; return { error: 'merge_too_large' }; }
         // objeto cifrado: o blob real está sob uma key UUID opaca — decifra em memória
-        // antes de entregar ao merge; objeto legado segue lendo direto do S3.
+        // antes de entregar ao merge; objeto legado segue lendo direto do S3. Reaproveita
+        // o `row` já resolvido acima (sem reconsultar a DB).
+        const rowByKey = new Map(rows.map((r) => [r.k, r.row]));
         const fetchBytes = async (key: string): Promise<Uint8Array> => {
-          const row = objectsStore.get(params.id, key);
+          const row = rowByKey.get(key);
           if (row) {
             if (!getKekProvider()) throw new Error('sealed');
             return readAll(await downloadEncrypted(row, ref.cid, ref.bucket));
