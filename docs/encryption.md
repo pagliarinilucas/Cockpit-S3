@@ -101,18 +101,24 @@ Os próprios testes (`kek.test.ts`, `load.test.ts`, `crypto-pipeline.test.ts`)
 geram uma KEK de teste automaticamente (32 bytes fixos) via essas variáveis —
 não é preciso configurar nada manualmente para os testes unitários.
 
-## Limitações de memória em upload
+## Memória em upload/download cifrado
 
 Os DOWNLOADS cifrados são feitos em streaming, com memória limitada
-independente do tamanho do arquivo. Já os UPLOADS cifrados esbarram numa
-limitação do próprio servidor HTTP do Bun: quando o cliente envia dados mais
-rápido do que conseguimos escrevê-los no S3, o Bun bufferiza o corpo da
-requisição inteiro em RAM antes de entregá-lo ao handler — algo que não
-controlamos no nosso pipeline. Na prática, o pico de RAM do servidor durante
-um upload cifrado é aproximadamente o tamanho do arquivo enviado.
+independente do tamanho do arquivo.
 
-Por isso, uploads cifrados têm um teto configurável via
-`UPLOAD_MAX_ENCRYPTED_BYTES` (default 2 GiB) para proteger o servidor contra
-OOM em uploads muito grandes. Operadores com mais RAM disponível podem
-aumentar esse valor. Uma melhoria futura é fazer upload em chunks pelo
-cliente, o que eliminaria essa limitação.
+Os UPLOADS cifrados esbarram numa limitação do próprio servidor HTTP do Bun:
+quando o cliente envia dados mais rápido do que conseguimos escrevê-los no
+S3, o Bun bufferiza o corpo da requisição inteiro em RAM antes de entregá-lo
+ao handler — algo que não controlamos diretamente no pipeline de streaming
+para o S3. A solução é evitar esse cenário: em vez de consumir o corpo cru
+direto para o S3, o handler primeiro **derrama (spool) o corpo para um
+arquivo temporário local** — um sink rápido o bastante para o Bun nunca
+acionar o buffer interno — e só então sobe o conteúdo do arquivo para o S3,
+no ritmo do próprio pipeline (multipart, parte por parte).
+
+Com isso a RAM do servidor fica baixa e praticamente constante durante o
+upload (dezenas de MiB), independente do tamanho do arquivo — o limite
+prático passa a ser o espaço em DISCO disponível no diretório de spool, não
+mais a RAM nem um teto artificial de tamanho de objeto. O diretório de spool
+é `os.tmpdir()` por padrão, configurável via `UPLOAD_SPOOL_DIR`. O arquivo
+temporário é sempre apagado ao final do upload, com sucesso ou falha.

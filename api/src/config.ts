@@ -65,11 +65,11 @@ export const config = {
   // O teto global acima (uploadMaxBytes) cobre a rota cifrada em streaming; este é bem
   // menor pois cada byte aceito aqui vira RSS do processo. Default 128 MiB.
   uploadMaxInMemoryBytes: Number(env('UPLOAD_MAX_INMEMORY_BYTES', String(128 * 1024 * 1024))),
-  // Teto do upload CIFRADO. O Bun bufferiza o corpo da requisição em RAM quando o
-  // consumidor (nossa escrita no S3) é mais lento que o cliente — limitação da
-  // plataforma que não conseguimos corrigir no pipeline. Este teto protege o
-  // servidor de OOM em uploads grandes. Default 2 GiB.
-  uploadMaxEncryptedBytes: Number(env('UPLOAD_MAX_ENCRYPTED_BYTES', String(2 * 1024 * 1024 * 1024))),
+  // Diretório onde o upload CIFRADO é "derramado" (spool) em arquivo temporário antes
+  // de subir para o S3 — evita que o Bun bufferize o corpo inteiro em RAM (ver
+  // storage/routes.ts). Opcional: se ausente, cai no os.tmpdir() do sistema no
+  // momento do uso.
+  uploadSpoolDir: env('UPLOAD_SPOOL_DIR'),
 };
 
 /** Lê a KEK bruta (32 bytes) de COCKPIT_KEK_FILE ou COCKPIT_KEK (base64). null se ausente. */

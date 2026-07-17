@@ -18,6 +18,9 @@ import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
 import { uploadEncrypted, downloadEncrypted } from './crypto-pipeline';
 import { config } from '../config';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { statSync, rmSync } from 'node:fs';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -421,33 +424,47 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (!s3.hasAny()) { set.status = 503; return { error: 's3_not_configured' }; }
       if (!bucketCryptoStore.isEnabled(bucketId)) { set.status = 400; return { error: 'bucket_not_encrypted' }; }
       if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
-      const sizePlain = Number(q['size'] ?? request.headers.get('x-plain-size') ?? NaN);
-      if (!Number.isFinite(sizePlain) || sizePlain < 0) { set.status = 400; return { error: 'bad_size' }; }
-      // Teto de tamanho: o Bun bufferiza o corpo em RAM (ver config.ts), então usamos o
-      // maior entre o tamanho declarado e o content-length para rejeitar cedo uploads
-      // grandes demais, antes de consumir o stream.
-      const contentLength = Number(request.headers.get('content-length') ?? NaN);
-      const effectiveSize = Math.max(sizePlain, Number.isFinite(contentLength) ? contentLength : 0);
-      if (effectiveSize > config.uploadMaxEncryptedBytes) { set.status = 413; return { error: 'file_too_large' }; }
       if (!request.body) { set.status = 400; return { error: 'no_body' }; }
+      // Derrama (spool) o corpo cru para um arquivo temporário local — um sink rápido
+      // o bastante para o Bun NÃO bufferizar o corpo em RAM (diferente de escrever
+      // direto no S3, que é mais lento que o cliente e aciona o buffer interno do Bun).
+      // O tamanho real do arquivo derramado é a fonte de verdade para sizePlain: o
+      // parâmetro/header do cliente não é mais confiável nem necessário para o teto.
+      const tmp = join(config.uploadSpoolDir || tmpdir(), 'cockpit-upload-' + crypto.randomUUID());
       try {
+        const sink = Bun.file(tmp).writer();
+        const reader = (request.body as ReadableStream<Uint8Array>).getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          sink.write(value);
+          await sink.flush();
+        }
+        await sink.end();
+        const sizePlain = statSync(tmp).size;
         await ensureSource(ref);
         await uploadEncrypted({
           cid: ref.cid, bucket: ref.bucket, bucketId, key, sizePlain,
           contentType: request.headers.get('x-content-type') || 'application/octet-stream',
-          body: request.body as ReadableStream<Uint8Array>,
+          body: Bun.file(tmp).stream(),
         });
         audit.log('upload', user!.username, bucketId, key);
         set.status = 201; return { ok: true, key };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 500; return { error: 'upload_failed' };
+      } finally {
+        rmSync(tmp, { force: true });
       }
     }, { parse: 'none' })
     // `parse: 'none'` desliga o body parser embutido do Elysia (que bufferiza tudo via
     // arrayBuffer() ANTES do handler — um upload de 256 MiB chegava a ~3 GiB de RSS). Com
-    // isso `request.body` permanece o ReadableStream cru da requisição, e o pipeline de
-    // criptografia acima consome-o em streaming direto para o PUT presigned no S3.
+    // isso `request.body` permanece o ReadableStream cru da requisição. Em vez de subir
+    // direto para o S3 em streaming (o que reintroduziria o buffer interno do Bun, pois
+    // o PUT no S3 é mais lento que o cliente), derramamos o corpo para um arquivo
+    // temporário local (sink rápido, sem buffer) e só então subimos do arquivo para o
+    // S3 no nosso próprio ritmo — RAM do servidor fica baixa e limitada pelo disco, não
+    // pelo tamanho do arquivo.
 
     .post('/buckets/:id/folders', async ({ user, params, body, set }) => {
       const ref = parse(params.id);
