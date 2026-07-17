@@ -433,14 +433,20 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const tmp = join(config.uploadSpoolDir || tmpdir(), 'cockpit-upload-' + crypto.randomUUID());
       try {
         const sink = Bun.file(tmp).writer();
-        const reader = (request.body as ReadableStream<Uint8Array>).getReader();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          sink.write(value);
-          await sink.flush();
+        try {
+          const reader = (request.body as ReadableStream<Uint8Array>).getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            sink.write(value);
+            await sink.flush();
+          }
+        } finally {
+          // Fecha o fd SEMPRE (sucesso, erro ou desconexão do cliente no meio do upload).
+          // Sem isso, o rmSync abaixo desvincula o arquivo mas o fd aberto segura o
+          // espaço em disco até o processo sair — vazamento sob uploads grandes abortados.
+          try { await sink.end(); } catch { /* fd já fechado / erro no flush final */ }
         }
-        await sink.end();
         const sizePlain = statSync(tmp).size;
         await ensureSource(ref);
         await uploadEncrypted({
