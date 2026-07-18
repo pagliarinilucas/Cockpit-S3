@@ -5,7 +5,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import type { Connection, Cluster, ClusterInput } from '../core/models';
-import { api, apiErrMsg, type ConnectionPayload } from '../core/api';
+import { api, apiErrMsg, ApiError, type ConnectionPayload } from '../core/api';
 import { useToast } from '../core/toast';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
@@ -24,6 +24,47 @@ const saving = ref(false);
 const testResult = ref<{ ok: boolean; buckets?: string[]; error?: string } | null>(null);
 
 const toDelete = ref<Connection | null>(null);
+
+// backup da KEK (disaster recovery, admin) — revela o segredo cru p/ o admin guardar num cofre
+const kek = ref<{ version: number | null; fingerprint: string; kekBase64: string } | null>(null);
+const kekLoading = ref(false);
+const kekShown = ref(false);
+
+async function revealKek() {
+  kekLoading.value = true;
+  try { kek.value = await api.getKek(); kekShown.value = true; }
+  catch (e) {
+    const msg = e instanceof ApiError && e.status === 400
+      ? 'Nenhuma KEK configurada neste servidor (COCKPIT_KEK / COCKPIT_KEK_FILE).'
+      : apiErrMsg(e, 'revelar a KEK');
+    toast.error(msg);
+  } finally { kekLoading.value = false; }
+}
+function closeKek() { kekShown.value = false; kek.value = null; }
+function copyKek() {
+  if (!kek.value) return;
+  navigator.clipboard.writeText(kek.value.kekBase64)
+    .then(() => toast.success('KEK copiada para a área de transferência'))
+    .catch(() => toast.error('Não foi possível copiar'));
+}
+function downloadKek() {
+  if (!kek.value) return;
+  const body = [
+    '# Cockpit S3 — backup da KEK (chave-mestra de criptografia em repouso)',
+    '# GUARDE OFFLINE, separado do storage e do banco de dados. Sem esta chave,',
+    '# os dados cifrados são IRRECUPERÁVEIS. Quem a obtiver pode decifrar tudo.',
+    `# versão: ${kek.value.version ?? '—'}`,
+    `# fingerprint: ${kek.value.fingerprint}`,
+    kek.value.kekBase64,
+    '',
+  ].join('\n');
+  const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cockpit-kek-v${kek.value.version ?? 'x'}-${kek.value.fingerprint}.key`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // clusters (admin)
 const clusters = ref<Cluster[]>([]);
@@ -177,6 +218,22 @@ async function confirmDeleteCluster() {
       </div>
     </div>
 
+    <div class="kek-card">
+      <div class="kek-ic"><Icon name="lock" :size="20" /></div>
+      <div class="kek-main">
+        <div class="kek-title">Chave-mestra de criptografia (KEK)</div>
+        <div class="kek-desc">
+          É a chave que protege todos os buckets cifrados em repouso. Ela vive só na memória
+          do servidor (vinda de <code>COCKPIT_KEK</code> / <code>COCKPIT_KEK_FILE</code>).
+          Faça um backup <b>offline</b> e guarde num cofre, separado do storage e do banco.
+          <b>Sem ela, dados cifrados são irrecuperáveis.</b>
+        </div>
+      </div>
+      <button class="btn" :disabled="kekLoading" @click="revealKek">
+        <Icon name="key" :size="16" />{{ kekLoading ? 'Revelando…' : 'Revelar / baixar' }}
+      </button>
+    </div>
+
     <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
     <div v-else-if="error" class="errbox">
       <Icon name="alert" :size="32" />
@@ -309,6 +366,35 @@ async function confirmDeleteCluster() {
         <button class="btn btn-danger" @click="confirmDeleteCluster"><Icon name="trash" :size="16" />Remover</button>
       </template>
     </Modal>
+
+    <!-- reveal/backup da KEK -->
+    <Modal v-if="kekShown && kek" title="Backup da KEK" icon="lock" @close="closeKek">
+      <p class="modal-warn">
+        <Icon name="alert" :size="14" /> Este é o segredo que decifra todos os buckets cifrados.
+        Copie/baixe, guarde num cofre offline e <b>não deixe cópia neste computador nem no storage</b>.
+        Perder a KEK = dados irrecuperáveis; vazá-la = qualquer um pode decifrar o storage.
+      </p>
+      <div class="modal-row">
+        <div class="field">
+          <label class="field-label">Versão</label>
+          <input class="field-input" :value="kek.version ?? '—'" readonly />
+        </div>
+        <div class="field">
+          <label class="field-label">Fingerprint (SHA-256)</label>
+          <input class="field-input" :value="kek.fingerprint" readonly />
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">KEK (base64, 32 bytes)</label>
+        <textarea class="field-input kek-secret" :value="kek.kekBase64" readonly rows="3"></textarea>
+      </div>
+      <template #foot>
+        <button class="btn" @click="closeKek">Fechar</button>
+        <span style="flex:1"></span>
+        <button class="btn" @click="copyKek"><Icon name="copy" :size="16" />Copiar</button>
+        <button class="btn btn-primary" @click="downloadKek"><Icon name="download" :size="16" />Baixar .key</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -321,4 +407,25 @@ async function confirmDeleteCluster() {
 }
 .tag-cluster { color: var(--amber, #ffb02e); }
 .tag-conn { color: var(--neon, #2dd4ff); }
+
+.kek-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; margin-bottom: 18px;
+  border: 1px solid var(--line-2, rgba(255,255,255,.1)); border-radius: 12px;
+  background: var(--bg-0, rgba(255,255,255,.02));
+}
+.kek-ic {
+  flex: none; width: 40px; height: 40px; border-radius: 10px;
+  display: grid; place-items: center;
+  color: var(--green, #34d399);
+  background: color-mix(in srgb, var(--green, #34d399) 14%, transparent);
+}
+.kek-main { flex: 1; min-width: 0; }
+.kek-title { font-weight: 600; margin-bottom: 3px; }
+.kek-desc { font-size: 12.5px; line-height: 1.5; color: var(--text-3, #9aa4b2); }
+.kek-desc code {
+  font-size: 11.5px; padding: 1px 5px; border-radius: 5px;
+  background: var(--line-2, rgba(255,255,255,.08));
+}
+.kek-secret { font-family: ui-monospace, monospace; font-size: 12.5px; word-break: break-all; resize: none; }
 </style>

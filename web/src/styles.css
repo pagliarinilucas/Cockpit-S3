@@ -643,3 +643,14 @@ select.modal-input { appearance: none; cursor: pointer; }
   .brand-text, .navitem span, .ign-text, .user-info, .brand-sub { display: none; }
   .navitem { justify-content: center; }
 }
+
+/* opção "criptografar em repouso" no modal de criar bucket */
+.enc-opt { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--bg-0); cursor: pointer; transition: border-color .15s, background .15s; }
+.enc-opt:hover { border-color: color-mix(in srgb, var(--green) 40%, var(--line-2)); }
+.enc-opt.on { border-color: var(--green); background: color-mix(in srgb, var(--green) 8%, var(--bg-0)); }
+.enc-opt-check { margin-top: 2px; width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--green); cursor: pointer; }
+.enc-opt-body { display: flex; flex-direction: column; gap: 5px; }
+.enc-opt-title { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13.5px; color: var(--text); }
+.enc-opt-title svg { color: var(--green); }
+.enc-opt-desc { font-size: 12px; line-height: 1.55; color: var(--text-3); }
+.enc-opt-desc b { color: var(--text); font-weight: 600; }

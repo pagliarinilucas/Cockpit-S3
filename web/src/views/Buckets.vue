@@ -26,6 +26,7 @@ const showNew = ref(false);
 const conns = ref<Connection[]>([]);
 const newName = ref('');
 const newConn = ref('');
+const newEncrypted = ref(false);
 
 const menu = ref<{ x: number; y: number; bucket: Bucket } | null>(null);
 const renaming = ref<Bucket | null>(null);
@@ -51,6 +52,7 @@ const visible = computed(() => {
 
 async function openNew() {
   newName.value = '';
+  newEncrypted.value = false;
   try { conns.value = await api.connections(); } catch { conns.value = []; }
   newConn.value = conns.value[0]?.id ?? '';
   showNew.value = true;
@@ -86,7 +88,7 @@ async function create() {
   const name = newName.value.trim();
   if (!name || !newConn.value) { toast.error('Escolha a conexão e o nome.'); return; }
   showNew.value = false;
-  try { await api.createBucket(newConn.value, name); toast.success(`Bucket "${name}" criado`); reload(); }
+  try { await api.createBucket(newConn.value, name, newEncrypted.value); toast.success(`Bucket "${name}" criado${newEncrypted.value ? ' (cifrado)' : ''}`); reload(); }
   catch (e) { toast.error(apiErrMsg(e, 'criar')); }
 }
 
@@ -158,6 +160,19 @@ async function confirmDelete() {
           <label class="field-label">Nome do bucket</label>
           <input class="field-input" v-model="newName" placeholder="meu-bucket" @keydown.enter="create" />
         </div>
+        <label class="enc-opt" :class="{ on: newEncrypted }">
+          <input type="checkbox" v-model="newEncrypted" class="enc-opt-check" />
+          <span class="enc-opt-body">
+            <span class="enc-opt-title"><Icon name="lock" :size="15" /> Criptografar em repouso (at-rest)</span>
+            <span class="enc-opt-desc">
+              Os arquivos são cifrados <b>no servidor, antes de irem para o storage</b>.
+              No bucket eles ficam com nomes aleatórios e conteúdo ilegível — quem obtiver
+              as chaves do bucket, um backup do storage ou o disco só vê dados embaralhados.
+              Preview e download continuam normais para quem tem acesso aqui.
+              <br />Só pode ser ativado num bucket <b>novo e vazio</b>, e não dá para desfazer depois de subir arquivos.
+            </span>
+          </span>
+        </label>
       </template>
       <template #foot>
         <button class="btn" @click="showNew = false">Cancelar</button>

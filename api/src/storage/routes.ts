@@ -17,7 +17,8 @@ import { mayDeleteBucket } from '../buckets/guard';
 import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
 import { downloadEncrypted, uploadEncryptedFromRequest } from './crypto-pipeline';
-import { config } from '../config';
+import { config, readKekBytes } from '../config';
+import { createHash } from 'node:crypto';
 
 const norm = (p: string) => (p ? (p.endsWith('/') ? p : p + '/') : '');
 
@@ -83,12 +84,17 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       if (user!.role !== 'admin') { set.status = 403; return { error: 'forbidden' }; }
       if (isCluster(body.connectionId)) { set.status = 400; return { error: 'use /api/clusters/:id/buckets' }; }
       if (!s3.has(body.connectionId)) { set.status = 400; return { error: 'unknown_connection' }; }
+      // Se pedir cifrado, exige KEK ANTES de criar (evita criar um bucket que não conseguiríamos cifrar).
+      if (body.encrypted && !getKekProvider()) { set.status = 400; return { error: 'kek_not_configured' }; }
       try { await s3.createBucket(body.connectionId, body.name); } catch (e) { set.status = 502; return { error: String(e) }; }
+      const bucketId = `${body.connectionId}:${body.name}`;
+      // Bucket recém-criado está vazio → a regra "só cifra bucket vazio" é satisfeita por construção.
+      if (body.encrypted) { bucketCryptoStore.setEnabled(bucketId, true); audit.log('key', user!.username, bucketId, 'encryption:on'); }
       const conn = connectionsStore.get(body.connectionId)!;
-      audit.log('bucket', user!.username, body.name, `criou bucket em ${conn.name}`);
+      audit.log('bucket', user!.username, body.name, `criou bucket em ${conn.name}${body.encrypted ? ' (cifrado)' : ''}`);
       set.status = 201;
-      return { id: `${body.connectionId}:${body.name}`, name: body.name, connection: conn.name, region: s3.region(body.connectionId), perm: 'owner' };
-    }, { body: t.Object({ connectionId: t.String({ minLength: 1 }), name: t.String({ minLength: 1 }) }) })
+      return { id: bucketId, name: body.name, connection: conn.name, region: s3.region(body.connectionId), perm: 'owner', encrypted: !!body.encrypted };
+    }, { body: t.Object({ connectionId: t.String({ minLength: 1 }), name: t.String({ minLength: 1 }), encrypted: t.Optional(t.Boolean()) }) })
 
     // define/limpa o apelido de um bucket (acesso de escrita ao bucket)
     .patch('/buckets/alias', async ({ user, body, set }) => {
@@ -138,6 +144,23 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       audit.log('key', user!.username, params.id, body.enabled ? 'encryption:on' : 'encryption:off');
       return { enabled: bucketCryptoStore.isEnabled(params.id) };
     }, { body: t.Object({ enabled: t.Boolean() }) })
+
+    // revela a KEK crua para backup/disaster-recovery (SOMENTE admin). Devolve o segredo
+    // em base64 para o admin guardar num cofre offline. Perder a KEK = dados cifrados
+    // irrecuperáveis; por isso essa saída existe. NUNCA logamos o valor — só a ação
+    // (o teste de higiene em crypto/hygiene.test.ts proíbe console.* de material de chave).
+    .get('/kek', ({ user, set }) => {
+      if (user!.role !== 'admin') { set.status = 403; return { error: 'forbidden' }; }
+      const provider = getKekProvider();
+      if (!provider) { set.status = 400; return { error: 'kek_not_configured' }; }
+      let kek: Buffer | null;
+      try { kek = readKekBytes(); } catch { set.status = 500; return { error: 'kek_unreadable' }; }
+      if (!kek) { set.status = 400; return { error: 'kek_not_configured' }; }
+      // impressão digital estável (não reversível) p/ o admin conferir qual KEK é sem expor o valor nos logs
+      const fingerprint = createHash('sha256').update(kek).digest('hex').slice(0, 16);
+      audit.log('key', user!.username, '—', 'revelou a KEK (backup)');
+      return { version: provider.status().currentVersion, fingerprint, kekBase64: kek.toString('base64') };
+    })
 
     // list objects (paginated) — filtered to what the caller can see at `path`
     .get('/buckets/:id/objects', async ({ user, params, query, set }) => {

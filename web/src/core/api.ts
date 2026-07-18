@@ -137,7 +137,8 @@ export const api = {
   // buckets
   buckets: () => req<Bucket[]>('GET', '/buckets'),
   bucketStats: (bucketId: string) => req<BucketStats>('GET', `/buckets/${encodeURIComponent(bucketId)}/stats`),
-  createBucket: (connectionId: string, name: string) => req<Bucket>('POST', '/buckets', { body: { connectionId, name } }),
+  createBucket: (connectionId: string, name: string, encrypted = false) => req<Bucket>('POST', '/buckets', { body: { connectionId, name, encrypted } }),
+  getKek: () => req<{ version: number | null; fingerprint: string; kekBase64: string }>('GET', '/kek'),
   setBucketAlias: (id: string, alias: string) =>
     req<{ ok: true; alias: string | null }>('PATCH', '/buckets/alias', { body: { id, alias } }),
   deleteBucket: (id: string) =>
