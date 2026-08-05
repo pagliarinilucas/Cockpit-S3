@@ -1,5 +1,5 @@
 import type {
-  Me, Bucket, BucketStats, ObjectListing, PresignedUrl,
+  Me, Bucket, BucketStats, ObjectListing, PresignedUrl, ZipTicket,
   ActivityEvent, Perm, User, Role, Connection, Group,
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
   Cluster, ClusterInput,
@@ -154,6 +154,10 @@ export const api = {
   async objectUrl(bucketId: string, key: string, mode: 'preview' | 'download' = 'preview'): Promise<string> {
     return URL.createObjectURL(await fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/raw`, { key, mode }));
   },
+  zipTicket: (bucketId: string, body: { path: string; prefix?: string; keys?: string[]; filename?: string }) =>
+    req<ZipTicket>('POST', `/buckets/${encodeURIComponent(bucketId)}/zip-ticket`, { body }),
+  zipUrl: (bucketId: string, ticket: string) =>
+    `${BASE}/buckets/${encodeURIComponent(bucketId)}/zip?ticket=${encodeURIComponent(ticket)}`,
   /** Combina imagens/PDFs (na ordem dada) num único PDF; devolve o blob e quantos foram pulados. */
   mergePdf: (bucketId: string, keys: string[], filename?: string) =>
     postBlob(`/buckets/${encodeURIComponent(bucketId)}/merge-pdf`, { keys, filename }),
