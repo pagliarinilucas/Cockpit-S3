@@ -34,6 +34,7 @@ const renamingBucket = ref(false);
 const toDelete = ref<{ keys: string[]; label: string } | null>(null);
 const merge = ref<{ items: ObjectItem[]; name: string } | null>(null);
 const merging = ref(false);
+const zipping = ref(false);
 const ctx = ref<{ x: number; y: number; item: ObjectItem } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
@@ -156,6 +157,7 @@ const ctxItems = computed<MenuItem[]>(() => {
   const it = ctx.value?.item; if (!it) return [];
   if (it.kind === 'folder') return [
     { key: 'open', label: 'Abrir', icon: 'folder' },
+    { key: 'zip', label: 'Baixar como ZIP', icon: 'download' },
     ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
   ];
   return [
@@ -168,6 +170,7 @@ const ctxItems = computed<MenuItem[]>(() => {
 function onCtxSelect(key: string) {
   const it = ctx.value?.item; ctx.value = null; if (!it) return;
   if (key === 'open') openFolder(it);
+  else if (key === 'zip') downloadFolderZip(it);
   else if (key === 'preview') openPreview(it);
   else if (key === 'download') downloadItem(it);
   else if (key === 'copy') copyLink(it);
@@ -200,6 +203,41 @@ async function batchDownload() {
   const files = ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key));
   if (!files.length) { toast.info('Selecione arquivos para baixar'); return; }
   for (const f of files) { await downloadItem(f); await new Promise((r) => setTimeout(r, 300)); }
+}
+
+const ZIP_ERRORS: Record<number, string> = {
+  403: 'Sem permissão para baixar estes arquivos',
+  413: 'Seleção muito grande para um ZIP',
+  422: 'Nada para compactar aqui',
+};
+
+async function startZip(body: { prefix?: string; keys?: string[]; filename: string }) {
+  if (zipping.value) return;
+  zipping.value = true;
+  try {
+    const { ticket, count } = await api.zipTicket(props.bucket.id, { path: prefix.value, ...body });
+    const a = document.createElement('a');
+    a.href = api.zipUrl(props.bucket.id, ticket);
+    a.download = body.filename + '.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast.info(`Compactando ${count} ite${count === 1 ? 'm' : 'ns'} — o download começa em seguida`);
+  } catch (e) {
+    const status = (e as { status?: number }).status ?? 0;
+    toast.error(ZIP_ERRORS[status] ?? 'Falha ao gerar o ZIP');
+  } finally {
+    zipping.value = false;
+  }
+}
+
+function downloadFolderZip(it: ObjectItem) {
+  startZip({ prefix: it.key, filename: it.name });
+}
+
+function selectionZip() {
+  if (!selection.value.size) return;
+  const only = selection.value.size === 1 ? ordered.value.find((i) => selection.value.has(i.key)) : null;
+  const filename = only ? only.name.replace(/\.[^.]+$/, '') : (props.path[props.path.length - 1] ?? bucketLabel(props.bucket));
+  startZip({ keys: [...selection.value], filename });
 }
 
 // juntar em PDF
@@ -348,6 +386,7 @@ defineExpose({ reload });
       <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
       <div class="selbar-actions">
         <button class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
         <button v-if="mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
         <button v-if="canWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
         <button class="btn" @click="clearSel"><Icon name="x" :size="16" />Limpar</button>

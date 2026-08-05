@@ -41,6 +41,8 @@ export const config = {
   loginMaxAttempts: Number(env('LOGIN_MAX_ATTEMPTS', '8')),
   loginWindowMs: Number(env('LOGIN_WINDOW_MS', '300000')),  // 5 min
 
+  zipMaxEntries: Number(env('ZIP_MAX_ENTRIES', '20000')),
+
   // Garage / S3
   s3: {
     endpoint: env('S3_ENDPOINT'),
