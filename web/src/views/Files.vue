@@ -125,6 +125,8 @@ const previewItems = computed(() => ordered.value.filter((i) => i.kind === 'file
 // o que não for imagem/PDF — muitos objetos no Garage não têm extensão.
 const MERGEABLE = new Set<FileType>(['image', 'pdf', 'file']);
 const mergeables = computed(() => ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key) && MERGEABLE.has(i.type || 'file')));
+const selectedFiles = computed(() => ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key)));
+const onlyFilesSelected = computed(() => selection.value.size > 0 && selectedFiles.value.length === selection.value.size);
 const allSel = computed(() => ordered.value.length > 0 && ordered.value.every((i) => selection.value.has(i.key)));
 const folderCount = computed(() => ordered.value.filter((i) => i.kind === 'folder').length);
 const fileCount = computed(() => ordered.value.filter((i) => i.kind === 'file').length);
@@ -200,7 +202,7 @@ async function copyLink(it: ObjectItem) {
   } catch { toast.error('Falha ao copiar link'); }
 }
 async function batchDownload() {
-  const files = ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key));
+  const files = selectedFiles.value;
   if (!files.length) { toast.info('Selecione arquivos para baixar'); return; }
   for (const f of files) { await downloadItem(f); await new Promise((r) => setTimeout(r, 300)); }
 }
@@ -385,7 +387,7 @@ defineExpose({ reload });
     <div v-if="selection.size > 0" class="selbar">
       <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
       <div class="selbar-actions">
-        <button class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button v-if="onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
         <button class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
         <button v-if="mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
         <button v-if="canWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
@@ -439,6 +441,7 @@ defineExpose({ reload });
           <div class="frow-actions" @click.stop>
             <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
             <button v-if="it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
+            <button v-else class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
             <button class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
           </div>
@@ -464,6 +467,7 @@ defineExpose({ reload });
         <div class="fcard-actions" @click.stop>
           <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
           <button v-if="it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
+          <button v-else class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
           <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
         </div>
       </div>
