@@ -71,6 +71,16 @@ declare module 'sodium-native' {
       alg: number,
     ): void;
 
+    readonly crypto_box_PUBLICKEYBYTES: number;
+    readonly crypto_box_SECRETKEYBYTES: number;
+    readonly crypto_box_SEALBYTES: number;
+    crypto_box_keypair(pk: Buffer, sk: Buffer): void;
+    crypto_box_seal(c: Buffer, m: Buffer, pk: Buffer): void;
+    crypto_box_seal_open(m: Buffer, c: Buffer, pk: Buffer, sk: Buffer): boolean;
+
+    readonly crypto_pwhash_OPSLIMIT_SENSITIVE: number;
+    readonly crypto_pwhash_MEMLIMIT_SENSITIVE: number;
+
     // ---- utilidades gerais ----
     randombytes_buf(buf: Buffer): void;
     sodium_memzero(buf: Buffer): void;
