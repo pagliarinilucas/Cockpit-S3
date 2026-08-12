@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cockpit S3 — console de arquivos self-hosted</title>
-  <meta name="description" content="Compartilhe arquivos sensíveis sem entregar suas chaves. Console S3 self-hosted com permissões validadas no servidor, links que expiram e auditoria. R$ 20/mês, usuários ilimitados.">
+  <meta name="description" content="Compartilhe arquivos sensíveis sem entregar suas chaves. Console S3 self-hosted com permissões validadas no servidor, criptografia em repouso, backup de recuperação, links que expiram e auditoria. R$ 20/mês, usuários ilimitados.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z' stroke='%2322e0ff' stroke-width='1.6' fill='rgba(34,224,255,0.05)'/%3E%3Ccircle cx='20' cy='20' r='7.4' stroke='%2322e0ff' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='20' cy='20' r='2.4' fill='%2322e0ff'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -344,7 +344,17 @@
           <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 8px;color:#f2fbff">Segurança de gente grande, sem o peso</h2>
           <p style="font-size:15.5px;color:var(--muted);margin:0;max-width:600px">A honestidade de engenharia é o estilo: o que está aqui, está validado no servidor. Sem teatro, sem jargão.</p>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px" class="ck-grid4">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px" class="ck-grid3">
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line2);border-radius:13px;padding:22px;box-shadow:0 0 40px -26px rgba(34,224,255,.6)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="12" cy="15" r="1.5" fill="var(--cyan)"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Criptografia em repouso</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Cada arquivo é cifrado no servidor, com chave própria por objeto, antes de ir pro storage. No bucket ficam só blocos embaralhados de nome aleatório — backup, disco ou credencial vazada não revelam nada.</p>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line2);border-radius:13px;padding:22px;box-shadow:0 0 40px -26px rgba(34,224,255,.6)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M7 18a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 18H7Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 13v4m0-4-1.6 1.6M12 13l1.6 1.6" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Backup &amp; recuperação (DR)</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Backup automático e cifrado das chaves e do índice para um destino que você escolhe. Se a máquina do console cair, você restaura tudo — e os arquivos, já no seu storage, nunca se perdem.</p>
+          </div>
           <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>
             <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">LGPD & soberania</h3>
@@ -404,6 +414,12 @@
                 <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sempre</span></td>
                 <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Depende</span></td>
                 <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Criptografia em repouso (server-side)</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Por bucket</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Lado do provedor</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Raro</span></td>
               </tr>
               <tr>
                 <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Link com expiração automática</td>
@@ -510,7 +526,11 @@
         </details>
         <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
           <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">E o backup?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Seus arquivos ficam no seu object storage — você faz backup como já faz do resto da infraestrutura. O Cockpit não cria um silo proprietário nem prende seus dados.</p>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Seus arquivos ficam no seu object storage, sem silo proprietário. E o Cockpit ainda faz backup automático e cifrado das chaves de criptografia e do índice de metadados para um destino que você escolhe — se a máquina do console for perdida, você restaura o acesso a tudo em minutos. No plano gerenciado, a gente pode guardar essa cópia de recuperação por você.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Os arquivos ficam criptografados?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Podem ficar. Você ativa a criptografia em repouso por bucket: a partir daí cada arquivo é cifrado no servidor, com uma chave própria, antes de ser gravado — e no storage só existem blocos ilegíveis com nomes aleatórios. Quem obtiver o bucket, um backup ou o disco não lê nada. Para quem tem acesso no console, preview e download seguem normais: a cifragem é transparente.</p>
         </details>
         <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
           <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Quantos usuários ele suporta?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
