@@ -185,3 +185,17 @@ export const bucketCrypto = sqliteTable('bucket_crypto', {
   enabled: integer('enabled').notNull().default(0),
   updatedAt: text('updated_at').notNull(),
 });
+
+export const escrowConfig = sqliteTable('escrow_config', {
+  id: text('id').primaryKey(),
+  enabled: integer('enabled').notNull().default(0),
+  clientDest: text('client_dest'),
+  vendorEnabled: integer('vendor_enabled').notNull().default(0),
+  recoverySecret: text('recovery_secret'),
+  recoveryShown: integer('recovery_shown').notNull().default(0),
+  lastBackupAt: text('last_backup_at'),
+  lastStatus: text('last_status'),
+  lastError: text('last_error'),
+  lastCount: integer('last_count').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});

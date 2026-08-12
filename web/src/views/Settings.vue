@@ -5,7 +5,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import type { Connection, Cluster, ClusterInput } from '../core/models';
-import { api, apiErrMsg, ApiError, type ConnectionPayload } from '../core/api';
+import { api, apiErrMsg, ApiError, type ConnectionPayload, type EscrowStatus } from '../core/api';
 import { useToast } from '../core/toast';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
@@ -66,6 +66,133 @@ function downloadKek() {
   URL.revokeObjectURL(url);
 }
 
+const escrow = ref<EscrowStatus | null>(null);
+const escrowLoading = ref(true);
+const escrowTesting = ref(false);
+const escrowBackingUp = ref(false);
+
+const escrowEditing = ref(false);
+const escrowForm = ref({ enabled: false, endpoint: '', region: 'garage', accessKey: '', secretKey: '', bucket: '', prefix: '', vendorEnabled: false });
+const escrowDestSet = ref(false);
+const escrowSaving = ref(false);
+
+const recoveryEditing = ref(false);
+const recoveryManual = ref('');
+const recoveryCode = ref<string | null>(null);
+const recoveryGenerating = ref(false);
+const recoveryAcking = ref(false);
+
+async function loadEscrow() {
+  escrowLoading.value = true;
+  try { escrow.value = await api.escrowStatus(); }
+  catch (e) { toast.error(apiErrMsg(e, 'carregar o status do backup de recuperação')); }
+  finally { escrowLoading.value = false; }
+}
+
+function openEscrowEdit() {
+  const cfg = escrow.value;
+  escrowDestSet.value = !!cfg?.clientDest;
+  escrowForm.value = {
+    enabled: cfg?.enabled ?? false,
+    endpoint: cfg?.clientDest?.endpoint ?? '',
+    region: cfg?.clientDest?.region ?? 'garage',
+    accessKey: cfg?.clientDest?.accessKey ?? '',
+    secretKey: '',
+    bucket: cfg?.clientDest?.bucket ?? '',
+    prefix: cfg?.clientDest?.prefix ?? '',
+    vendorEnabled: cfg?.vendorEnabled ?? false,
+  };
+  escrowEditing.value = true;
+}
+
+async function saveEscrow() {
+  const f = escrowForm.value;
+  const destFilled = f.endpoint.trim() || f.accessKey.trim() || f.bucket.trim() || f.secretKey.trim();
+  if (destFilled && (!f.endpoint.trim() || !f.accessKey.trim() || !f.bucket.trim() || !f.secretKey.trim())) {
+    toast.error('Preencha endpoint, access key, secret key e bucket do destino (ou deixe todos vazios para não alterar).');
+    return;
+  }
+  if (f.enabled && !destFilled && !escrowDestSet.value) {
+    toast.error('Configure o destino do backup antes de habilitá-lo.');
+    return;
+  }
+  escrowSaving.value = true;
+  try {
+    await api.escrowConfig({
+      enabled: f.enabled,
+      vendorEnabled: f.vendorEnabled,
+      clientDest: destFilled
+        ? { endpoint: f.endpoint.trim(), region: f.region.trim() || 'garage', accessKey: f.accessKey.trim(), secretKey: f.secretKey, bucket: f.bucket.trim(), prefix: f.prefix.trim() }
+        : undefined,
+    });
+    toast.success('Configuração de backup salva');
+    escrowEditing.value = false;
+    await loadEscrow();
+  } catch (e) { toast.error(apiErrMsg(e, 'salvar a configuração de backup')); }
+  finally { escrowSaving.value = false; }
+}
+
+function openRecoveryEdit() {
+  recoveryManual.value = '';
+  recoveryCode.value = null;
+  recoveryEditing.value = true;
+}
+
+async function genRecovery() {
+  const manual = recoveryManual.value.trim();
+  if (manual && manual.length < 12) {
+    toast.error('A senha manual precisa ter pelo menos 12 caracteres.');
+    return;
+  }
+  recoveryGenerating.value = true;
+  try {
+    const { code } = await api.escrowGenRecovery(manual || undefined);
+    recoveryCode.value = code;
+    await loadEscrow();
+  } catch (e) { toast.error(apiErrMsg(e, 'gerar o código de recuperação')); }
+  finally { recoveryGenerating.value = false; }
+}
+
+function copyRecoveryCode() {
+  if (!recoveryCode.value) return;
+  navigator.clipboard.writeText(recoveryCode.value)
+    .then(() => toast.success('Código copiado para a área de transferência'))
+    .catch(() => toast.error('Não foi possível copiar'));
+}
+
+async function ackRecovery() {
+  recoveryAcking.value = true;
+  try {
+    await api.escrowAckRecovery();
+    recoveryEditing.value = false;
+    recoveryCode.value = null;
+    await loadEscrow();
+  } catch (e) { toast.error(apiErrMsg(e, 'confirmar')); }
+  finally { recoveryAcking.value = false; }
+}
+
+async function testEscrowDest() {
+  escrowTesting.value = true;
+  try { await api.escrowTest(); toast.success('Destino acessível'); }
+  catch (e) { toast.error(apiErrMsg(e, 'testar o destino')); }
+  finally { escrowTesting.value = false; }
+}
+
+async function backupNow() {
+  escrowBackingUp.value = true;
+  try {
+    const r = await api.escrowBackupNow();
+    toast.success(`Backup feito (${r.key}); ${r.removed} snapshot(s) antigo(s) removido(s)`);
+    await loadEscrow();
+  } catch (e) { toast.error(apiErrMsg(e, 'fazer o backup')); }
+  finally { escrowBackingUp.value = false; }
+}
+
+function fmtDate(ts: string | null): string {
+  if (!ts) return 'nunca';
+  return new Date(ts).toLocaleString();
+}
+
 // clusters (admin)
 const clusters = ref<Cluster[]>([]);
 const clusterEditing = ref<Cluster | 'new' | null>(null);
@@ -89,7 +216,7 @@ async function load() {
   } catch (e) { error.value = apiErrMsg(e); }
   finally { loading.value = false; }
 }
-onMounted(load);
+onMounted(() => { load(); loadEscrow(); });
 defineExpose({ reload: load });
 
 function openNew() {
@@ -232,6 +359,37 @@ async function confirmDeleteCluster() {
       <button class="btn" :disabled="kekLoading" @click="revealKek">
         <Icon name="key" :size="16" />{{ kekLoading ? 'Revelando…' : 'Revelar / baixar' }}
       </button>
+    </div>
+
+    <div class="kek-card escrow-card">
+      <div class="kek-ic"><Icon name="shield" :size="20" /></div>
+      <div class="kek-main">
+        <div class="kek-title">Backup de recuperação (DR)</div>
+        <div class="kek-desc">
+          Backup automático cifrado da KEK + banco (não dos arquivos do storage) para um destino
+          S3 à sua escolha. Precisa de um <b>código de recuperação</b> guardado offline — sem ele
+          (e sem a KEK), o backup é irrecuperável.
+        </div>
+        <div v-if="!escrowLoading && escrow" class="escrow-status">
+          último backup: {{ fmtDate(escrow.lastBackupAt) }}{{ escrow.lastStatus ? ` (${escrow.lastStatus})` : '' }}
+          · {{ escrow.lastCount ?? 0 }} snapshot(s) retido(s)
+          · escrow {{ escrow.enabled ? 'ligado' : 'desligado' }}
+          <template v-if="escrow.vendorAvailable">
+            · modo gerenciado {{ escrow.vendorEnabled ? 'ligado' : 'disponível' }} ({{ escrow.vendorFingerprint }})
+          </template>
+          <template v-else> · modo gerenciado não disponível nesta instalação</template>
+        </div>
+      </div>
+      <div class="escrow-acts">
+        <button class="btn" @click="openEscrowEdit"><Icon name="cpu" :size="16" />Configurar</button>
+        <button class="btn" @click="openRecoveryEdit"><Icon name="key" :size="16" />Gerar código</button>
+        <button class="btn" :disabled="escrowTesting || !escrow?.clientDest" @click="testEscrowDest">
+          <Icon name="activity" :size="16" />{{ escrowTesting ? 'Testando…' : 'Testar destino' }}
+        </button>
+        <button class="btn btn-primary" :disabled="escrowBackingUp || !escrow?.enabled" @click="backupNow">
+          <Icon name="database" :size="16" />{{ escrowBackingUp ? 'Fazendo backup…' : 'Fazer backup agora' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
@@ -395,6 +553,86 @@ async function confirmDeleteCluster() {
         <button class="btn btn-primary" @click="downloadKek"><Icon name="download" :size="16" />Baixar .key</button>
       </template>
     </Modal>
+
+    <Modal v-if="escrowEditing" title="Configurar backup de recuperação" icon="cpu" @close="escrowEditing = false">
+      <div class="field">
+        <label class="field-label"><input type="checkbox" v-model="escrowForm.enabled" /> Habilitar backup automático</label>
+      </div>
+      <div class="field">
+        <label class="field-label">Endpoint S3 (destino)</label>
+        <input class="field-input" v-model="escrowForm.endpoint" placeholder="https://s3.suaempresa.internal" />
+      </div>
+      <div class="modal-row">
+        <div class="field">
+          <label class="field-label">Região</label>
+          <input class="field-input" v-model="escrowForm.region" placeholder="garage" />
+        </div>
+        <div class="field">
+          <label class="field-label">Access key</label>
+          <input class="field-input" v-model="escrowForm.accessKey" placeholder="GK…" autocomplete="off" />
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">Secret key</label>
+        <input class="field-input" type="password" v-model="escrowForm.secretKey"
+               :placeholder="escrowDestSet ? '•••••••• (mantém a atual se todo o destino ficar vazio)' : 'secret key'" autocomplete="off" />
+      </div>
+      <div class="modal-row">
+        <div class="field">
+          <label class="field-label">Bucket</label>
+          <input class="field-input" v-model="escrowForm.bucket" placeholder="dr-backups" />
+        </div>
+        <div class="field">
+          <label class="field-label">Prefixo (opcional)</label>
+          <input class="field-input" v-model="escrowForm.prefix" placeholder="cockpit/" />
+        </div>
+      </div>
+      <div v-if="escrow?.vendorAvailable" class="field">
+        <label class="field-label">
+          <input type="checkbox" v-model="escrowForm.vendorEnabled" /> Também cifrar para custódia gerenciada (vendor)
+        </label>
+        <p class="modal-hint">Fingerprint da chave do vendor: {{ escrow.vendorFingerprint }}</p>
+      </div>
+      <div v-else class="modal-hint">Modo gerenciado (vendor) não disponível nesta instalação.</div>
+      <template #foot>
+        <button class="btn" @click="escrowEditing = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="escrowSaving" @click="saveEscrow"><Icon name="check" :size="16" />{{ escrowSaving ? 'Salvando…' : 'Salvar' }}</button>
+      </template>
+    </Modal>
+
+    <Modal v-if="recoveryEditing" title="Código de recuperação" icon="key" @close="recoveryEditing = false">
+      <template v-if="!recoveryCode">
+        <p class="modal-text">
+          Gera um código de recuperação usado para decifrar o backup de KEK+banco. Ele é mostrado
+          <b>uma única vez</b> — depois disso não pode ser recuperado pelo sistema.
+        </p>
+        <div class="field">
+          <label class="field-label">Senha manual (opcional, mín. 12 caracteres — deixe vazio para gerar automaticamente)</label>
+          <input class="field-input" type="password" v-model="recoveryManual" autocomplete="off" />
+        </div>
+      </template>
+      <template v-else>
+        <p class="modal-warn">
+          <Icon name="alert" :size="14" /> Copie e guarde este código <b>OFFLINE, separado do storage e da KEK</b>.
+          Sem ele + a KEK, o backup de recuperação é irrecuperável. Ele não será mostrado de novo.
+        </p>
+        <div class="field">
+          <label class="field-label">Código de recuperação</label>
+          <textarea class="field-input kek-secret" :value="recoveryCode" readonly rows="2"></textarea>
+        </div>
+      </template>
+      <template #foot>
+        <template v-if="!recoveryCode">
+          <button class="btn" @click="recoveryEditing = false">Cancelar</button>
+          <button class="btn btn-primary" :disabled="recoveryGenerating" @click="genRecovery"><Icon name="key" :size="16" />{{ recoveryGenerating ? 'Gerando…' : 'Gerar' }}</button>
+        </template>
+        <template v-else>
+          <button class="btn" @click="copyRecoveryCode"><Icon name="copy" :size="16" />Copiar</button>
+          <span style="flex:1"></span>
+          <button class="btn btn-primary" :disabled="recoveryAcking" @click="ackRecovery"><Icon name="check" :size="16" />{{ recoveryAcking ? 'Confirmando…' : 'Já guardei' }}</button>
+        </template>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -428,4 +666,7 @@ async function confirmDeleteCluster() {
   background: var(--line-2, rgba(255,255,255,.08));
 }
 .kek-secret { font-family: ui-monospace, monospace; font-size: 12.5px; word-break: break-all; resize: none; }
+.escrow-card { align-items: flex-start; flex-wrap: wrap; }
+.escrow-status { margin-top: 8px; font-size: 12px; color: var(--text-3, #9aa4b2); }
+.escrow-acts { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
 </style>

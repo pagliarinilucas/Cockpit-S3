@@ -11,6 +11,30 @@ export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
 }
 
+export interface EscrowClientDest {
+  endpoint: string; region: string; accessKey: string; bucket: string; prefix: string;
+}
+export interface EscrowClientDestInput extends EscrowClientDest {
+  secretKey: string;
+}
+export interface EscrowStatus {
+  enabled: boolean;
+  vendorAvailable: boolean;
+  vendorFingerprint: string | null;
+  vendorEnabled: boolean;
+  clientDest: EscrowClientDest | null;
+  recoverySet: boolean;
+  recoveryShown: boolean;
+  lastBackupAt: string | null;
+  lastStatus: string | null;
+  lastCount: number | null;
+}
+export interface EscrowConfigInput {
+  enabled?: boolean;
+  clientDest?: EscrowClientDestInput | null;
+  vendorEnabled?: boolean;
+}
+
 /**
  * API client. Base path `/api`, proxied to http://localhost:3000 in dev
  * (vite.config.ts). Nothing is mocked.
@@ -253,6 +277,13 @@ export const api = {
   createGarageKey: (id: string, name: string) => req<NewGarageKey>('POST', `/clusters/${encodeURIComponent(id)}/keys`, { body: { name } }),
   deleteGarageKey: (id: string, keyId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`),
   setGarageKeyPerm: (id: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),
+
+  escrowStatus: () => req<EscrowStatus>('GET', '/escrow'),
+  escrowConfig: (body: EscrowConfigInput) => req<EscrowStatus>('POST', '/escrow/config', { body }),
+  escrowGenRecovery: (manual?: string) => req<{ code: string }>('POST', '/escrow/recovery', { body: manual ? { manual } : {} }),
+  escrowAckRecovery: () => req<{ ok: boolean }>('POST', '/escrow/recovery/ack', { body: {} }),
+  escrowTest: () => req<{ ok: boolean }>('POST', '/escrow/test', { body: {} }),
+  escrowBackupNow: () => req<{ ok: boolean; key: string; removed: number }>('POST', '/escrow/backup-now', { body: {} }),
 };
 
 /** Public, same-origin URL for previewing a shared object (no auth). */

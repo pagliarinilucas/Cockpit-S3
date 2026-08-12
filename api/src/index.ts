@@ -20,6 +20,8 @@ import { shareRoutes } from './shares/routes';
 import { publicShareRoutes } from './shares/public';
 import { staticRoutes } from './web/static';
 import { bootKekProvider } from './crypto/kek';
+import { escrowRoutes } from './escrow/routes';
+import { startEscrowScheduler } from './escrow/backup';
 
 await bootstrap();
 sessions.prune();
@@ -46,6 +48,7 @@ for (const c of clustersStore.listFull()) configureClusterS3(c);
 
 // Inicializa o provedor de KEK (criptografia em repouso), se configurado; no-op se não houver COCKPIT_KEK/COCKPIT_KEK_FILE.
 bootKekProvider();
+startEscrowScheduler();
 
 const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(cors({
@@ -66,6 +69,7 @@ const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(userRoutes)
   .use(groupRoutes)
   .use(storageRoutes)
+  .use(escrowRoutes)
   .use(connectionsRoutes)
   .use(clusterRoutes)
   .use(activityRoutes)

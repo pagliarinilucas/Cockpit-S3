@@ -30,4 +30,18 @@ describe('higiene de segredos', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('nenhum console.* loga variável de segredo do escrow (secret/kek/dek/ebk/recovery/wrapped)', () => {
+    const offenders: string[] = [];
+    const stripStrings = (s: string) =>
+      s.replace(/'(?:\\.|[^'\\])*'/g, "''").replace(/"(?:\\.|[^"\\])*"/g, '""').replace(/`(?:\\.|[^`\\])*`/g, '``');
+    const re = /console\.\w+\([^)]*\b(secret|kek|dek|ebk|recovery|wrapped)\w*\b/i;
+    const escrowDir = join(import.meta.dir, '..', 'escrow');
+    for (const f of walk(escrowDir)) {
+      readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+        if (re.test(stripStrings(line))) offenders.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
 });
