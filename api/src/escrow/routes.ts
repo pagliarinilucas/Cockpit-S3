@@ -52,6 +52,7 @@ export const escrowRoutes = new Elysia({ prefix: '/api' })
 
     .post('/escrow/config', ({ user, body, set }) => {
       if (user!.role !== 'admin') { set.status = 403; return { error: 'forbidden' }; }
+      if (body.vendorEnabled && !vendorPubkey()) { set.status = 400; return { error: 'vendor_unavailable' }; }
       escrowStore.setConfig(body);
       audit.log('key', user!.username, 'escrow', 'config atualizada');
       return statusPayload();

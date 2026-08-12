@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Lucas Pagliarini
 import { randomUUID } from 'node:crypto';
 import { snapshotToBuffer } from './snapshot';
-import { encryptBundle } from './bundle';
+import { encryptBundle, decryptBundle } from './bundle';
 import { readKekBytes, config } from '../config';
 import { sqlite } from '../db';
 import type { EscrowDest } from './dest';
@@ -20,7 +20,11 @@ export interface RunBackupDeps {
   spoolDir?: string;
 }
 
+let busy = false;
+
 export async function runBackupOnce(deps: RunBackupDeps): Promise<{ key: string; removed: number }> {
+  if (busy) throw new Error('backup_in_flight');
+  busy = true;
   let keepCount = 0;
   try {
     const dbBytes = snapshotToBuffer(deps.dbPath, deps.spoolDir);
@@ -32,6 +36,9 @@ export async function runBackupOnce(deps: RunBackupDeps): Promise<{ key: string;
 
     const key = `escrow-${String(deps.now).padStart(14, '0')}-${randomUUID().slice(0, 8)}.bin`;
     await deps.dest.put(key, blob);
+
+    const verifyBlob = await deps.dest.get(key);
+    await decryptBundle(verifyBlob, { recoverySecret: deps.recoverySecret });
 
     const listed = await deps.dest.list();
     const snaps: Snapshot[] = listed.map((o) => ({ key: o.key, at: o.at }));
@@ -55,11 +62,12 @@ export async function runBackupOnce(deps: RunBackupDeps): Promise<{ key: string;
       count: keepCount,
     });
     throw err;
+  } finally {
+    busy = false;
   }
 }
 
 let tickHandle: ReturnType<typeof setInterval> | null = null;
-let inFlight = false;
 let lastDataVersion: number | null = null;
 let lastChangeAt = 0;
 let lastBackupAt = 0;
@@ -75,6 +83,11 @@ async function tick(): Promise<void> {
     const dv = row.data_version;
     const now = Date.now();
 
+    if (cfg.vendorEnabled && !vendorPubkey()) {
+      escrowStore.setStatus({ at: new Date(now).toISOString(), status: 'error', error: 'vendor_unavailable', count: 0 });
+      return;
+    }
+
     if (dv !== lastDataVersion) {
       lastChangeAt = now;
       lastDataVersion = dv;
@@ -84,10 +97,9 @@ async function tick(): Promise<void> {
     const debounceElapsed = now - lastChangeAt >= config.escrowDebounceMs;
     const periodicElapsed = now - lastBackupAt >= config.escrowPeriodicMs;
 
-    const shouldRun = !inFlight && ((changedPending && debounceElapsed) || periodicElapsed);
+    const shouldRun = !busy && ((changedPending && debounceElapsed) || periodicElapsed);
     if (!shouldRun) return;
 
-    inFlight = true;
     try {
       await runBackupOnce({
         dest: s3Dest(cfg.clientDest),
@@ -99,12 +111,10 @@ async function tick(): Promise<void> {
       });
       lastBackupAt = now;
     } catch {
-      // status já foi persistido em runBackupOnce; não derruba o processo.
-    } finally {
-      inFlight = false;
+      return;
     }
   } catch {
-    // nunca deixa o setInterval lançar.
+    return;
   }
 }
 
@@ -118,7 +128,7 @@ export function stopEscrowScheduler(): void {
     clearInterval(tickHandle);
     tickHandle = null;
   }
-  inFlight = false;
+  busy = false;
   lastDataVersion = null;
   lastChangeAt = 0;
   lastBackupAt = 0;

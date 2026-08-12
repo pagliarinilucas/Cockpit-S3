@@ -212,3 +212,15 @@ S3** (ex.: cofre físico, gerenciador de segredos fora da infraestrutura
 coberta pelo próprio backup) — se ambos forem perdidos junto com o host
 original, e o modo vendor não estiver habilitado, a recuperação por essa via
 não é possível.
+
+### Segredos no banco
+
+O SQLite **não** é cifrado em repouso. Ele guarda, em claro, o `recovery_secret`
+do escrow e o `secretKey` do destino S3 (mesmo padrão já usado pela tabela de
+conexões). Isso é intencional: o servidor precisa desses valores para rodar os
+backups automáticos, e a API nunca os expõe (o `secretKey` é removido das
+respostas; o código de recuperação só sai uma vez, na geração). Como o banco é
+incluído dentro de cada bundle de escrow, o `recovery_secret` acaba dentro do
+próprio backup — o que é inócuo, pois o bundle só se abre com esse mesmo
+segredo (ou a chave privada do vendor), mantido offline pelo cliente. Proteja o
+arquivo do SQLite no host com as permissões de sistema de arquivos adequadas.
