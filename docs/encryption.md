@@ -143,3 +143,72 @@ final, com sucesso ou falha.
 **merge-pdf:** o combinador de PDFs carrega cada arquivo inteiro em memória
 (o pdf-lib exige os bytes completos), então a soma dos selecionados é limitada
 por `MERGE_PDF_MAX_TOTAL_BYTES` (default **2 GiB**); acima disso responde `413`.
+
+## Backup de recuperação (escrow/DR)
+
+O backup de recuperação é um mecanismo separado da criptografia de objetos:
+ele protege a **capacidade de recuperar o cockpit em si** (a KEK e o banco de
+metadados/configuração), não os arquivos armazenados nos buckets. Sem ele,
+perder o host que guarda a KEK e o banco significa perder o acesso a todos os
+objetos cifrados, mesmo que eles continuem intactos no S3.
+
+O que é incluído em cada snapshot: a KEK ativa (se configurada) e o arquivo do
+banco de dados. Os arquivos dos buckets nunca são copiados pelo escrow.
+
+O bundle é cifrado antes de subir para o destino, com até duas rotas de
+abertura ("custódia híbrida"), configuráveis independentemente em
+`Configurações`:
+
+- **Cliente**: cifrado com uma chave derivada do **código de recuperação**
+  (gerado ou definido manualmente, mín. 12 caracteres) mostrado **uma única
+  vez** na hora da geração. Perdê-lo sem ter uma cópia offline torna esse
+  caminho de abertura irrecuperável — o servidor não guarda o código em texto
+  claro nem consegue reexibi-lo.
+- **Vendor (gerenciado)**: se habilitado e disponível na instalação, o mesmo
+  bundle também é cifrado para uma chave pública do vendor, permitindo
+  recuperação assistida sem depender do código de recuperação do cliente.
+  Só existe se `vendorAvailable` for `true` (chave do vendor provisionada na
+  instalação); o fingerprint da chave é exibido na UI.
+
+O destino de backup do cliente é um bucket S3 (endpoint, region, access/secret
+key, bucket, prefixo) configurado em `Configurações`, independente dos
+buckets de dados do cockpit. Snapshots antigos são retidos por uma política
+de retenção; cada backup bem-sucedido pode remover snapshots expirados no
+mesmo destino.
+
+### Restauração (CLI)
+
+Não há restauração pela UI — é sempre via linha de comando, a partir de uma
+máquina de recuperação (não do host comprometido/perdido). Rode:
+
+```bash
+ESCROW_ENDPOINT=... \
+ESCROW_KEY=... \
+ESCROW_SECRET=... \
+ESCROW_BUCKET=... \
+ESCROW_REGION=garage \
+ESCROW_PREFIX= \
+ESCROW_RECOVERY_CODE=... \
+COCKPIT_KEK_FILE=/caminho/de/saida/kek.bin \
+DB_PATH=/caminho/de/saida/cockpit.db \
+nix develop --command bash -c 'cd api && bun run restore'
+```
+
+- `ESCROW_ENDPOINT` / `ESCROW_KEY` / `ESCROW_SECRET` / `ESCROW_BUCKET` (e
+  opcionalmente `ESCROW_REGION`, `ESCROW_PREFIX`) apontam para o mesmo destino
+  S3 configurado no cockpit de origem.
+- A abertura do bundle usa **ou** `ESCROW_RECOVERY_CODE` (o código gerado pelo
+  cliente) **ou** o par `ESCROW_VENDOR_PUBKEY` + `ESCROW_VENDOR_PRIVKEY`
+  (modo vendor, base64) — nunca os dois ao mesmo tempo são necessários.
+- `COCKPIT_KEK_FILE` e `DB_PATH` são os caminhos de saída onde a KEK e o banco
+  restaurados serão gravados; use `--force` para sobrescrever arquivos
+  existentes nesses caminhos.
+
+### Aviso de custódia
+
+O **código de recuperação** e a **KEK** juntos são suficientes para decifrar
+o backup do lado do cliente. Guarde os dois **offline e separados do storage
+S3** (ex.: cofre físico, gerenciador de segredos fora da infraestrutura
+coberta pelo próprio backup) — se ambos forem perdidos junto com o host
+original, e o modo vendor não estiver habilitado, a recuperação por essa via
+não é possível.
