@@ -22,8 +22,8 @@
   @keyframes ck-floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
   @keyframes ck-sweep{to{stroke-dashoffset:0}}
   @keyframes ck-grid{0%{opacity:.5}50%{opacity:.85}100%{opacity:.5}}
-  @keyframes ck-aurora{0%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(-2.5%,1.6%,0) scale(1.06)}100%{transform:translate3d(0,0,0) scale(1)}}
-  @keyframes ck-aurora2{0%{transform:translate3d(0,0,0) scale(1.04)}50%{transform:translate3d(3%,-1.5%,0) scale(1)}100%{transform:translate3d(0,0,0) scale(1.04)}}
+  @keyframes ck-drift{to{background-position:32px 32px}}
+  @keyframes ck-breathe{0%,100%{opacity:.5}50%{opacity:.8}}
   @media (prefers-reduced-motion: reduce){
     *{animation:none !important;transition:none !important}
     html{scroll-behavior:auto}
@@ -37,9 +37,8 @@
 <div style="--bg:#06090c;--bg2:#080c10;--panel:#0c1218;--panel2:#101921;--line:rgba(120,165,185,.12);--line2:rgba(120,165,185,.22);--text:#e4eef2;--muted:#8ba0aa;--dim:#5b6e77;--cyan:#22e0ff;--cyan2:#0bb6d6;--amber:#ffb340;--ok:#37e0a0;--danger:#ff5d6c;background:var(--bg);color:var(--text);font-family:'Saira',system-ui,sans-serif;font-weight:400;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;position:relative">
 
   <!-- ambient backdrop -->
-  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(900px 520px at 78% -8%,rgba(34,224,255,.10),transparent 60%);animation:ck-aurora 22s ease-in-out infinite;will-change:transform;transform-origin:78% 0%"></div>
-  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(760px 460px at 6% 12%,rgba(11,182,214,.07),transparent 55%);animation:ck-aurora2 27s ease-in-out infinite;will-change:transform;transform-origin:6% 0%"></div>
-  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;background-image:linear-gradient(rgba(120,165,185,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(120,165,185,.05) 1px,transparent 1px);background-size:48px 48px;mask-image:radial-gradient(ellipse 90% 70% at 50% 0%,#000 35%,transparent 75%);-webkit-mask-image:radial-gradient(ellipse 90% 70% at 50% 0%,#000 35%,transparent 75%);animation:ck-grid 9s ease-in-out infinite"></div>
+  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(1000px 540px at 72% -12%,rgba(34,224,255,.09),transparent 60%),radial-gradient(680px 420px at 10% 4%,rgba(11,182,214,.05),transparent 55%);animation:ck-breathe 16s ease-in-out infinite"></div>
+  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(circle,rgba(34,224,255,.05) 1px,transparent 1px);background-size:32px 32px;animation:ck-drift 55s linear infinite;mask-image:radial-gradient(ellipse 92% 72% at 50% 0%,#000 28%,transparent 78%);-webkit-mask-image:radial-gradient(ellipse 92% 72% at 50% 0%,#000 28%,transparent 78%)"></div>
 
   <!-- ============ NAV ============ -->
   <header style="position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(6,9,12,.72);border-bottom:1px solid var(--line)">
