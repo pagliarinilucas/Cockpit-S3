@@ -194,6 +194,22 @@ sqlite.run(`
   );
 `);
 
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS escrow_config (
+    id              TEXT PRIMARY KEY,
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    client_dest     TEXT,
+    vendor_enabled  INTEGER NOT NULL DEFAULT 0,
+    recovery_secret TEXT,
+    recovery_shown  INTEGER NOT NULL DEFAULT 0,
+    last_backup_at  TEXT,
+    last_status     TEXT,
+    last_error      TEXT,
+    last_count      INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL
+  );
+`);
+
 // Additive migration (idempotent): users.can_share for DBs created before share links existed.
 {
   const cols = sqlite.query('PRAGMA table_info(users)').all() as { name: string }[];

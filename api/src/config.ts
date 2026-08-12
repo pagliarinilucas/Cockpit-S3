@@ -78,20 +78,26 @@ export const config = {
   // storage/routes.ts). Opcional: se ausente, cai no os.tmpdir() do sistema no
   // momento do uso.
   uploadSpoolDir: env('UPLOAD_SPOOL_DIR'),
+
+  escrowSpoolDir: env('ESCROW_SPOOL_DIR'),
+  escrowDebounceMs: Number(env('ESCROW_DEBOUNCE_MS', '90000')),
+  escrowPeriodicMs: Number(env('ESCROW_PERIODIC_MS', '3600000')),
 };
 
 /** Lê a KEK bruta (32 bytes) de COCKPIT_KEK_FILE ou COCKPIT_KEK (base64). null se ausente. */
 export function readKekBytes(): Buffer | null {
-  if (config.kekFile) {
-    const raw = readFileSync(config.kekFile);
+  const kekFile = env('COCKPIT_KEK_FILE');
+  const kek = env('COCKPIT_KEK');
+  if (kekFile) {
+    const raw = readFileSync(kekFile);
     // aceita 32 bytes crus OU base64 de 32 bytes
     if (raw.length === 32) return raw;
     const b64 = Buffer.from(raw.toString('utf8').trim(), 'base64');
     if (b64.length === 32) return b64;
     throw new Error('COCKPIT_KEK_FILE deve conter 32 bytes (crus ou base64)');
   }
-  if (config.kek) {
-    const b = Buffer.from(config.kek.trim(), 'base64');
+  if (kek) {
+    const b = Buffer.from(kek.trim(), 'base64');
     if (b.length !== 32) throw new Error('COCKPIT_KEK deve ser base64 de 32 bytes');
     return b;
   }
