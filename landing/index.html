@@ -23,7 +23,7 @@
   @keyframes ck-sweep{to{stroke-dashoffset:0}}
   @keyframes ck-grid{0%{opacity:.5}50%{opacity:.85}100%{opacity:.5}}
   @keyframes ck-drift{to{background-position:64px 64px}}
-  @keyframes ck-cross{to{background-position:1100px 0}}
+  @keyframes ck-cross{to{background-position:2600px 100%}}
   @media (prefers-reduced-motion: reduce){
     *{animation:none !important;transition:none !important}
     html{scroll-behavior:auto}
@@ -37,7 +37,7 @@
 <div style="--bg:#06090c;--bg2:#080c10;--panel:#0c1218;--panel2:#101921;--line:rgba(120,165,185,.12);--line2:rgba(120,165,185,.22);--text:#e4eef2;--muted:#8ba0aa;--dim:#5b6e77;--cyan:#22e0ff;--cyan2:#0bb6d6;--amber:#ffb340;--ok:#37e0a0;--danger:#ff5d6c;background:var(--bg);color:var(--text);font-family:'Saira',system-ui,sans-serif;font-weight:400;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;position:relative">
 
   <!-- ambient backdrop -->
-  <div aria-hidden="true" style="position:fixed;left:0;right:0;top:52%;height:420px;pointer-events:none;z-index:0;background-image:linear-gradient(90deg,rgba(34,224,255,.05),rgba(34,224,255,.15) 50%,rgba(34,224,255,.05));background-size:1100px 100%;background-repeat:repeat-x;background-position:0 0;-webkit-mask-image:linear-gradient(180deg,transparent,#000 50%,transparent);mask-image:linear-gradient(180deg,transparent,#000 50%,transparent);animation:ck-cross 22s linear infinite;will-change:background-position"></div>
+  <div aria-hidden="true" style="position:fixed;left:0;right:0;bottom:0;height:75%;pointer-events:none;z-index:0;background-image:radial-gradient(ellipse 48% 100% at 50% 100%,rgba(34,224,255,.16),rgba(34,224,255,.06) 42%,transparent 72%);background-size:2600px 100%;background-repeat:repeat-x;background-position:0 100%;animation:ck-cross 26s linear infinite;will-change:background-position"></div>
   <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(circle,rgba(135,200,225,.22) 1.4px,transparent 1.9px);background-size:32px 32px;animation:ck-drift 34s linear infinite;mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%);-webkit-mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%)"></div>
 
   <!-- ============ NAV ============ -->
