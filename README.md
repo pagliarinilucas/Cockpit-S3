@@ -82,3 +82,16 @@ Single container, single domain. Two ways:
 - `web/` — see [`web/README.md`](./web/README.md) and the API contract in
   [`web/API.md`](./web/API.md).
 - `api/` — see [`api/README.md`](./api/README.md) (auth design, layout, routes).
+
+## License
+
+Cockpit S3 is **dual-licensed**:
+
+- **Open source:** [GNU AGPL v3](./LICENSE) (`AGPL-3.0-or-later`). Free to use,
+  modify and self-host. If you offer it as a network service, the AGPL's §13
+  requires you to make the corresponding source available to your users.
+- **Commercial:** to embed Cockpit S3 in a proprietary product, or run it as a
+  SaaS without the AGPL copyleft obligations, a commercial license is available.
+  See [`COMMERCIAL-LICENSE.md`](./COMMERCIAL-LICENSE.md) — contact **cockpits3@pm.me**.
+
+Copyright (C) 2026 Lucas Pagliarini.

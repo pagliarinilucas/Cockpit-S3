@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { desc } from 'drizzle-orm';
 import { db } from '../db';
 import { activity } from '../db/schema';
 
-export type ActivityAction = 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket';
+export type ActivityAction = 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket' | 'share';
 
 export interface ActivityEvent {
   action: ActivityAction;

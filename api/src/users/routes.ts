@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { Elysia, t } from 'elysia';
 import { authDerive, requireAdmin } from '../auth/guard';
 import { usersStore } from './store';
@@ -25,11 +27,20 @@ export const userRoutes = new Elysia({ prefix: '/api/users' })
       role: t.Union([t.Literal('admin'), t.Literal('user')]),
     }) })
 
-    .patch('/:username', ({ params, body, set }) => {
-      const u = usersStore.setRole(params.username, body.role);
-      if (!u) { set.status = 404; return { error: 'not_found' }; }
+    .patch('/:username', ({ params, body, set, user }) => {
+      if (!usersStore.exists(params.username)) { set.status = 404; return { error: 'not_found' }; }
+      let u = usersStore.get(params.username);
+      if (body.role !== undefined) u = usersStore.setRole(params.username, body.role);
+      if (body.canShare !== undefined) {
+        u = usersStore.setCanShare(params.username, body.canShare);
+        audit.log('grant', user!.username, '—',
+          `${params.username} compartilhar ${body.canShare ? '✓' : '✕'}`);
+      }
       return u;
-    }, { body: t.Object({ role: t.Union([t.Literal('admin'), t.Literal('user')]) }) })
+    }, { body: t.Object({
+      role: t.Optional(t.Union([t.Literal('admin'), t.Literal('user')])),
+      canShare: t.Optional(t.Boolean()),
+    }) })
 
     // set/remove a direct ALLOW grant (optionally scoped to a folder prefix)
     .put('/:username/grants', ({ params, body, set, user }) => {

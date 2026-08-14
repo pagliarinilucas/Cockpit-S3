@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cockpit S3 — console de arquivos self-hosted</title>
+  <meta name="description" content="Compartilhe arquivos sensíveis sem entregar suas chaves. Console S3 self-hosted com permissões validadas no servidor, criptografia em repouso, backup de recuperação, links que expiram e auditoria. R$ 20/mês, usuários ilimitados.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z' stroke='%2322e0ff' stroke-width='1.6' fill='rgba(34,224,255,0.05)'/%3E%3Ccircle cx='20' cy='20' r='7.4' stroke='%2322e0ff' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='20' cy='20' r='2.4' fill='%2322e0ff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700;800&family=Saira:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:88px}
+  body{margin:0;background:#06090c}
+  ::selection{background:rgba(34,224,255,.28);color:#eafcff}
+  summary::-webkit-details-marker{display:none}
+  summary::marker{content:""}
+  @keyframes ck-blink{0%,100%{opacity:1}50%{opacity:.28}}
+  @keyframes ck-pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,224,255,.45)}70%{box-shadow:0 0 0 7px rgba(34,224,255,0)}}
+  @keyframes ck-scan{0%{transform:translateY(-12%)}100%{transform:translateY(560%)}}
+  @keyframes ck-floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+  @keyframes ck-sweep{to{stroke-dashoffset:0}}
+  @keyframes ck-grid{0%{opacity:.5}50%{opacity:.85}100%{opacity:.5}}
+  @keyframes ck-drift{to{background-position:64px 64px}}
+  @keyframes ck-cross{to{background-position:2600px 100%}}
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none !important;transition:none !important}
+    html{scroll-behavior:auto}
+    [data-reveal]{opacity:1 !important;transform:none !important}
+  }
+
+  .ck-cell:hover{filter:brightness(1.2)}
+  a{transition:all .18s ease}</style>
+</head>
+<body>
+<div style="--bg:#06090c;--bg2:#080c10;--panel:#0c1218;--panel2:#101921;--line:rgba(120,165,185,.12);--line2:rgba(120,165,185,.22);--text:#e4eef2;--muted:#8ba0aa;--dim:#5b6e77;--cyan:#22e0ff;--cyan2:#0bb6d6;--amber:#ffb340;--ok:#37e0a0;--danger:#ff5d6c;background:var(--bg);color:var(--text);font-family:'Saira',system-ui,sans-serif;font-weight:400;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;position:relative">
+
+  <!-- ambient backdrop -->
+  <div aria-hidden="true" style="position:fixed;left:0;right:0;bottom:0;height:75%;pointer-events:none;z-index:0;background-image:radial-gradient(ellipse 48% 100% at 50% 100%,rgba(34,224,255,.16),rgba(34,224,255,.06) 42%,transparent 72%);background-size:2600px 100%;background-repeat:repeat-x;background-position:0 100%;animation:ck-cross 26s linear infinite;will-change:background-position"></div>
+  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(circle,rgba(135,200,225,.22) 1.4px,transparent 1.9px);background-size:32px 32px;animation:ck-drift 34s linear infinite;mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%);-webkit-mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%)"></div>
+
+  <!-- ============ NAV ============ -->
+  <header style="position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(6,9,12,.72);border-bottom:1px solid var(--line)">
+    <nav style="max-width:1180px;margin:0 auto;padding:13px 24px;display:flex;align-items:center;gap:24px">
+      <a href="#topo" style="display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--text)">
+        <svg width="30" height="30" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+          <path d="M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z" stroke="var(--cyan)" stroke-width="1.6" fill="rgba(34,224,255,.05)"/>
+          <circle cx="20" cy="20" r="7.4" stroke="var(--cyan)" stroke-width="1.6"/>
+          <circle cx="20" cy="20" r="2.4" fill="var(--cyan)"/>
+          <path d="M20 12.6V8.4M20 31.6v-4.2M27.4 20h4.2M8.4 20h4.2" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:18px;letter-spacing:.5px">COCKPIT<span style="color:var(--cyan)">·S3</span></span>
+      </a>
+      <div style="flex:1"></div>
+      <div style="display:none;gap:26px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.3px" class="ck-navlinks">
+        <a href="#produto" style="color:var(--muted);text-decoration:none">produto</a>
+        <a href="#seguranca" style="color:var(--muted);text-decoration:none">segurança</a>
+        <a href="#comparativo" style="color:var(--muted);text-decoration:none">comparativo</a>
+        <a href="#planos" style="color:var(--muted);text-decoration:none">planos</a>
+        <a href="#faq" style="color:var(--muted);text-decoration:none">faq</a>
+      </div>
+      <a href="mailto:contato@cockpits3.com.br?subject=Quero%20agendar%20uma%20demonstração%20do%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:13.5px;letter-spacing:.3px;text-decoration:none;color:#04222a;background:var(--cyan);padding:9px 16px;border-radius:8px;box-shadow:0 0 18px rgba(34,224,255,.30);white-space:nowrap">Agendar demo</a>
+    </nav>
+  </header>
+
+  <main id="topo" style="position:relative;z-index:1">
+
+    <!-- ============ HERO ============ -->
+    <section style="max-width:1180px;margin:0 auto;padding:74px 24px 40px;display:grid;grid-template-columns:1.02fr 1.18fr;gap:54px;align-items:center" class="ck-hero">
+      <div data-reveal>
+        <div style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--cyan);border:1px solid var(--line2);background:rgba(34,224,255,.05);padding:6px 12px;border-radius:999px">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:ck-blink 2.4s ease-in-out infinite"></span>
+          console de arquivos self-hosted
+        </div>
+        <h1 style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:clamp(34px,4.6vw,57px);line-height:1.03;letter-spacing:-.5px;margin:22px 0 0;color:#f2fbff">
+          Compartilhe arquivos sensíveis <span style="color:var(--cyan);text-shadow:0 0 26px rgba(34,224,255,.45)">sem entregar suas chaves</span>.
+        </h1>
+        <p style="font-size:18.5px;color:var(--muted);max-width:520px;margin:22px 0 0;text-wrap:pretty">
+          O Cockpit S3 roda na sua infraestrutura ou num bucket dedicado que a gente provisiona pra você. Permissões validadas no servidor, links públicos que expiram e travam por IP, e auditoria de tudo. <span style="color:var(--text)">Por R$ 20/mês, com usuários ilimitados.</span>
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:13px;margin-top:30px">
+          <a href="mailto:contato@cockpits3.com.br?subject=Quero%20agendar%20uma%20demonstração%20do%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:15px;letter-spacing:.3px;text-decoration:none;color:#04222a;background:var(--cyan);padding:14px 24px;border-radius:10px;box-shadow:0 0 26px rgba(34,224,255,.32);display:inline-flex;align-items:center;gap:9px" data-hover="box-shadow:0 0 34px rgba(34,224,255,.5);transform:translateY(-1px)">
+            Agendar demonstração
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#04222a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a href="#como-funciona" style="font-family:'Oxanium',sans-serif;font-weight:600;font-size:15px;letter-spacing:.3px;text-decoration:none;color:var(--text);background:transparent;border:1px solid var(--line2);padding:14px 22px;border-radius:10px;display:inline-flex;align-items:center;gap:9px" data-hover="border-color:var(--cyan);color:var(--cyan)">
+            Ver como funciona
+          </a>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:34px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim);align-items:center">
+          <span style="color:var(--muted)">roda sobre</span>
+          <span style="color:var(--text)">Garage</span><span>·</span>
+          <span style="color:var(--text)">MinIO</span><span>·</span>
+          <span style="color:var(--text)">AWS&nbsp;S3</span><span>·</span>
+          <span style="color:var(--text)">Oracle&nbsp;OCI</span><span>·</span>
+          <span>qualquer endpoint compatível</span>
+        </div>
+      </div>
+
+      <!-- LIVE INTERFACE MOCKUP -->
+      <div data-reveal style="position:relative">
+        <div aria-hidden="true" style="position:absolute;inset:-2px;border-radius:16px;background:linear-gradient(150deg,rgba(34,224,255,.5),transparent 42%);filter:blur(0px);opacity:.7;-webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px"></div>
+        <div style="position:relative;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:15px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 40px -10px rgba(34,224,255,.12);overflow:hidden">
+          <!-- titlebar -->
+          <div style="display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.012)">
+            <span style="width:10px;height:10px;border-radius:50%;background:#ff5d6c4d;border:1px solid #ff5d6c66"></span>
+            <span style="width:10px;height:10px;border-radius:50%;background:#ffb3404d;border:1px solid #ffb34066"></span>
+            <span style="width:10px;height:10px;border-radius:50%;background:#37e0a04d;border:1px solid #37e0a066"></span>
+            <span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim)">cockpit · /grupo-lima/notas</span>
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--ok)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)"></span>online</span>
+          </div>
+          <div style="display:grid;grid-template-columns:138px 1fr">
+            <!-- sidebar -->
+            <div style="border-right:1px solid var(--line);padding:13px 11px;background:rgba(0,0,0,.18)">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.6px;color:var(--dim);text-transform:uppercase;padding:0 4px 7px">Buckets</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;background:rgba(34,224,255,.12);color:var(--cyan);font-size:12.5px;margin-bottom:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>notas</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px;margin-bottom:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>contratos</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px;margin-bottom:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>fiscal</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px">+ rh</div>
+              <!-- gauge -->
+              <div style="margin-top:16px;padding:12px 4px 4px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:center">
+                <div style="position:relative;width:84px;height:84px">
+                  <svg width="84" height="84" viewBox="0 0 84 84" style="transform:rotate(-90deg)">
+                    <circle cx="42" cy="42" r="34" stroke="rgba(120,165,185,.14)" stroke-width="7" fill="none"/>
+                    <circle cx="42" cy="42" r="34" stroke="var(--cyan)" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="79" style="filter:drop-shadow(0 0 5px rgba(34,224,255,.6))"/>
+                  </svg>
+                  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                    <span style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;color:#f2fbff">63<span style="font-size:10px;color:var(--muted)">%</span></span>
+                  </div>
+                </div>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);margin-top:6px">312 / 500 GB</span>
+              </div>
+            </div>
+            <!-- file list -->
+            <div style="position:relative;overflow:hidden">
+              <div aria-hidden="true" style="position:absolute;left:0;right:0;top:0;height:34px;background:linear-gradient(180deg,rgba(34,224,255,.14),transparent);animation:ck-scan 4.2s linear infinite;pointer-events:none"></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line)">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">14 arquivos</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:6px;padding:3px 8px">link expira em 04:58</span>
+              </div>
+              <div style="padding:5px 0">
+                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--danger)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v4h4" stroke="var(--danger)" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">nota-fiscal-35240912.pdf</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">enviado há 2h · 248 KB</div></div>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--cyan);background:rgba(34,224,255,.1);border:1px solid rgba(34,224,255,.25);border-radius:5px;padding:3px 7px">leitura</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px;background:rgba(34,224,255,.05);border-left:2px solid var(--cyan)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="9" cy="9.5" r="1.7" fill="var(--cyan)"/><path d="M4 16l4.5-4 3.5 3 3-2.5L20 17" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:#f2fbff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">recibo-assinado-4471.jpg</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">visualizando · 1,2 MB</div></div>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#04222a;background:var(--cyan);border-radius:5px;padding:3px 7px;font-weight:700">dono</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v4h4" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">comprovante-pagamento.pdf</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">enviado ontem · 96 KB</div></div>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--amber);background:rgba(255,179,64,.1);border:1px solid rgba(255,179,64,.25);border-radius:5px;padding:3px 7px">escrita</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">relatorio-fiscal-0912.xml</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">enviado ontem · 41 KB</div></div>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--cyan);background:rgba(34,224,255,.1);border:1px solid rgba(34,224,255,.25);border-radius:5px;padding:3px 7px">leitura</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- floating audit chip -->
+        <div style="position:absolute;right:-14px;bottom:-20px;background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:11px 13px;box-shadow:0 18px 40px -12px rgba(0,0,0,.8);display:flex;align-items:center;gap:10px;animation:ck-floaty 5s ease-in-out infinite">
+          <span style="width:30px;height:30px;border-radius:8px;background:rgba(55,224,160,.12);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="var(--ok)" stroke-width="1.6" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="var(--ok)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div><div style="font-size:11.5px;color:var(--text);font-weight:500">Acesso autorizado</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim)">validado no servidor · 6ms</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ A DOR ============ -->
+    <section style="max-width:1180px;margin:0 auto;padding:66px 24px 30px">
+      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 42px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// o problema</div>
+        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Drive corporativo cobra caro — e mesmo assim você perde o controle</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px" class="ck-grid3">
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px">
+          <div style="width:42px;height:42px;border-radius:10px;background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.22);display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" stroke="var(--danger)" stroke-width="1.7" stroke-linecap="round"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" stroke="var(--danger)" stroke-width="1.7" stroke-linecap="round"/><path d="M4 4l16 16" stroke="var(--danger)" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0 0 8px;color:#f2fbff">O link que ninguém lembra quem tem</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty">Um contrato compartilhado por link público há oito meses. Ainda está no ar. Quem tem acesso hoje? Ninguém sabe responder.</p>
+        </div>
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px">
+          <div style="width:42px;height:42px;border-radius:10px;background:rgba(255,179,64,.1);border:1px solid rgba(255,179,64,.22);display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M3 17l5-5 4 3 5-6 4 3" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 6h3v3" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0 0 8px;color:#f2fbff">A fatura que cresce com o time</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty">R$ por usuário, por mês. Cada pessoa nova é mais uma licença — e seus documentos continuam hospedados fora do país.</p>
+        </div>
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px">
+          <div style="width:42px;height:42px;border-radius:10px;background:rgba(34,224,255,.1);border:1px solid rgba(34,224,255,.22);display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="var(--cyan)" stroke-width="1.7"/><path d="m20 20-4-4" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"/><path d="M11 8v3.5M11 14h.01" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0 0 8px;color:#f2fbff">"Quem mexeu nesse arquivo?"</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty">Sem registro de quem enviou, baixou ou excluiu, a resposta para a auditoria é sempre um silêncio constrangedor.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FUNCIONALIDADES ============ -->
+    <section id="produto" style="max-width:1180px;margin:0 auto;padding:60px 24px 30px">
+      <div data-reveal style="max-width:680px;margin:0 0 44px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// o que ele faz</div>
+        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Quatro coisas, bem-feitas</h2>
+      </div>
+
+      <!-- feature 1 -->
+      <div data-reveal style="display:grid;grid-template-columns:1fr 1fr;gap:42px;align-items:center;margin-bottom:30px" class="ck-feat">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">01 / soberania</div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:25px;letter-spacing:-.2px;margin:0 0 12px;color:#f2fbff">Seus dados, sua infraestrutura</h3>
+          <p style="font-size:15.5px;color:var(--muted);margin:0 0 16px;text-wrap:pretty">Roda no servidor da empresa ou em qualquer VPS. Nenhum arquivo trafega por nuvem de terceiros — argumento direto de LGPD e soberania de dados. O object storage é seu; o Cockpit só organiza o acesso a ele.</p>
+          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:9px">
+            <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Dados nunca saem do seu perímetro</li>
+            <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Compatível com Garage, MinIO, AWS S3 e Oracle OCI</li>
+          </ul>
+        </div>
+        <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px;position:relative;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="text-align:center"><div style="width:62px;height:62px;border-radius:12px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="1.5" stroke="var(--text)" stroke-width="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5" stroke="var(--text)" stroke-width="1.5"/><path d="M7 7h.01M7 17h.01" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round"/></svg></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-top:7px">seu servidor</div></div>
+            <div style="flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--cyan) 0 6px,transparent 6px 12px);opacity:.6;position:relative"><span style="position:absolute;right:-4px;top:-3px;color:var(--cyan)">▸</span></div>
+            <div style="text-align:center;opacity:.45"><div style="width:62px;height:62px;border-radius:12px;border:1px dashed var(--danger);display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M7 17a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 17H7Z" stroke="var(--danger)" stroke-width="1.5" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="var(--danger)" stroke-width="1.5" stroke-linecap="round"/></svg></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--danger);margin-top:7px">nuvem de 3º</div></div>
+          </div>
+          <div style="margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);border-top:1px solid var(--line);padding-top:14px">$ docker run cockpit-s3 <span style="color:var(--ok)">↳ tudo permanece em 10.0.0.4</span></div>
+        </div>
+      </div>
+
+      <!-- feature 2 — PERMISSION MATRIX (signature) -->
+      <div data-reveal style="background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:30px;margin:30px 0;box-shadow:0 0 50px -22px rgba(34,224,255,.4)">
+        <div style="display:grid;grid-template-columns:.85fr 1.15fr;gap:36px;align-items:center" class="ck-feat">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">02 / controle de acesso</div>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:25px;letter-spacing:-.2px;margin:0 0 12px;color:#f2fbff">Permissões de verdade, validadas no servidor</h3>
+            <p style="font-size:15.5px;color:var(--muted);margin:0 0 16px;text-wrap:pretty">Uma matriz visual de <span style="color:var(--text)">usuário × bucket</span> com quatro níveis — de <span style="color:var(--text)">só visualizar</span> a dono. Toda requisição é autorizada no backend — não é "esconder o botão no front". Nada de contrato vazando por link esquecido.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:11px">
+              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted)"><span style="width:11px;height:11px;border-radius:3px;border:1px dashed var(--dim)"></span>sem acesso</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted)"><span style="width:11px;height:11px;border-radius:3px;background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45)"></span>só ver</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--cyan)"><span style="width:11px;height:11px;border-radius:3px;background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4)"></span>leitura</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--amber)"><span style="width:11px;height:11px;border-radius:3px;background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5)"></span>escrita</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;color:#04222a"><span style="width:11px;height:11px;border-radius:3px;background:var(--cyan)"></span><span style="color:var(--text)">dono</span></span>
+            </div>
+            <p style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim);margin:16px 0 0">▸ clique nas células para alternar o nível</p>
+          </div>
+          <!-- the matrix -->
+          <div style="overflow-x:auto">
+            <div style="display:grid;grid-template-columns:118px repeat(4,1fr);gap:6px;min-width:430px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:flex-end;padding-bottom:6px">usuário ╲ bucket</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">contratos</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">notas</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">fiscal</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">rh</div>
+              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Você<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">admin</span></div>
+              <button type="button" class="ck-cell" data-r="0" data-c="0" data-level="4" aria-label="Você, bucket contratos: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
+              <button type="button" class="ck-cell" data-r="0" data-c="1" data-level="4" aria-label="Você, bucket notas: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
+              <button type="button" class="ck-cell" data-r="0" data-c="2" data-level="4" aria-label="Você, bucket fiscal: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
+              <button type="button" class="ck-cell" data-r="0" data-c="3" data-level="4" aria-label="Você, bucket rh: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
+              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Financeiro<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">interno</span></div>
+              <button type="button" class="ck-cell" data-r="1" data-c="0" data-level="2" aria-label="Financeiro, bucket contratos: leitura. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:#22e0ff;">leitura</button>
+              <button type="button" class="ck-cell" data-r="1" data-c="1" data-level="3" aria-label="Financeiro, bucket notas: escrita. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:#ffb340;">escrita</button>
+              <button type="button" class="ck-cell" data-r="1" data-c="2" data-level="4" aria-label="Financeiro, bucket fiscal: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
+              <button type="button" class="ck-cell" data-r="1" data-c="3" data-level="0" aria-label="Financeiro, bucket rh: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
+              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Jurídico<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">interno</span></div>
+              <button type="button" class="ck-cell" data-r="2" data-c="0" data-level="4" aria-label="Jurídico, bucket contratos: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
+              <button type="button" class="ck-cell" data-r="2" data-c="1" data-level="1" aria-label="Jurídico, bucket notas: só ver. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:#8ba0aa;">só ver</button>
+              <button type="button" class="ck-cell" data-r="2" data-c="2" data-level="2" aria-label="Jurídico, bucket fiscal: leitura. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:#22e0ff;">leitura</button>
+              <button type="button" class="ck-cell" data-r="2" data-c="3" data-level="0" aria-label="Jurídico, bucket rh: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
+              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Fornecedor<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">terceiro</span></div>
+              <button type="button" class="ck-cell" data-r="3" data-c="0" data-level="0" aria-label="Fornecedor, bucket contratos: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
+              <button type="button" class="ck-cell" data-r="3" data-c="1" data-level="3" aria-label="Fornecedor, bucket notas: escrita. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:#ffb340;">escrita</button>
+              <button type="button" class="ck-cell" data-r="3" data-c="2" data-level="1" aria-label="Fornecedor, bucket fiscal: só ver. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:#8ba0aa;">só ver</button>
+              <button type="button" class="ck-cell" data-r="3" data-c="3" data-level="0" aria-label="Fornecedor, bucket rh: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- feature 3 & 4 side by side -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:30px" class="ck-grid2">
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">03 / terceiros</div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:21px;letter-spacing:-.2px;margin:0 0 10px;color:#f2fbff">Compartilhe com terceiros sem fricção</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0 0 18px;text-wrap:pretty">Crie um login para o parceiro em segundos — sem conta Google, sem licença. Ou gere um <span style="color:var(--text)">link público que expira sozinho</span>, sem exigir login de quem recebe. Escolha a validade, trave no primeiro IP que abrir e revogue quando quiser. Só quem você autoriza a compartilhar consegue gerar link — e nunca de um arquivo que a pessoa não poderia baixar.</p>
+          <div style="background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">link público</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--cyan);animation:ck-blink 1.6s infinite"></span>expira em 6d 23h</span>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border-radius:7px;padding:9px 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:11px">cockpit.suaempresa.com/s/<span style="color:var(--cyan)">a7f3…d92</span></div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:10px">
+              <span style="color:var(--dim)">validade</span>
+              <span style="color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px">1h</span>
+              <span style="color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px">24h</span>
+              <span style="color:#04222a;background:var(--cyan);border-radius:5px;padding:2px 6px;font-weight:700">7 dias</span>
+              <span style="color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px">30d</span>
+              <span style="margin-left:auto;color:var(--cyan);display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:5px;padding:2px 7px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="11" rx="2" stroke="var(--cyan)" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.8"/></svg>trava no 1º IP</span>
+            </div>
+          </div>
+        </div>
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">04 / preview & só-ver</div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:21px;letter-spacing:-.2px;margin:0 0 10px;color:#f2fbff">Visualize sem baixar</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px;text-wrap:pretty">Preview inline de PDF, imagem, vídeo e áudio direto no navegador, com navegação entre os arquivos da pasta. E existe o nível <span style="color:var(--text)">só ver</span>: quem tem essa permissão confere os documentos, mas o download não existe pra ele — o botão some e a API recusa. Conferir um contrato ou uma nota fiscal não vira uma cópia solta por aí.</p>
+          <div style="display:flex;gap:9px;flex-wrap:wrap">
+            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>PDF</span>
+            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="8.5" cy="9.5" r="1.6" fill="var(--cyan)"/><path d="m4 16 4-3.5 3 2.5 3.5-3L20 16" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>Imagem</span>
+            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="m10 9 5 3-5 3V9Z" fill="var(--cyan)"/></svg>Vídeo</span>
+            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 9v6M8 6v12M12 3v18M16 7v10M20 10v4" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/></svg>Áudio</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ COMO FUNCIONA ============ -->
+    <section id="como-funciona" style="max-width:1180px;margin:0 auto;padding:62px 24px 30px">
+      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 44px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// como funciona</div>
+        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">No ar em minutos, não em sprints</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;position:relative" class="ck-grid3">
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
+          <div style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1">01</div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:19px;margin:6px 0 9px;color:#f2fbff">Suba o container</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px">Um <code style="font-family:'JetBrains Mono',monospace;color:var(--cyan);font-size:13px">docker run</code> e pronto. Banco SQLite embutido — sem Postgres, sem Redis, sem PHP.</p>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px"><span style="color:var(--dim)">$</span> docker run -p 8080 <span style="color:var(--cyan)">cockpit-s3</span></div>
+        </div>
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
+          <div style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1">02</div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:19px;margin:6px 0 9px;color:#f2fbff">Conecte seu storage</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px">Aponte para Garage, MinIO ou AWS S3 pela interface — ou peça pra gente provisionar um bucket dedicado em nuvem. Várias conexões, em um só lugar.</p>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)"></span>endpoint conectado</div>
+        </div>
+        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
+          <div style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1">03</div>
+          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:19px;margin:6px 0 9px;color:#f2fbff">Crie usuários e compartilhe</h3>
+          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px">Defina a matriz de permissões, crie o login do parceiro ou gere o link público que expira. Mande. Pronto.</p>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>acesso concedido</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SEGURANÇA ============ -->
+    <section id="seguranca" style="position:relative;margin-top:40px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg2)">
+      <div style="max-width:1180px;margin:0 auto;padding:62px 24px">
+        <div data-reveal style="max-width:680px;margin:0 0 42px">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// segurança & conformidade</div>
+          <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 8px;color:#f2fbff">Segurança de gente grande, sem o peso</h2>
+          <p style="font-size:15.5px;color:var(--muted);margin:0;max-width:600px">A honestidade de engenharia é o estilo: o que está aqui, está validado no servidor. Sem teatro, sem jargão.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px" class="ck-grid3">
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line2);border-radius:13px;padding:22px;box-shadow:0 0 40px -26px rgba(34,224,255,.6)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="12" cy="15" r="1.5" fill="var(--cyan)"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Criptografia em repouso</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Cada arquivo é cifrado no servidor, com chave própria por objeto, antes de ir pro storage. No bucket ficam só blocos embaralhados de nome aleatório — backup, disco ou credencial vazada não revelam nada.</p>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line2);border-radius:13px;padding:22px;box-shadow:0 0 40px -26px rgba(34,224,255,.6)">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M7 18a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 18H7Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 13v4m0-4-1.6 1.6M12 13l1.6 1.6" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Backup &amp; recuperação (DR)</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Backup automático e cifrado das chaves e do índice para um destino que você escolhe. Se a máquina do console cair, você restaura tudo — e os arquivos, já no seu storage, nunca se perdem.</p>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">LGPD & soberania</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Dados na sua infraestrutura, sob sua jurisdição. Nada cruza fronteira sem você mandar.</p>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><rect x="4" y="10" width="16" height="11" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.5"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Criptografia em trânsito</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">TLS de ponta a ponta entre navegador, console e object storage.</p>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 8v4l3 2" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="8.5" stroke="var(--cyan)" stroke-width="1.5"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Auditoria nativa</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Linha do tempo de envio, download, exclusão e de quem concedeu ou revogou acesso.</p>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 2 3 6v6c0 4 9 10 9 10s9-6 9-10V6l-9-4Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12h6M12 9v6" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Arquitetura de tokens</h3>
+            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Senhas com argon2id, tokens curtos com revogação instantânea, refresh rotativo com detecção de roubo e rate-limit de login.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ COMPARATIVO ============ -->
+    <section id="comparativo" style="max-width:1180px;margin:0 auto;padding:64px 24px 30px">
+      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 40px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// comparativo</div>
+        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">O meio-termo que faltava</h2>
+        <p style="font-size:15px;color:var(--muted);margin:12px 0 0">Leve como uma SaaS, soberano como um self-hosted — sem o peso do Nextcloud.</p>
+      </div>
+      <div data-reveal style="overflow-x:auto;border:1px solid var(--line2);border-radius:14px;background:var(--panel)">
+        <table style="width:100%;border-collapse:collapse;min-width:640px;font-size:14px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--line)"> </th>
+              <th style="text-align:center;padding:18px 16px;border-bottom:1px solid var(--line2);background:rgba(34,224,255,.06);border-top-left-radius:0"><span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:15px;color:var(--cyan)">Cockpit S3</span></th>
+              <th style="text-align:center;padding:18px 16px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)">Suítes em nuvem</th>
+              <th style="text-align:center;padding:18px 16px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)">Self-hosted pesado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Dados na sua infraestrutura</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sempre</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Nuvem de 3º</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Custo</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ R$20 fixo</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ R$/usuário</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Servidor + tempo</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Permissão validada no servidor</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sempre</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Depende</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Criptografia em repouso (server-side)</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Por bucket</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Lado do provedor</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Raro</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Link com expiração automática</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ 1h–30 dias</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Manual</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Plugin</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Link travado por IP</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Opcional</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Não</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Raro</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Ver sem poder baixar</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Nível próprio</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Limitado</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Não</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Preview no navegador</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Inline</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Parcial</span></td>
+              </tr>
+              <tr>
+                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Peso operacional</td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ 1 container</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">— (SaaS)</span></td>
+                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Pesado</span></td>
+              </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);text-align:center;margin:14px 0 0">comparação por categoria de produto · sem nomear marcas</p>
+    </section>
+
+    <!-- ============ PLANOS ============ -->
+    <section id="planos" style="max-width:1180px;margin:0 auto;padding:64px 24px 30px">
+      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 42px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// planos</div>
+        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Preço que cabe no bolso, não na folha</h2>
+        <p style="font-size:15px;color:var(--muted);margin:12px 0 0">Um preço único. 5 ou 500 contas custam o mesmo.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:.92fr 1.08fr;gap:18px;align-items:stretch" class="ck-grid2">
+        <!-- price card -->
+        <div data-reveal style="position:relative;overflow:hidden;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:32px;box-shadow:0 0 50px -22px rgba(34,224,255,.4)">
+          <div aria-hidden="true" style="position:absolute;inset:0;opacity:.35;background:radial-gradient(360px 200px at 80% -10%,rgba(34,224,255,.22),transparent 65%)"></div>
+          <div style="position:relative">
+            <div style="display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.06);padding:5px 11px;border-radius:999px">plano único</div>
+            <div style="display:flex;align-items:flex-end;gap:6px;margin:22px 0 4px">
+              <span style="font-family:'Oxanium',sans-serif;font-weight:600;font-size:24px;color:var(--muted)">R$</span>
+              <span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:68px;line-height:.85;color:#f2fbff;text-shadow:0 0 30px rgba(34,224,255,.35)">20</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--muted);padding-bottom:9px">/mês</span>
+            </div>
+            <p style="font-size:14px;color:var(--muted);margin:0 0 22px">Sem licença por usuário. Sem surpresa na fatura.</p>
+            <ul style="list-style:none;padding:0;margin:0 0 26px;display:flex;flex-direction:column;gap:11px">
+              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Usuários e terceiros ilimitados</li>
+              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Todas as funcionalidades incluídas</li>
+              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Permissões, links assinados e auditoria</li>
+              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Você escolhe onde os arquivos ficam</li>
+            </ul>
+            <a href="mailto:contato@cockpits3.com.br?subject=Quero%20assinar%20o%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:15px;text-decoration:none;color:#04222a;background:var(--cyan);padding:13px 22px;border-radius:10px;box-shadow:0 0 26px rgba(34,224,255,.32);display:flex;align-items:center;justify-content:center;gap:9px" data-hover="transform:translateY(-1px);box-shadow:0 0 34px rgba(34,224,255,.5)">Começar agora</a>
+          </div>
+        </div>
+        <!-- storage options -->
+        <div style="display:grid;grid-template-rows:1fr 1fr;gap:18px">
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px;display:flex;gap:18px;align-items:flex-start">
+            <div style="flex-shrink:0;width:46px;height:46px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="1.5" stroke="var(--cyan)" stroke-width="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5" stroke="var(--cyan)" stroke-width="1.5"/><path d="M7 7h.01M7 17h.01" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round"/></svg></div>
+            <div>
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0;color:#f2fbff">Você no comando</h3><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:5px;padding:2px 7px">self-hosted</span></div>
+              <p style="font-size:14px;color:var(--muted);margin:0;text-wrap:pretty">Roda na sua infra e conecta o S3 que você já tem — Garage, MinIO, AWS. Os arquivos nunca saem do seu perímetro.</p>
+            </div>
+          </div>
+          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px;display:flex;gap:18px;align-items:flex-start">
+            <div style="flex-shrink:0;width:46px;height:46px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7 18a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 18H7Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 14v3M12 14l-1.5 1.5M12 14l1.5 1.5" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div>
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0;color:#f2fbff">Deixe com a gente</h3><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--amber);border:1px solid rgba(255,179,64,.3);background:rgba(255,179,64,.07);border-radius:5px;padding:2px 7px">nuvem gerenciada</span></div>
+              <p style="font-size:14px;color:var(--muted);margin:0;text-wrap:pretty">Sem servidor pra cuidar? A gente provisiona um bucket dedicado em nuvem — isolado, criptografado e só seu. Você só usa.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section id="faq" style="max-width:860px;margin:0 auto;padding:62px 24px 30px">
+      <div data-reveal style="text-align:center;margin:0 auto 38px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// faq</div>
+        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Perguntas honestas, respostas diretas</h2>
+      </div>
+      <div data-reveal style="display:flex;flex-direction:column;gap:11px">
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Preciso entender de S3 para usar?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Não. Você conecta o storage uma única vez pela interface; a partir daí é arrastar, soltar, definir permissão e compartilhar. O S3 fica nos bastidores.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Funciona com MinIO e AWS S3?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Sim. Qualquer endpoint compatível com S3 — Garage, MinIO, AWS S3, Oracle OCI, Wasabi, Backblaze. E você pode gerenciar várias conexões ao mesmo tempo pela própria interface.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Não tenho servidor nem storage. E agora?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Sem problema. A gente provisiona um bucket dedicado em nuvem pra você — isolado, criptografado e só seu. Você não precisa montar infraestrutura nenhuma: assina, recebe o acesso e começa a usar.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">E o backup?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Seus arquivos ficam no seu object storage, sem silo proprietário. E o Cockpit ainda faz backup automático e cifrado das chaves de criptografia e do índice de metadados para um destino que você escolhe — se a máquina do console for perdida, você restaura o acesso a tudo em minutos. No plano gerenciado, a gente pode guardar essa cópia de recuperação por você.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Os arquivos ficam criptografados?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Podem ficar. Você ativa a criptografia em repouso por bucket: a partir daí cada arquivo é cifrado no servidor, com uma chave própria, antes de ser gravado — e no storage só existem blocos ilegíveis com nomes aleatórios. Quem obtiver o bucket, um backup ou o disco não lê nada. Para quem tem acesso no console, preview e download seguem normais: a cifragem é transparente.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Quantos usuários ele suporta?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Sem licença por usuário. 5 ou 500 contas custam o mesmo: só o disco. O custo escala com armazenamento, não com gente.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Tem app mobile?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Ainda não. A interface web é responsiva e funciona bem no celular para conferir e compartilhar arquivos. Apps nativos estão no roadmap — preferimos prometer só o que já entregamos.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Como funciona o link que expira?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Quem tem permissão para compartilhar gera um link público de um arquivo — sem login para quem recebe. Você escolhe a validade (de 1 hora a 30 dias) e pode travar o acesso no primeiro IP que abrir: a partir daí, só aquele IP consegue ver. Dá pra revogar a qualquer momento, e um usuário "só ver" nunca gera um link de download.</p>
+        </details>
+        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
+          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">É difícil de operar?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
+          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Um container, banco SQLite embutido, sem dependências externas. Sobe em minutos em qualquer servidor com Docker — incomparavelmente mais leve que as alternativas self-hosted tradicionais.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ============ CTA FINAL ============ -->
+    <section style="max-width:1180px;margin:0 auto;padding:56px 24px 80px">
+      <div data-reveal style="position:relative;overflow:hidden;background:linear-gradient(135deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:18px;padding:54px 40px;text-align:center;box-shadow:0 0 60px -22px rgba(34,224,255,.45)">
+        <div aria-hidden="true" style="position:absolute;inset:0;opacity:.4;background:radial-gradient(500px 240px at 50% -20%,rgba(34,224,255,.22),transparent 65%)"></div>
+        <div style="position:relative">
+          <h2 style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:clamp(27px,3.6vw,42px);letter-spacing:-.4px;margin:0 0 14px;color:#f2fbff">Traga seus arquivos de volta pra casa</h2>
+          <p style="font-size:16.5px;color:var(--muted);max-width:520px;margin:0 auto 30px;text-wrap:pretty">Veja o Cockpit S3 rodando com os seus tipos de documento. 20 minutos, sem compromisso.</p>
+          <div style="display:flex;gap:13px;justify-content:center;flex-wrap:wrap">
+            <a href="mailto:contato@cockpits3.com.br?subject=Quero%20agendar%20uma%20demonstração%20do%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:15px;text-decoration:none;color:#04222a;background:var(--cyan);padding:15px 26px;border-radius:11px;box-shadow:0 0 28px rgba(34,224,255,.4);display:inline-flex;align-items:center;gap:9px" data-hover="transform:translateY(-1px);box-shadow:0 0 38px rgba(34,224,255,.6)">Agendar demonstração</a>
+            <a href="https://wa.me/5500000000000?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Cockpit%20S3" target="_blank" rel="noopener" style="font-family:'Oxanium',sans-serif;font-weight:600;font-size:15px;text-decoration:none;color:var(--text);background:transparent;border:1px solid var(--line2);padding:15px 24px;border-radius:11px;display:inline-flex;align-items:center;gap:9px" data-hover="border-color:var(--ok);color:var(--ok)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 21l1.6-4.5A8 8 0 1 1 8 19.5L3 21Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Falar no WhatsApp</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ FOOTER ============ -->
+  <footer style="position:relative;z-index:1;border-top:1px solid var(--line);background:var(--bg2)">
+    <div style="max-width:1180px;margin:0 auto;padding:34px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:11px">
+        <svg width="26" height="26" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z" stroke="var(--cyan)" stroke-width="1.6" fill="rgba(34,224,255,.05)"/><circle cx="20" cy="20" r="7.4" stroke="var(--cyan)" stroke-width="1.6"/><circle cx="20" cy="20" r="2.4" fill="var(--cyan)"/></svg>
+        <span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:15px">COCKPIT<span style="color:var(--cyan)">·S3</span></span>
+      </div>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim);margin:0">console de arquivos self-hosted · seus dados, sua infraestrutura</p>
+      <div style="display:flex;gap:18px;font-family:'JetBrains Mono',monospace;font-size:12px">
+        <a href="#produto" style="color:var(--muted);text-decoration:none">produto</a>
+        <a href="#seguranca" style="color:var(--muted);text-decoration:none">segurança</a>
+        <a href="mailto:contato@cockpits3.com.br" style="color:var(--cyan);text-decoration:none">contato</a>
+      </div>
+    </div>
+  </footer>
+</div>
+<script>
+  // scroll reveal + responsive collapse (ported from the design prototype)
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var els = document.querySelectorAll('[data-reveal]');
+
+    function applyResponsive() {
+      var wide = window.innerWidth >= 880;
+      document.querySelectorAll('.ck-navlinks').forEach(function (n) { n.style.display = wide ? 'flex' : 'none'; });
+      function setCols(sel, wideCols) { document.querySelectorAll(sel).forEach(function (g) { g.style.gridTemplateColumns = wide ? wideCols : '1fr'; }); }
+      setCols('.ck-hero', '1.02fr 1.18fr');
+      setCols('.ck-grid3', 'repeat(3,1fr)');
+      setCols('.ck-grid4', 'repeat(4,1fr)');
+      setCols('.ck-grid2', '1fr 1fr');
+      document.querySelectorAll('.ck-feat').forEach(function (g) { g.style.gridTemplateColumns = wide ? (g.dataset.cols || '1fr 1fr') : '1fr'; });
+    }
+    applyResponsive();
+    window.addEventListener('resize', applyResponsive);
+
+    // hover styles (was the design tool's style-hover attribute)
+    document.querySelectorAll('[data-hover]').forEach(function (el) {
+      var base = el.getAttribute('style') || '';
+      var hover = el.getAttribute('data-hover');
+      el.addEventListener('mouseenter', function () { el.setAttribute('style', base + ';' + hover); });
+      el.addEventListener('mouseleave', function () { el.setAttribute('style', base); });
+    });
+
+    // interactive permission matrix — 5 níveis: — / só ver / leitura / escrita / dono
+    var CELL_BASE = "cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;";
+    var CELL_LEVELS = 5;
+    function cellVisual(level) {
+      switch (level) {
+        case 1: return { label: 'só ver', style: CELL_BASE + 'background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:#8ba0aa;' };
+        case 2: return { label: 'leitura', style: CELL_BASE + 'background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:#22e0ff;' };
+        case 3: return { label: 'escrita', style: CELL_BASE + 'background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:#ffb340;' };
+        case 4: return { label: 'dono', style: CELL_BASE + 'background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;' };
+        default: return { label: '—', style: CELL_BASE + 'background:transparent;border:1px dashed #5b6e77;color:#5b6e77;' };
+      }
+    }
+    function renderCell(btn, lvl) {
+      var v = cellVisual(lvl);
+      btn.dataset.level = lvl;
+      btn.setAttribute('style', v.style);
+      btn.textContent = v.label;
+    }
+    document.querySelectorAll('.ck-cell').forEach(function (btn) {
+      renderCell(btn, parseInt(btn.dataset.level, 10) || 0);   // sync inicial com o esquema de 5 níveis
+      btn.addEventListener('click', function () {
+        renderCell(btn, ((parseInt(btn.dataset.level, 10) || 0) + 1) % CELL_LEVELS);
+      });
+    });
+
+    if (reduce || !('IntersectionObserver' in window)) return;
+    function reveal(el) { el.style.opacity = '1'; el.style.transform = 'none'; }
+    els.forEach(function (el) {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(22px)';
+      el.style.transition = 'opacity .6s ease, transform .6s ease';
+    });
+    function revealVisible() {
+      var h = window.innerHeight || document.documentElement.clientHeight;
+      els.forEach(function (el) {
+        if (el.style.opacity === '1') return;
+        var r = el.getBoundingClientRect();
+        if (r.top < h * 0.92 && r.bottom > 0) reveal(el);
+      });
+    }
+    revealVisible();
+    window.addEventListener('scroll', revealVisible, { passive: true });
+    try {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { reveal(e.target); io.unobserve(e.target); } });
+      }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+      els.forEach(function (el) { io.observe(el); });
+    } catch (e) {}
+    setTimeout(function () { els.forEach(reveal); }, 1200);
+  })();
+</script>
+</body>
+</html>

@@ -2,6 +2,8 @@
   "name": "cockpit-s3",
   "version": "1.0.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
+  "author": "Lucas Pagliarini",
   "description": "Cockpit S3 — Garage S3 console (Vue+Bun web + Elysia/Bun API)",
   "scripts": {
     "dev:web": "cd web && bun run dev",

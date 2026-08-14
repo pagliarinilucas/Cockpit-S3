@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { mkdirSync } from 'node:fs';
@@ -137,6 +139,84 @@ sqlite.run(`
     PRIMARY KEY (username, bucket_id, prefix)
   );
 `);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS shares (
+    token       TEXT PRIMARY KEY,
+    bucket_id   TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    created_by  TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    revoked     INTEGER NOT NULL DEFAULT 0,
+    lock_ip     INTEGER NOT NULL DEFAULT 0,
+    bound_ip    TEXT
+  );
+`);
+sqlite.run('CREATE INDEX IF NOT EXISTS idx_shares_creator ON shares(created_by)');
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS org_keys (
+    org_id     TEXT NOT NULL,
+    version    INTEGER NOT NULL,
+    kek_state  TEXT NOT NULL,       -- 'plaintext_env' | 'sealed'
+    verifier   BLOB NOT NULL,       -- sentinela cifrado com a KEK (fail-fast)
+    created_at TEXT NOT NULL,
+    retired_at TEXT,
+    PRIMARY KEY (org_id, version)
+  );
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS objects (
+    bucket_id     TEXT NOT NULL,    -- connectionId:bucketName
+    key           TEXT NOT NULL,    -- caminho+nome REAL exibido ao usuário
+    s3_key        TEXT NOT NULL,    -- UUID opaco usado no bucket
+    encrypted     INTEGER NOT NULL DEFAULT 1,
+    dek_wrapped   BLOB NOT NULL,
+    kek_version   INTEGER NOT NULL,
+    stream_header BLOB NOT NULL,
+    chunk_size    INTEGER NOT NULL DEFAULT 1048576,
+    size_plain    INTEGER NOT NULL,
+    size_cipher   INTEGER NOT NULL,
+    content_type  TEXT,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (bucket_id, key)
+  );
+`);
+sqlite.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_objects_s3key ON objects(bucket_id, s3_key)');
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS bucket_crypto (
+    bucket_id  TEXT PRIMARY KEY,    -- connectionId:bucketName
+    enabled    INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS escrow_config (
+    id              TEXT PRIMARY KEY,
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    client_dest     TEXT,
+    vendor_enabled  INTEGER NOT NULL DEFAULT 0,
+    recovery_secret TEXT,
+    recovery_shown  INTEGER NOT NULL DEFAULT 0,
+    last_backup_at  TEXT,
+    last_status     TEXT,
+    last_error      TEXT,
+    last_count      INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL
+  );
+`);
+
+// Additive migration (idempotent): users.can_share for DBs created before share links existed.
+{
+  const cols = sqlite.query('PRAGMA table_info(users)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'can_share')) {
+    sqlite.run('ALTER TABLE users ADD COLUMN can_share INTEGER NOT NULL DEFAULT 0');
+  }
+}
 
 // One-time migration: legacy users.grants JSON -> grants rows (prefix='' = whole bucket).
 // Idempotent; guarded by a settings flag. The users.grants column stays but is unused after.

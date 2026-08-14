@@ -1,3 +1,7 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Lucas Pagliarini
+-->
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import type { Bucket, ObjectItem, FileType, Perm } from '../core/models';
@@ -13,8 +17,10 @@ import Preview from './Preview.vue';
 import UploadDock from './UploadDock.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import Thumb from '../components/Thumb.vue';
+import ShareCreate from '../components/ShareCreate.vue';
+import ShareLinks from '../components/ShareLinks.vue';
 
-const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean }>();
+const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean; canShare?: boolean }>();
 const emit = defineEmits<{ back: []; openFolder: [name: string]; crumb: [index: number] }>();
 const toast = useToast();
 
@@ -37,9 +43,13 @@ const merging = ref(false);
 const zipping = ref(false);
 const ctx = ref<{ x: number; y: number; item: ObjectItem } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
+const shareItem = ref<ObjectItem | null>(null);   // arquivo a compartilhar (abre ShareCreate)
+const showLinks = ref(false);                       // modal de gerenciamento de links
 
 const pathPerm = ref<Perm | null>(props.bucket.perm);
 const canWrite = computed(() => pathPerm.value === 'owner' || pathPerm.value === 'read-write');
+// view-only vê e pré-visualiza mas não baixa; canDownload cobre read-only e acima.
+const canDownload = computed(() => pathPerm.value === 'read-only' || pathPerm.value === 'read-write' || pathPerm.value === 'owner');
 const prefix = computed(() => props.path.length ? props.path.join('/') + '/' : '');
 
 // path is owned by App (so the browser Back button can drive it); reload whenever
@@ -164,8 +174,9 @@ const ctxItems = computed<MenuItem[]>(() => {
   ];
   return [
     ...(previewable(it) ? [{ key: 'preview', label: 'Visualizar', icon: 'eye' } as MenuItem] : []),
-    { key: 'download', label: 'Baixar', icon: 'download' },
-    { key: 'copy', label: 'Copiar link', icon: 'copy' },
+    ...(canDownload.value ? [{ key: 'download', label: 'Baixar', icon: 'download' } as MenuItem] : []),
+    ...(canDownload.value ? [{ key: 'copy', label: 'Copiar link', icon: 'copy' } as MenuItem] : []),
+    ...(props.canShare && canDownload.value ? [{ key: 'share', label: 'Compartilhar', icon: 'share' } as MenuItem] : []),
     ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
   ];
 });
@@ -176,8 +187,10 @@ function onCtxSelect(key: string) {
   else if (key === 'preview') openPreview(it);
   else if (key === 'download') downloadItem(it);
   else if (key === 'copy') copyLink(it);
+  else if (key === 'share') openShare(it);
   else if (key === 'delete') askDelete(it);
 }
+function openShare(it: ObjectItem) { if (it.kind === 'file') shareItem.value = it; }
 
 // preview
 function openPreview(it: ObjectItem) { preview.value = it.key; }
@@ -280,8 +293,13 @@ async function confirmDelete() {
   const d = toDelete.value; if (!d) return;
   toDelete.value = null;
   try {
-    await api.deleteObjects(props.bucket.id, d.keys);
-    toast.success(d.keys.length > 1 ? `${d.keys.length} itens excluídos` : `${d.label} excluído`);
+    const res = await api.deleteObjects(props.bucket.id, d.keys);
+    if (res.ok === false) {
+      const failed = res.failed ?? [];
+      toast.error(`Não foi possível excluir ${failed.length} item${failed.length > 1 ? 's' : ''}: ${failed.join(', ')}`);
+    } else {
+      toast.success(d.keys.length > 1 ? `${d.keys.length} itens excluídos` : `${d.label} excluído`);
+    }
     reload();
   } catch { toast.error('Falha ao excluir'); }
 }
@@ -373,6 +391,7 @@ defineExpose({ reload });
         <button v-if="ordered.length > 0" class="btn" @click="selectAll" :title="allSel ? 'Desmarcar todos' : 'Selecionar todos'">
           <Icon name="check" :size="16" />{{ allSel ? 'Desmarcar' : 'Selecionar tudo' }}
         </button>
+        <button v-if="canShare" class="btn" @click="showLinks = true"><Icon name="link" :size="16" />Links</button>
         <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />Pasta</button>
         <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Upload</button>
         <input ref="fileInput" type="file" multiple hidden @change="onPick" />
@@ -387,9 +406,9 @@ defineExpose({ reload });
     <div v-if="selection.size > 0" class="selbar">
       <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
       <div class="selbar-actions">
-        <button v-if="onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
-        <button class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
-        <button v-if="mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
+        <button v-if="canDownload && onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button v-if="canDownload" class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
+        <button v-if="canDownload && mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
         <button v-if="canWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
         <button class="btn" @click="clearSel"><Icon name="x" :size="16" />Limpar</button>
       </div>
@@ -440,9 +459,10 @@ defineExpose({ reload });
           <div class="frow-date">{{ timeAgo(it.modified) }}</div>
           <div class="frow-actions" @click.stop>
             <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
-            <button v-if="it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
-            <button v-else class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
-            <button class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
+            <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownload" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
+            <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="16" /></button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
           </div>
         </div>
@@ -466,8 +486,9 @@ defineExpose({ reload });
         <div class="fcard-meta">{{ it.kind === 'folder' ? 'pasta' : fmtBytes(it.size) }}<span class="dot-sep">·</span>{{ timeAgo(it.modified) }}</div>
         <div class="fcard-actions" @click.stop>
           <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
-          <button v-if="it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
-          <button v-else class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="15" /></button>
           <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
         </div>
       </div>
@@ -484,7 +505,8 @@ defineExpose({ reload });
     <div v-if="!loading && !error" class="fstatus">
       <span v-if="isSearch">{{ ordered.length }} resultado{{ ordered.length !== 1 ? 's' : '' }}{{ ordered.length >= 300 ? '+' : '' }} para “{{ query.trim() }}” · busca recursiva</span>
       <span v-else>{{ folderCount }} {{ folderCount !== 1 ? 'pastas' : 'pasta' }} · {{ fileCount }} {{ fileCount !== 1 ? 'arquivos' : 'arquivo' }}{{ nextToken ? '+' : '' }} · {{ fmtBytes(totalSize) }}{{ nextToken ? ' carregados' : ' nesta pasta' }}</span>
-      <span v-if="!canWrite" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
+      <span v-if="!canDownload" class="ro-note"><Icon name="eye" :size="13" /> somente visualização (sem download)</span>
+      <span v-else-if="!canWrite" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
     </div>
 
     <!-- dropzone -->
@@ -501,8 +523,13 @@ defineExpose({ reload });
 
   <ContextMenu v-if="ctx" :x="ctx.x" :y="ctx.y" :items="ctxItems" @select="onCtxSelect" @close="ctx = null" />
 
+  <ShareCreate v-if="shareItem" :bucket-id="bucket.id" :obj-key="shareItem.key" :filename="shareItem.name"
+    @close="shareItem = null" />
+
+  <ShareLinks v-if="showLinks" @close="showLinks = false" />
+
   <Preview v-if="preview" :bucket-id="bucket.id" :bucket-perm="bucket.perm" :path="prefix"
-    :items="previewItems" :start-key="preview" :can-write="canWrite"
+    :items="previewItems" :start-key="preview" :can-write="canWrite" :can-download="canDownload"
     @close="preview = null" @download="downloadItem" @copy-link="copyLink" @delete="askDelete" />
 
   <InputModal v-if="showFolder" title="Nova pasta" icon="folderPlus" placeholder="nome-da-pasta"

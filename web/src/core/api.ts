@@ -1,12 +1,38 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import type {
   Me, Bucket, BucketStats, ObjectListing, PresignedUrl, ZipTicket,
   ActivityEvent, Perm, User, Role, Connection, Group,
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
-  Cluster, ClusterInput,
+  Cluster, ClusterInput, Share, SharePublicMeta,
 } from './models';
 
 export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
+}
+
+export interface EscrowClientDest {
+  endpoint: string; region: string; accessKey: string; bucket: string; prefix: string;
+}
+export interface EscrowClientDestInput extends EscrowClientDest {
+  secretKey: string;
+}
+export interface EscrowStatus {
+  enabled: boolean;
+  vendorAvailable: boolean;
+  vendorFingerprint: string | null;
+  vendorEnabled: boolean;
+  clientDest: EscrowClientDest | null;
+  recoverySet: boolean;
+  recoveryShown: boolean;
+  lastBackupAt: string | null;
+  lastStatus: string | null;
+  lastCount: number | null;
+}
+export interface EscrowConfigInput {
+  enabled?: boolean;
+  clientDest?: EscrowClientDestInput | null;
+  vendorEnabled?: boolean;
 }
 
 /**
@@ -135,7 +161,8 @@ export const api = {
   // buckets
   buckets: () => req<Bucket[]>('GET', '/buckets'),
   bucketStats: (bucketId: string) => req<BucketStats>('GET', `/buckets/${encodeURIComponent(bucketId)}/stats`),
-  createBucket: (connectionId: string, name: string) => req<Bucket>('POST', '/buckets', { body: { connectionId, name } }),
+  createBucket: (connectionId: string, name: string, encrypted = false) => req<Bucket>('POST', '/buckets', { body: { connectionId, name, encrypted } }),
+  getKek: () => req<{ version: number | null; fingerprint: string; kekBase64: string }>('GET', '/kek'),
   setBucketAlias: (id: string, alias: string) =>
     req<{ ok: true; alias: string | null }>('PATCH', '/buckets/alias', { body: { id, alias } }),
   deleteBucket: (id: string) =>
@@ -164,7 +191,8 @@ export const api = {
   /** Miniatura (imagem/1ª página de PDF) como Blob; rejeita (415) quando não há thumb. */
   thumbBlob: (bucketId: string, key: string) => fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/thumb`, { key }),
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
-  deleteObjects: (bucketId: string, keys: string[]) => req('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
+  deleteObjects: (bucketId: string, keys: string[]) =>
+    req<{ ok: boolean; failed?: string[] }>('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 
   /** Upload one file with progress via XHR (fetch can't report upload progress). */
   upload(bucketId: string, path: string, file: File, onProgress: (p: number) => void): Promise<void> {
@@ -194,6 +222,8 @@ export const api = {
     req<User>('PUT', `/users/${encodeURIComponent(username)}/blocks`, { body: { bucketId, prefix, blocked } }),
   setUserGroup: (username: string, groupId: string, member: boolean) =>
     req<User>('PUT', `/users/${encodeURIComponent(username)}/groups`, { body: { groupId, member } }),
+  setUserCanShare: (username: string, canShare: boolean) =>
+    req<User>('PATCH', `/users/${encodeURIComponent(username)}`, { body: { canShare } }),
   resetPassword: (username: string, password: string) => req('POST', `/users/${encodeURIComponent(username)}/password`, { body: { password } }),
   deleteUser: (username: string) => req('DELETE', `/users/${encodeURIComponent(username)}`),
 
@@ -204,6 +234,26 @@ export const api = {
   deleteGroup: (id: string) => req('DELETE', `/groups/${encodeURIComponent(id)}`),
   setGroupGrant: (id: string, bucketId: string, prefix: string, perm: Perm | null) =>
     req<Group>('PUT', `/groups/${encodeURIComponent(id)}/grants`, { body: { bucketId, prefix, perm } }),
+
+  // shares (authenticated) — public share links created by the current user
+  createShare: (bucketId: string, key: string, ttl: number, lockIp = false) =>
+    req<{ token: string; expiresAt: string; key: string; bucketId: string; lockIp: boolean }>(
+      'POST', '/shares', { body: { bucketId, key, ttl, lockIp } }),
+  listShares: () => req<Share[]>('GET', '/shares'),
+  revokeShare: (token: string) => req<{ ok: true }>('DELETE', `/shares/${encodeURIComponent(token)}`),
+
+  /** Public share metadata — deliberately sent WITHOUT Authorization (works logged out). */
+  async shareMeta(token: string): Promise<SharePublicMeta> {
+    let res: Response;
+    try { res = await fetch(`${BASE}/share/${encodeURIComponent(token)}`); }
+    catch { throw new ApiError(0, 'network'); }
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+      throw new ApiError(res.status, msg);
+    }
+    return res.json() as Promise<SharePublicMeta>;
+  },
 
   // activity
   activity: () => req<ActivityEvent[]>('GET', '/activity'),
@@ -231,7 +281,23 @@ export const api = {
   createGarageKey: (id: string, name: string) => req<NewGarageKey>('POST', `/clusters/${encodeURIComponent(id)}/keys`, { body: { name } }),
   deleteGarageKey: (id: string, keyId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`),
   setGarageKeyPerm: (id: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),
+
+  escrowStatus: () => req<EscrowStatus>('GET', '/escrow'),
+  escrowConfig: (body: EscrowConfigInput) => req<EscrowStatus>('POST', '/escrow/config', { body }),
+  escrowGenRecovery: (manual?: string) => req<{ code: string }>('POST', '/escrow/recovery', { body: manual ? { manual } : {} }),
+  escrowAckRecovery: () => req<{ ok: boolean }>('POST', '/escrow/recovery/ack', { body: {} }),
+  escrowTest: () => req<{ ok: boolean }>('POST', '/escrow/test', { body: {} }),
+  escrowBackupNow: () => req<{ ok: boolean; key: string; removed: number }>('POST', '/escrow/backup-now', { body: {} }),
 };
+
+/** Public, same-origin URL for previewing a shared object (no auth). */
+export function sharePreviewUrl(token: string): string {
+  return `${BASE}/share/${encodeURIComponent(token)}/raw?mode=preview`;
+}
+/** Public, same-origin URL for downloading a shared object (no auth). */
+export function shareDownloadUrl(token: string): string {
+  return `${BASE}/share/${encodeURIComponent(token)}/raw?mode=download`;
+}
 
 /** Shared helper for the views' error messages. */
 export function apiErrMsg(e: unknown, verb = 'carregar'): string {

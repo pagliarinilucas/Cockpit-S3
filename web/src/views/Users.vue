@@ -1,3 +1,7 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Lucas Pagliarini
+-->
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import type { User, Group, Bucket, Perm, Role, UserGrant } from '../core/models';
@@ -66,6 +70,15 @@ async function confirmDelete() {
   delUser.value = null;
   try { await api.deleteUser(u); toast.success(`Usuário ${u} excluído`); reload(); }
   catch { toast.error('Falha ao excluir usuário'); }
+}
+
+// ── toggle "pode compartilhar" ──
+async function toggleCanShare(u: User) {
+  try {
+    const updated = await api.setUserCanShare(u.username, !u.canShare);
+    users.value = users.value.map((x) => x.username === u.username ? updated : x);
+    toast.success(updated.canShare ? `${u.username} pode compartilhar` : `${u.username} não pode mais compartilhar`);
+  } catch { toast.error('Falha ao alterar permissão de compartilhamento'); }
 }
 
 // ── user permissions editor ──
@@ -182,6 +195,10 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
             <span class="role-badge" :class="u.role === 'admin' ? 'role-admin' : 'role-user'" style="margin-left:8px">{{ u.role === 'admin' ? 'ADMIN' : 'USUÁRIO' }}</span>
           </div>
           <div class="row-acts">
+            <button v-if="u.role !== 'admin'" class="chip" :class="{ 'chip-on': u.canShare }"
+                    :title="u.canShare ? 'Pode gerar links públicos' : 'Não pode compartilhar'" @click="toggleCanShare(u)">
+              <Icon name="share" :size="13" /> {{ u.canShare ? 'Compartilha' : 'Compartilhar' }}
+            </button>
             <button class="btn" @click="openPerms(u)"><Icon name="shield" :size="15" /> Permissões</button>
             <button class="iconbtn" title="Redefinir senha" @click="openReset(u.username)"><Icon name="shield" :size="15" /></button>
             <button class="iconbtn iconbtn-danger" title="Excluir" @click="delUser = u.username"><Icon name="trash" :size="15" /></button>

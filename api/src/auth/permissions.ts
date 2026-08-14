@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { grants, userGroups, userBlocks } from '../db/schema';
@@ -6,8 +8,8 @@ import type { Perm, Role } from '../types';
 export interface Allow { prefix: string; perm: Perm }
 export interface Access { all: boolean; allows: Allow[]; denies: string[] }
 
-const RANK: Record<Perm, number> = { 'read-only': 1, 'read-write': 2, 'owner': 3 };
-const BY_RANK: (Perm | null)[] = [null, 'read-only', 'read-write', 'owner'];
+const RANK: Record<Perm, number> = { 'view-only': 1, 'read-only': 2, 'read-write': 3, 'owner': 4 };
+const BY_RANK: (Perm | null)[] = [null, 'view-only', 'read-only', 'read-write', 'owner'];
 
 /** Permissão efetiva para `key`. Deny absoluto vence; senão maior allow cujo prefixo cobre a chave. */
 export function resolvePerm(allows: Allow[], denies: string[], key: string): Perm | null {
@@ -66,6 +68,12 @@ export const perms = {
   canWrite(a: Access, key: string): boolean {
     const p = this.permForKey(a, key);
     return p === 'owner' || p === 'read-write';
+  },
+  /** True se a perm efetiva permite baixar (read-only ou acima). view-only → false; admin → true. */
+  canDownload(a: Access, key: string): boolean {
+    if (a.all) return true;
+    const p = this.permForKey(a, key);
+    return p === 'read-only' || p === 'read-write' || p === 'owner';
   },
   folderVisible(a: Access, key: string): boolean {
     return a.all ? true : folderVisible(a.allows, a.denies, key);

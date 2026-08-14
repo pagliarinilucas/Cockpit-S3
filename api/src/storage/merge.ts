@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { PDFDocument } from 'pdf-lib';
 
 // sharp é best-effort: rasteriza formatos não-nativos (webp/gif/avif/svg/tiff) para PNG.

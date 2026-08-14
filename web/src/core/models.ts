@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 /* ============================================================
    Cockpit S3 — API contract (types)
    These interfaces define exactly what the frontend expects from
@@ -6,7 +8,7 @@
    loading / empty / error states). Build the backend to match.
    ============================================================ */
 
-export type Perm = 'owner' | 'read-write' | 'read-only';
+export type Perm = 'owner' | 'read-write' | 'read-only' | 'view-only';
 export type Role = 'admin' | 'user';
 
 export type FileType =
@@ -18,6 +20,8 @@ export interface Me {
   username: string;
   /** when 'admin', the Usuários (admin) view is shown. */
   role?: Role;
+  /** may this user create public share links? Admins always can. */
+  canShare?: boolean;
 }
 
 export interface UserGrant { bucketId: string; prefix: string; perm: Perm }
@@ -30,6 +34,8 @@ export interface User {
   created?: string;
   lastLogin?: string;
   active?: boolean;
+  /** may this user create public share links? */
+  canShare?: boolean;
   groups: string[];        // group ids the user belongs to
   grants: UserGrant[];     // direct allow grants
   blocks: UserBlock[];     // direct deny blocks
@@ -179,7 +185,32 @@ export interface GarageKey {
 export interface NewGarageKey { accessKeyId: string; name: string; secretAccessKey: string; created: string }
 
 export type ActivityAction =
-  | 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket';
+  | 'upload' | 'download' | 'delete' | 'grant' | 'revoke' | 'key' | 'bucket' | 'share';
+
+/** GET /api/shares — a public share link owned by the current user. */
+export interface Share {
+  /** the URL-safe token; the public link is `${origin}/s/${token}`. */
+  token: string;
+  key: string;
+  bucketId: string;
+  createdAt: string;
+  expiresAt: string;
+  revoked: boolean;
+  /** locked to the first IP that opens it (TOFU). */
+  lockIp: boolean;
+  /** IP recorded on first access, or null until then. */
+  boundIp: string | null;
+  status: 'active' | 'expired' | 'revoked';
+}
+
+/** GET /api/share/:token — public metadata (no auth). */
+export interface SharePublicMeta {
+  filename: string;
+  size: number | null;
+  ext: string;
+  previewable: boolean;
+  expiresAt: string;
+}
 
 export interface ActivityEvent {
   action: ActivityAction;

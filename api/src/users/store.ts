@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { eq, and, count, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { users, userGroups, grants, userBlocks } from '../db/schema';
@@ -13,6 +15,7 @@ function toPublic(r: Row): PublicUser {
     created: r.createdAt,
     lastLogin: r.lastLogin ?? undefined,
     active: r.active === 1,
+    canShare: r.canShare === 1,
     groups: db
       .select({ groupId: userGroups.groupId })
       .from(userGroups)
@@ -73,6 +76,12 @@ export const usersStore = {
 
   setRole(username: string, role: Role): PublicUser | null {
     db.update(users).set({ role }).where(eq(users.username, username)).run();
+    return this.get(username);
+  },
+
+  setCanShare(username: string, value: boolean): PublicUser | null {
+    if (!this.exists(username)) return null;
+    db.update(users).set({ canShare: value ? 1 : 0 }).where(eq(users.username, username)).run();
     return this.get(username);
   },
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 // Geração de miniaturas server-side: imagens via sharp, PDFs via pdftoppm (poppler-utils).
 // Devolve null quando não dá pra gerar (formato não suportado / ferramenta ausente);
 // o frontend cai no ícone genérico nesse caso.

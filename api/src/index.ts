@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { Elysia } from 'elysia';
 import { cors } from '@elysiajs/cors';
 import { config } from './config';
@@ -14,7 +16,12 @@ import { connectionsRoutes } from './connections/routes';
 import { activityRoutes } from './audit/routes';
 import { clusterRoutes, configureClusterS3 } from './clusters/routes';
 import { clustersStore } from './clusters/store';
+import { shareRoutes } from './shares/routes';
+import { publicShareRoutes } from './shares/public';
 import { staticRoutes } from './web/static';
+import { bootKekProvider } from './crypto/kek';
+import { escrowRoutes } from './escrow/routes';
+import { startEscrowScheduler } from './escrow/backup';
 
 await bootstrap();
 sessions.prune();
@@ -39,7 +46,11 @@ if (connectionsStore.count() === 0) {
 s3.configureAll(connectionsStore.listFull());
 for (const c of clustersStore.listFull()) configureClusterS3(c);
 
-const app = new Elysia()
+// Inicializa o provedor de KEK (criptografia em repouso), se configurado; no-op se não houver COCKPIT_KEK/COCKPIT_KEK_FILE.
+bootKekProvider();
+startEscrowScheduler();
+
+const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(cors({
     origin: config.corsOrigin,
     credentials: true,
@@ -58,9 +69,12 @@ const app = new Elysia()
   .use(userRoutes)
   .use(groupRoutes)
   .use(storageRoutes)
+  .use(escrowRoutes)
   .use(connectionsRoutes)
   .use(clusterRoutes)
   .use(activityRoutes)
+  .use(shareRoutes)         // authenticated share-link management (/api/shares)
+  .use(publicShareRoutes)   // public, login-less share access (/api/share/:token) — before staticRoutes
   .use(staticRoutes)        // serves the SPA in single-container deploys (WEB_DIR set)
   .listen(config.port);
 

@@ -1,3 +1,7 @@
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+  Copyright (C) 2026 Lucas Pagliarini
+-->
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { UploadItem } from '../core/ui';

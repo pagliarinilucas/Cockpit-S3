@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 /** Password hashing via Bun's native argon2id. */
 export function hashPassword(plain: string): Promise<string> {
   return Bun.password.hash(plain, { algorithm: 'argon2id', memoryCost: 19456, timeCost: 2 });

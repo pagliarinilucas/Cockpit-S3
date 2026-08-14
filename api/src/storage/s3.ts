@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import {
-  S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand,
+  S3Client, ListBucketsCommand, ListObjectsV2Command, DeleteObjectsCommand, DeleteObjectCommand,
   PutObjectCommand, GetObjectCommand, HeadObjectCommand, CreateBucketCommand, DeleteBucketCommand,
+  CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConnFull } from '../connections/store';
@@ -95,6 +98,11 @@ export const s3 = {
     metas.set(id, { region: c.region || 'garage', buckets: c.buckets ?? [] });
   },
   removeOne(cid: string): void { clients.delete(cid); metas.delete(cid); },
+
+  /** True se a extensão da key é pré-visualizável inline (mesmo Set usado no presign/object). */
+  inlinePreviewable(key: string): boolean {
+    return INLINE.has(key.toLowerCase().split('.').pop() || '');
+  },
 
   hasAny(): boolean { return clients.size > 0; },
   has(cid: string): boolean { return clients.has(cid); },
@@ -237,9 +245,9 @@ export const s3 = {
     return new Response(stream, { headers });
   },
 
-  async head(cid: string, bucket: string, key: string): Promise<{ size: number; modified?: string }> {
+  async head(cid: string, bucket: string, key: string): Promise<{ size: number; contentType: string | null; modified?: string }> {
     const out = await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    return { size: out.ContentLength ?? 0, modified: out.LastModified?.toISOString() };
+    return { size: out.ContentLength ?? 0, contentType: out.ContentType ?? null, modified: out.LastModified?.toISOString() };
   },
 
   async stream(cid: string, bucket: string, key: string): Promise<ReadableStream<Uint8Array>> {
@@ -290,7 +298,66 @@ export const s3 = {
   async createFolder(cid: string, bucket: string, key: string): Promise<void> {
     await client(cid).send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: new Uint8Array(0) }));
   },
-  async remove(cid: string, bucket: string, keys: string[]): Promise<void> {
-    await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
+  /**
+   * Deleta em lote. O S3 responde HTTP 200 mesmo com falha PARCIAL (per-key em `Errors[]`) —
+   * não lança nesse caso. `Deleted[]` é a lista AUTORITATIVA de keys efetivamente removidas
+   * (inclui as que já não existiam). Falha = key pedida que NÃO aparece em `Deleted[]` —
+   * mais preciso do que inferir a partir de `Errors[]` (que pode vir sem `Key` atribuído) e
+   * nunca deixa uma linha da DB órfã de um blob que o S3 de fato apagou.
+   */
+  async remove(cid: string, bucket: string, keys: string[]): Promise<string[]> {
+    const res = await client(cid).send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })) } }));
+    if (res.Errors?.length) {
+      console.error('[s3] DeleteObjects erros', bucket, res.Errors.length, res.Errors.map((e) => e.Code).join(','));
+    }
+    const deleted = new Set((res.Deleted ?? []).map((d) => d.Key).filter((k): k is string => !!k));
+    return keys.filter((k) => !deleted.has(k));   // não confirmados = falhos
+  },
+
+  /** URL presigned PUT (uso interno do servidor; nunca entregue ao cliente). */
+  async presignPut(cid: string, bucket: string, s3Key: string, contentType: string): Promise<string> {
+    const cmd = new PutObjectCommand({ Bucket: bucket, Key: s3Key, ContentType: contentType });
+    return getSignedUrl(client(cid), cmd, { expiresIn: 300 });
+  },
+  /** URL presigned GET crua (uso interno; sem override de disposition). */
+  async presignGetRaw(cid: string, bucket: string, s3Key: string): Promise<string> {
+    const cmd = new GetObjectCommand({ Bucket: bucket, Key: s3Key });
+    return getSignedUrl(client(cid), cmd, { expiresIn: 300 });
+  },
+  /** Deleta um único objeto (por s3_key opaco ou key legada). */
+  async removeKey(cid: string, bucket: string, key: string): Promise<void> {
+    await client(cid).send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  },
+  /** True se existe objeto com essa key (usado p/ detectar plaintext legado). */
+  async headExists(cid: string, bucket: string, key: string): Promise<boolean> {
+    try { await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key })); return true; }
+    catch { return false; }
+  },
+
+  /**
+   * Multipart upload manual: usado pelo upload cifrado para limitar memória (partes
+   * de tamanho fixo, upload sequencial). Não streama a parte em si — cada UploadPart
+   * recebe um Buffer já montado (funciona igual no Garage/MinIO, sem chunked encoding).
+   */
+  async createMultipart(cid: string, bucket: string, key: string, contentType: string): Promise<string> {
+    const out = await client(cid).send(new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: contentType }));
+    if (!out.UploadId) throw new Error('multipart_create_failed');
+    return out.UploadId;
+  },
+  async uploadPart(cid: string, bucket: string, key: string, uploadId: string, partNumber: number, body: Uint8Array): Promise<{ ETag: string; PartNumber: number }> {
+    const out = await client(cid).send(new UploadPartCommand({
+      Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: partNumber, Body: body,
+    }));
+    if (!out.ETag) throw new Error('multipart_part_no_etag');
+    return { ETag: out.ETag, PartNumber: partNumber };
+  },
+  async completeMultipart(cid: string, bucket: string, key: string, uploadId: string, parts: { ETag: string; PartNumber: number }[]): Promise<void> {
+    await client(cid).send(new CompleteMultipartUploadCommand({
+      Bucket: bucket, Key: key, UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((p) => ({ ETag: p.ETag, PartNumber: p.PartNumber })) },
+    }));
+  },
+  async abortMultipart(cid: string, bucket: string, key: string, uploadId: string): Promise<void> {
+    await client(cid).send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId }));
   },
 };
