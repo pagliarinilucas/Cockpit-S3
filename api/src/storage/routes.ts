@@ -4,8 +4,10 @@ import { Elysia, t } from 'elysia';
 import { authDerive, requireUser } from '../auth/guard';
 import { connectionsStore } from '../connections/store';
 import { audit } from '../audit/store';
-import { s3 } from './s3';
+import { s3, type S3Item } from './s3';
 import { mergeToPdf } from './merge';
+import { zipStream, type ZipEntry } from './zip';
+import { zipTickets } from './zip-tickets';
 import { makeThumb } from './thumb';
 import { perms } from '../auth/permissions';
 import type { Perm } from '../types';
@@ -46,8 +48,43 @@ async function ensureSource(ref: { cid: string; bucket: string }): Promise<void>
   if (isCluster(ref.cid)) await ensureClusterBucketAccess(ref.cid, ref.bucket);
 }
 
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
+
+function safeZipName(raw?: string): string {
+  const cleaned = (raw ?? '')
+    .replace(/\.zip$/i, '')
+    .replace(/[\\/]/g, '_')
+    .replace(CONTROL_CHARS, '')
+    .trim()
+    .slice(0, 120)
+    .trim();
+  return cleaned || 'arquivos';
+}
+
 export const storageRoutes = new Elysia({ prefix: '/api' })
   .use(authDerive)
+
+  .get('/buckets/:id/zip', async ({ params, query, set }) => {
+    const ref = parse(params.id);
+    if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+    const id = (query as Record<string, string>)['ticket'];
+    if (!id) { set.status = 400; return { error: 'missing_ticket' }; }
+    const ticket = zipTickets.consume(id, params.id);
+    if (!ticket) { set.status = 404; return { error: 'bad_ticket' }; }
+    try {
+      await ensureSource(ref);
+      const stream = zipStream(ticket.entries, (key) => s3.stream(ref.cid, ref.bucket, key));
+      return new Response(stream, { headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(ticket.filename + '.zip')}`,
+        'Cache-Control': 'no-store',
+      } });
+    } catch (e) {
+      if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+      set.status = 502; return { error: 's3_error' };
+    }
+  })
+
   .guard({ beforeHandle: requireUser }, (app) => app
 
     // list buckets the caller can reach (any grant in the bucket)
@@ -420,6 +457,78 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       }
     }, { body: t.Object({
       keys: t.Array(t.String({ minLength: 1 }), { minItems: 1, maxItems: 100 }),
+      filename: t.Optional(t.String({ maxLength: 200 })),
+    }) })
+
+    .post('/buckets/:id/zip-ticket', async ({ user, params, body, set }) => {
+      const ref = parse(params.id);
+      if (!ref) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      const access = perms.access(user!, params.id);
+      if (!access) { set.status = 403; return { error: 'forbidden' }; }
+
+      const path = norm(body.path ?? '');
+      const targets = body.prefix ? [norm(body.prefix)] : (body.keys ?? []);
+      if (!!body.prefix === !!body.keys?.length || targets.length === 0) {
+        set.status = 400; return { error: 'bad_request' };
+      }
+      for (const key of targets) if (!key.startsWith(path)) { set.status = 400; return { error: 'bad_request' }; }
+
+      try {
+        await ensureSource(ref);
+        const found = new Map<string, S3Item>();
+        let truncated = false;
+        const singles: string[] = [];
+
+        for (const target of targets) {
+          if (target.endsWith('/')) {
+            const listed = await s3.listAllUnder(ref.cid, ref.bucket, target);
+            truncated = truncated || listed.truncated;
+            for (const item of listed.items) if (!found.has(item.key)) found.set(item.key, item);
+          } else if (!found.has(target)) {
+            found.set(target, { kind: 'file', name: target.split('/').pop() || target, key: target, size: 0 });
+            singles.push(target);
+          }
+        }
+
+        if (found.size === 0) { set.status = 422; return { error: 'nothing_to_zip' }; }
+        if (truncated) { set.status = 413; return { error: 'listing_truncated' }; }
+
+        const allowed = [...found.values()].filter((item) => access.all || perms.canRead(access, item.key));
+        if (allowed.length === 0) { set.status = 403; return { error: 'forbidden' }; }
+        if (allowed.length > config.zipMaxEntries) { set.status = 413; return { error: 'too_many_entries' }; }
+
+        const singleSet = new Set(singles);
+        await Promise.all(allowed.filter((item) => singleSet.has(item.key)).map(async (item) => {
+          try {
+            const meta = await s3.head(ref.cid, ref.bucket, item.key);
+            item.size = meta.size;
+            item.modified = meta.modified;
+          } catch { item.size = 0; }
+        }));
+
+        const entries: ZipEntry[] = allowed.map((item) => ({
+          key: item.key,
+          name: item.key.slice(path.length),
+          size: item.size ?? 0,
+          modified: item.modified,
+        }));
+        const filename = safeZipName(body.filename);
+        const ticket = zipTickets.create({ bucketId: params.id, owner: user!.username, filename, entries });
+        audit.log('download', user!.username, params.id, `zip (${entries.length} itens) -> ${filename}.zip`);
+        return {
+          ticket,
+          count: entries.length,
+          totalBytes: entries.reduce((sum, e) => sum + e.size, 0),
+          filename,
+        };
+      } catch (e) {
+        if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
+        set.status = 502; return { error: 's3_error' };
+      }
+    }, { body: t.Object({
+      path: t.Optional(t.String({ maxLength: 1024 })),
+      prefix: t.Optional(t.String({ minLength: 1, maxLength: 1024 })),
+      keys: t.Optional(t.Array(t.String({ minLength: 1, maxLength: 1024 }), { maxItems: 5000 })),
       filename: t.Optional(t.String({ maxLength: 200 })),
     }) })
 

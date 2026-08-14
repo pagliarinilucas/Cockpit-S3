@@ -40,6 +40,7 @@ const renamingBucket = ref(false);
 const toDelete = ref<{ keys: string[]; label: string } | null>(null);
 const merge = ref<{ items: ObjectItem[]; name: string } | null>(null);
 const merging = ref(false);
+const zipping = ref(false);
 const ctx = ref<{ x: number; y: number; item: ObjectItem } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const shareItem = ref<ObjectItem | null>(null);   // arquivo a compartilhar (abre ShareCreate)
@@ -134,6 +135,8 @@ const previewItems = computed(() => ordered.value.filter((i) => i.kind === 'file
 // o que não for imagem/PDF — muitos objetos no Garage não têm extensão.
 const MERGEABLE = new Set<FileType>(['image', 'pdf', 'file']);
 const mergeables = computed(() => ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key) && MERGEABLE.has(i.type || 'file')));
+const selectedFiles = computed(() => ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key)));
+const onlyFilesSelected = computed(() => selection.value.size > 0 && selectedFiles.value.length === selection.value.size);
 const allSel = computed(() => ordered.value.length > 0 && ordered.value.every((i) => selection.value.has(i.key)));
 const folderCount = computed(() => ordered.value.filter((i) => i.kind === 'folder').length);
 const fileCount = computed(() => ordered.value.filter((i) => i.kind === 'file').length);
@@ -166,6 +169,7 @@ const ctxItems = computed<MenuItem[]>(() => {
   const it = ctx.value?.item; if (!it) return [];
   if (it.kind === 'folder') return [
     { key: 'open', label: 'Abrir', icon: 'folder' },
+    { key: 'zip', label: 'Baixar como ZIP', icon: 'download' },
     ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
   ];
   return [
@@ -179,6 +183,7 @@ const ctxItems = computed<MenuItem[]>(() => {
 function onCtxSelect(key: string) {
   const it = ctx.value?.item; ctx.value = null; if (!it) return;
   if (key === 'open') openFolder(it);
+  else if (key === 'zip') downloadFolderZip(it);
   else if (key === 'preview') openPreview(it);
   else if (key === 'download') downloadItem(it);
   else if (key === 'copy') copyLink(it);
@@ -210,9 +215,44 @@ async function copyLink(it: ObjectItem) {
   } catch { toast.error('Falha ao copiar link'); }
 }
 async function batchDownload() {
-  const files = ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key));
+  const files = selectedFiles.value;
   if (!files.length) { toast.info('Selecione arquivos para baixar'); return; }
   for (const f of files) { await downloadItem(f); await new Promise((r) => setTimeout(r, 300)); }
+}
+
+const ZIP_ERRORS: Record<number, string> = {
+  403: 'Sem permissão para baixar estes arquivos',
+  413: 'Seleção muito grande para um ZIP',
+  422: 'Nada para compactar aqui',
+};
+
+async function startZip(body: { prefix?: string; keys?: string[]; filename: string }) {
+  if (zipping.value) return;
+  zipping.value = true;
+  try {
+    const { ticket, count } = await api.zipTicket(props.bucket.id, { path: prefix.value, ...body });
+    const a = document.createElement('a');
+    a.href = api.zipUrl(props.bucket.id, ticket);
+    a.download = body.filename + '.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast.info(`Compactando ${count} ite${count === 1 ? 'm' : 'ns'} — o download começa em seguida`);
+  } catch (e) {
+    const status = (e as { status?: number }).status ?? 0;
+    toast.error(ZIP_ERRORS[status] ?? 'Falha ao gerar o ZIP');
+  } finally {
+    zipping.value = false;
+  }
+}
+
+function downloadFolderZip(it: ObjectItem) {
+  startZip({ prefix: it.key, filename: it.name });
+}
+
+function selectionZip() {
+  if (!selection.value.size) return;
+  const only = selection.value.size === 1 ? ordered.value.find((i) => selection.value.has(i.key)) : null;
+  const filename = only ? only.name.replace(/\.[^.]+$/, '') : (props.path[props.path.length - 1] ?? bucketLabel(props.bucket));
+  startZip({ keys: [...selection.value], filename });
 }
 
 // juntar em PDF
@@ -366,7 +406,8 @@ defineExpose({ reload });
     <div v-if="selection.size > 0" class="selbar">
       <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
       <div class="selbar-actions">
-        <button v-if="canDownload" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button v-if="canDownload && onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button v-if="canDownload" class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
         <button v-if="canDownload && mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
         <button v-if="canWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
         <button class="btn" @click="clearSel"><Icon name="x" :size="16" />Limpar</button>
@@ -419,6 +460,7 @@ defineExpose({ reload });
           <div class="frow-actions" @click.stop>
             <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
             <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
             <button v-if="canDownload" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
             <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="16" /></button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
@@ -445,6 +487,7 @@ defineExpose({ reload });
         <div class="fcard-actions" @click.stop>
           <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
           <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
           <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="15" /></button>
           <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
         </div>

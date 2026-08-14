@@ -245,10 +245,45 @@ export const s3 = {
     return new Response(stream, { headers });
   },
 
-  /** Metadados do objeto (HEAD, sem baixar o corpo). Tamanho null se não informado. */
-  async head(cid: string, bucket: string, key: string): Promise<{ size: number | null; contentType: string | null }> {
+  async head(cid: string, bucket: string, key: string): Promise<{ size: number; contentType: string | null; modified?: string }> {
     const out = await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    return { size: out.ContentLength ?? null, contentType: out.ContentType ?? null };
+    return { size: out.ContentLength ?? 0, contentType: out.ContentType ?? null, modified: out.LastModified?.toISOString() };
+  },
+
+  async stream(cid: string, bucket: string, key: string): Promise<ReadableStream<Uint8Array>> {
+    const out = await client(cid).send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    const body = out.Body as {
+      transformToWebStream?: () => ReadableStream<Uint8Array>;
+      transformToByteArray?: () => Promise<Uint8Array>;
+    };
+    if (typeof body?.transformToWebStream === 'function') return body.transformToWebStream();
+    const bytes = await body.transformToByteArray!();
+    return new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } });
+  },
+
+  async listAllUnder(cid: string, bucket: string, prefix: string): Promise<{ items: S3Item[]; truncated: boolean }> {
+    const MAX_PAGES = 400;
+    const items: S3Item[] = [];
+    let token: string | undefined;
+    let pages = 0;
+    do {
+      const res = await client(cid).send(new ListObjectsV2Command({
+        Bucket: bucket, Prefix: prefix, ContinuationToken: token, MaxKeys: 1000,
+      }));
+      for (const o of res.Contents ?? []) {
+        if (!o.Key) continue;
+        items.push({
+          kind: o.Key.endsWith('/') ? 'folder' : 'file',
+          name: o.Key.split('/').filter(Boolean).pop() || o.Key,
+          key: o.Key,
+          size: o.Size ?? 0,
+          modified: o.LastModified?.toISOString(),
+        });
+      }
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      pages++;
+    } while (token && pages < MAX_PAGES);
+    return { items, truncated: !!token };
   },
 
   /** Bytes crus de um objeto (para processamento server-side, ex.: merge de PDF). */

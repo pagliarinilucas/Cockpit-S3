@@ -104,6 +104,13 @@ export interface PresignedUrl {
   disposition?: 'inline' | 'attachment';
 }
 
+export interface ZipTicket {
+  ticket: string;
+  count: number;
+  totalBytes: number;
+  filename: string;
+}
+
 /** A Garage/S3 connection (admin). Secret never leaves the server (`secretSet` only). */
 export interface Connection {
   id: string;

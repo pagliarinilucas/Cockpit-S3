@@ -10,6 +10,7 @@
     "start": "bun src/index.ts",
     "seed": "bun src/scripts/seed.ts",
     "restore": "bun src/scripts/restore.ts",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "db:generate": "bun --bun drizzle-kit generate",
     "db:migrate": "bun --bun drizzle-kit migrate",
