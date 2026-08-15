@@ -64,6 +64,8 @@ export interface Bucket {
   region: string;
   region2?: string;
   perm: Perm;
+  /** criptografia em repouso habilitada neste bucket. */
+  encrypted?: boolean;
   /** stats are optional — unknown unless the Garage admin API is wired (shown as "—"). */
   used?: number;
   quota?: number;

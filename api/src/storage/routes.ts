@@ -73,7 +73,15 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
     if (!ticket) { set.status = 404; return { error: 'bad_ticket' }; }
     try {
       await ensureSource(ref);
-      const stream = zipStream(ticket.entries, (key) => s3.stream(ref.cid, ref.bucket, key));
+      const enc = bucketCryptoStore.isEnabled(params.id);
+      const fetchEntry = (key: string): Promise<ReadableStream<Uint8Array>> => {
+        if (enc) {
+          const row = objectsStore.get(params.id, key);
+          if (row) return downloadEncrypted(row, ref.cid, ref.bucket);
+        }
+        return s3.stream(ref.cid, ref.bucket, key);
+      };
+      const stream = zipStream(ticket.entries, fetchEntry);
       return new Response(stream, { headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(ticket.filename + '.zip')}`,
@@ -90,7 +98,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
     // list buckets the caller can reach (any grant in the bucket)
     .get('/buckets', async ({ user, set }) => {
       if (!s3.hasAny()) { set.status = 503; return { error: 's3_not_configured' }; }
-      const out: { id: string; name: string; connection: string; region: string; perm: Perm; alias?: string }[] = [];
+      const out: { id: string; name: string; connection: string; region: string; perm: Perm; alias?: string; encrypted?: boolean }[] = [];
       for (const conn of connectionsStore.list()) {
         if (!s3.has(conn.id)) continue;
         let names: string[];
@@ -112,7 +120,7 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         }
       }
       const aliasMap = bucketAliasStore.getMany(out.map((b) => b.id));
-      for (const b of out) b.alias = aliasMap.get(b.id);
+      for (const b of out) { b.alias = aliasMap.get(b.id); b.encrypted = bucketCryptoStore.isEnabled(b.id); }
       return out;
     })
 
@@ -475,15 +483,22 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
 
       try {
         await ensureSource(ref);
+        const enc = bucketCryptoStore.isEnabled(params.id);
         const found = new Map<string, S3Item>();
         let truncated = false;
         const singles: string[] = [];
 
         for (const target of targets) {
           if (target.endsWith('/')) {
-            const listed = await s3.listAllUnder(ref.cid, ref.bucket, target);
-            truncated = truncated || listed.truncated;
-            for (const item of listed.items) if (!found.has(item.key)) found.set(item.key, item);
+            if (enc) {
+              for (const row of objectsStore.listPrefix(params.id, target)) {
+                if (!found.has(row.key)) found.set(row.key, { kind: 'file', name: row.key.split('/').pop() || row.key, key: row.key, size: row.sizePlain });
+              }
+            } else {
+              const listed = await s3.listAllUnder(ref.cid, ref.bucket, target);
+              truncated = truncated || listed.truncated;
+              for (const item of listed.items) if (!found.has(item.key)) found.set(item.key, item);
+            }
           } else if (!found.has(target)) {
             found.set(target, { kind: 'file', name: target.split('/').pop() || target, key: target, size: 0 });
             singles.push(target);
@@ -493,16 +508,22 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         if (found.size === 0) { set.status = 422; return { error: 'nothing_to_zip' }; }
         if (truncated) { set.status = 413; return { error: 'listing_truncated' }; }
 
-        const allowed = [...found.values()].filter((item) => access.all || perms.canRead(access, item.key));
+        const allowed = [...found.values()].filter((item) => access.all || perms.canDownload(access, item.key));
         if (allowed.length === 0) { set.status = 403; return { error: 'forbidden' }; }
         if (allowed.length > config.zipMaxEntries) { set.status = 413; return { error: 'too_many_entries' }; }
 
         const singleSet = new Set(singles);
         await Promise.all(allowed.filter((item) => singleSet.has(item.key)).map(async (item) => {
           try {
-            const meta = await s3.head(ref.cid, ref.bucket, item.key);
-            item.size = meta.size;
-            item.modified = meta.modified;
+            if (enc) {
+              const row = objectsStore.get(params.id, item.key);
+              item.size = row?.sizePlain ?? 0;
+              item.modified = row?.createdAt;
+            } else {
+              const meta = await s3.head(ref.cid, ref.bucket, item.key);
+              item.size = meta.size;
+              item.modified = meta.modified;
+            }
           } catch { item.size = 0; }
         }));
 
