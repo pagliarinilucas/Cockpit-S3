@@ -526,11 +526,10 @@ async function confirmDeleteCluster() {
     </Modal>
 
     <!-- reveal/backup da KEK -->
-    <Modal v-if="kekShown && kek" title="Backup da KEK" icon="lock" @close="closeKek">
+    <Modal v-if="kekShown && kek" title="Backup da KEK" icon="lock" wide @close="closeKek">
       <p class="modal-warn">
-        <Icon name="alert" :size="14" /> Este é o segredo que decifra todos os buckets cifrados.
-        Copie/baixe, guarde num cofre offline e <b>não deixe cópia neste computador nem no storage</b>.
-        Perder a KEK = dados irrecuperáveis; vazá-la = qualquer um pode decifrar o storage.
+        <Icon name="alert" :size="16" class="ic" />
+        <span>Este é o segredo que decifra <b>todos</b> os buckets cifrados. Copie/baixe e guarde num cofre offline — <b>não deixe cópia neste computador nem no storage</b>. Perder a KEK = dados irrecuperáveis; vazá-la = qualquer um pode decifrar o storage.</span>
       </p>
       <div class="modal-row">
         <div class="field">
@@ -600,7 +599,7 @@ async function confirmDeleteCluster() {
       </template>
     </Modal>
 
-    <Modal v-if="recoveryEditing" title="Código de recuperação" icon="key" @close="recoveryEditing = false">
+    <Modal v-if="recoveryEditing" title="Código de recuperação" icon="key" wide @close="recoveryEditing = false">
       <template v-if="!recoveryCode">
         <p class="modal-text">
           Gera um código de recuperação usado para decifrar o backup de KEK+banco. Ele é mostrado
@@ -613,8 +612,8 @@ async function confirmDeleteCluster() {
       </template>
       <template v-else>
         <p class="modal-warn">
-          <Icon name="alert" :size="14" /> Copie e guarde este código <b>OFFLINE, separado do storage e da KEK</b>.
-          Sem ele + a KEK, o backup de recuperação é irrecuperável. Ele não será mostrado de novo.
+          <Icon name="alert" :size="16" class="ic" />
+          <span>Copie e guarde este código <b>OFFLINE, separado do storage e da KEK</b>. Sem ele + a KEK, o backup de recuperação é irrecuperável. Ele não será mostrado de novo.</span>
         </p>
         <div class="field">
           <label class="field-label">Código de recuperação</label>

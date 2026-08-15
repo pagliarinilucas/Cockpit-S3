@@ -3,14 +3,13 @@
   Copyright (C) 2026 Lucas Pagliarini
 -->
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { User, Group, Bucket, Perm, Role, UserGrant } from '../core/models';
 import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
-import { PERM_CYCLE } from '../core/perm';
+import PermPicker from '../components/PermPicker.vue';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
-import PermBadge from '../components/PermBadge.vue';
 import FolderPicker from '../components/FolderPicker.vue';
 
 const toast = useToast();
@@ -95,10 +94,9 @@ async function toggleGroup(g: Group) {
   try { refreshEditUser(await api.setUserGroup(u.username, g.id, member)); await reloadGroupsKeepEditor(); }
   catch { toast.error('Falha ao alterar grupo'); }
 }
-async function cycleUserGrant(gr: UserGrant) {
+async function setUserGrantPerm(gr: UserGrant, perm: Perm) {
   const u = editUser.value; if (!u) return;
-  const next = PERM_CYCLE[(PERM_CYCLE.indexOf(gr.perm) + 1) % PERM_CYCLE.length];
-  try { refreshEditUser(await api.setUserGrant(u.username, gr.bucketId, gr.prefix, next)); }
+  try { refreshEditUser(await api.setUserGrant(u.username, gr.bucketId, gr.prefix, perm)); }
   catch { toast.error('Falha ao alterar permissão'); }
 }
 async function removeUserGrant(gr: UserGrant) {
@@ -150,9 +148,8 @@ async function confirmDeleteGroup() {
   try { await api.deleteGroup(g.id); toast.success(`Grupo ${g.name} excluído`); if (editGroup.value?.id === g.id) editGroup.value = null; await reload(); }
   catch { toast.error('Falha ao excluir grupo'); }
 }
-async function cycleGroupGrant(g: Group, gr: { bucketId: string; prefix: string; perm: Perm }) {
-  const next = PERM_CYCLE[(PERM_CYCLE.indexOf(gr.perm) + 1) % PERM_CYCLE.length];
-  try { await api.setGroupGrant(g.id, gr.bucketId, gr.prefix, next); await reloadGroupsKeepEditor(); }
+async function setGroupGrantPerm(g: Group, gr: { bucketId: string; prefix: string; perm: Perm }, perm: Perm) {
+  try { await api.setGroupGrant(g.id, gr.bucketId, gr.prefix, perm); await reloadGroupsKeepEditor(); }
   catch { toast.error('Falha ao alterar permissão'); }
 }
 async function removeGroupGrant(g: Group, gr: { bucketId: string; prefix: string }) {
@@ -161,6 +158,14 @@ async function removeGroupGrant(g: Group, gr: { bucketId: string; prefix: string
 }
 
 const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro)';
+
+const onKey = (e: KeyboardEvent) => {
+  if (e.key !== 'Escape') return;
+  if (editUser.value) editUser.value = null;
+  else if (editGroup.value) editGroup.value = null;
+};
+onMounted(() => window.addEventListener('keydown', onKey));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 </script>
 
 <template>
@@ -228,11 +233,13 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
           </div>
         </div>
         <div class="kmrow-meta" style="margin-top:6px">{{ g.members ?? 0 }} membro(s) · {{ g.grants.length }} concessão(ões)</div>
-        <div v-if="g.grants.length" style="margin-top:8px; display:flex; flex-direction:column; gap:6px">
-          <div v-for="gr in g.grants" :key="gr.bucketId + gr.prefix" class="grant-row">
-            <span class="grant-loc"><strong>{{ bucketName(gr.bucketId) }}</strong> <span class="muted">{{ prefixLabel(gr.prefix) }}</span></span>
-            <button class="perm-btn" @click="cycleGroupGrant(g, gr)"><PermBadge :perm="gr.perm" small /></button>
-            <button class="iconbtn iconbtn-danger" @click="removeGroupGrant(g, gr)"><Icon name="x" :size="14" /></button>
+        <div v-if="g.grants.length" style="margin-top:10px; display:flex; flex-direction:column; gap:10px">
+          <div v-for="gr in g.grants" :key="gr.bucketId + gr.prefix" class="grant-card">
+            <div class="grant-card-top">
+              <span class="grant-loc"><Icon name="folder" :size="14" /><strong>{{ bucketName(gr.bucketId) }}</strong><span class="muted">{{ prefixLabel(gr.prefix) }}</span></span>
+              <button class="iconbtn iconbtn-danger" title="Remover concessão" @click="removeGroupGrant(g, gr)"><Icon name="trash" :size="14" /></button>
+            </div>
+            <PermPicker :perm="gr.perm" @change="setGroupGrantPerm(g, gr, $event)" />
           </div>
         </div>
       </div>
@@ -309,53 +316,89 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
     </Modal>
 
     <!-- user permissions editor -->
-    <Modal v-if="editUser" :title="`Permissões — ${editUser.username}`" icon="shield" @close="editUser = null">
-      <template v-if="editUser.role === 'admin'">
-        <p class="modal-text">Administradores têm acesso total a todos os buckets.</p>
-      </template>
-      <template v-else>
-        <h3 class="field-label">Grupos</h3>
-        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px">
-          <button v-for="g in groups" :key="g.id" class="chip" :class="{ 'chip-on': editUser.groups.includes(g.id) }" @click="toggleGroup(g)">
-            {{ g.name }}
-          </button>
-          <span v-if="!groups.length" class="muted">Nenhum grupo criado.</span>
+    <div v-if="editUser" class="modal-back" @click.self="editUser = null">
+      <div class="pm">
+        <div class="pm-head">
+          <div class="pm-head-ic"><Icon name="shield" :size="19" /></div>
+          <div style="flex:1;min-width:0">
+            <div class="pm-title">Permissões</div>
+            <div class="pm-sub">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.8"/><path d="M5 19.5c1.3-3 4-4.6 7-4.6s5.7 1.6 7 4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span class="pm-user">{{ editUser.username }}</span><span>· acesso individual</span>
+            </div>
+          </div>
+          <button class="pm-x" aria-label="Fechar" @click="editUser = null"><Icon name="x" :size="15" /></button>
         </div>
 
-        <h3 class="field-label">Concessões diretas</h3>
-        <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px">
-          <div v-for="gr in editUser.grants" :key="gr.bucketId + gr.prefix" class="grant-row">
-            <span class="grant-loc"><strong>{{ bucketName(gr.bucketId) }}</strong> <span class="muted">{{ prefixLabel(gr.prefix) }}</span></span>
-            <button class="perm-btn" @click="cycleUserGrant(gr)"><PermBadge :perm="gr.perm" small /></button>
-            <button class="iconbtn iconbtn-danger" @click="removeUserGrant(gr)"><Icon name="x" :size="14" /></button>
-          </div>
-          <p v-if="!editUser.grants.length" class="muted">Nenhuma concessão direta.</p>
-        </div>
-        <button class="btn" @click="startAdd('user-grant', editUser.username)"><Icon name="plus" :size="15" /> Conceder pasta</button>
+        <div class="pm-body">
+          <p v-if="editUser.role === 'admin'" class="modal-text">Administradores têm acesso total a todos os buckets.</p>
+          <template v-else>
+            <section>
+              <div class="pm-eyebrow">GRUPOS</div>
+              <div v-if="groups.length" style="display:flex;gap:6px;flex-wrap:wrap">
+                <button v-for="g in groups" :key="g.id" class="chip" :class="{ 'chip-on': editUser.groups.includes(g.id) }" @click="toggleGroup(g)">{{ g.name }}</button>
+              </div>
+              <div v-else class="pm-note">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" style="flex:none;color:var(--text-3)"><circle cx="9" cy="8.5" r="2.8" stroke="currentColor" stroke-width="1.7"/><circle cx="16.5" cy="9.5" r="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 18.5c1.1-2.6 3.2-3.9 5.5-3.9s4.4 1.3 5.5 3.9M15.5 14.9c2 .2 3.7 1.4 4.6 3.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                <span>Nenhum grupo. Permissões de grupo valem para todos os membros de uma vez.</span>
+              </div>
+            </section>
 
-        <h3 class="field-label" style="margin-top:16px">Bloqueios</h3>
-        <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px">
-          <div v-for="b in editUser.blocks" :key="b.bucketId + b.prefix" class="grant-row">
-            <span class="grant-loc"><strong>{{ bucketName(b.bucketId) }}</strong> <span class="muted">{{ prefixLabel(b.prefix) }}</span></span>
-            <span class="perm perm-ro perm-sm">BLOQUEADO</span>
-            <button class="iconbtn iconbtn-danger" @click="removeUserBlock(b)"><Icon name="x" :size="14" /></button>
-          </div>
-          <p v-if="!editUser.blocks.length" class="muted">Nenhum bloqueio.</p>
+            <section>
+              <div class="pm-eyebrow-row">
+                <div class="pm-eyebrow">CONCESSÕES DIRETAS</div>
+                <div class="pm-count">{{ editUser.grants.length === 1 ? '1 pasta' : editUser.grants.length + ' pastas' }}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div v-for="gr in editUser.grants" :key="gr.bucketId + gr.prefix" class="grant-card">
+                  <div class="grant-card-top">
+                    <Icon name="folder" :size="17" class="gc-folder" />
+                    <span class="gc-name">{{ bucketName(gr.bucketId) }}</span>
+                    <span class="gc-scope">{{ prefixLabel(gr.prefix) }}</span>
+                    <div style="flex:1"></div>
+                    <button class="gc-del" title="Revogar acesso" @click="removeUserGrant(gr)"><Icon name="trash" :size="14" /></button>
+                  </div>
+                  <PermPicker :perm="gr.perm" @change="setUserGrantPerm(gr, $event)" />
+                </div>
+                <button class="pm-add" @click="startAdd('user-grant', editUser.username)"><Icon name="plus" :size="14" />Conceder acesso a uma pasta</button>
+              </div>
+            </section>
+
+            <section>
+              <div class="pm-eyebrow">BLOQUEIOS</div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div v-if="!editUser.blocks.length" class="pm-block-empty">Nenhum bloqueio. Bloqueios vencem qualquer concessão — a pasta some para o usuário.</div>
+                <div v-for="b in editUser.blocks" :key="b.bucketId + b.prefix" class="pm-block">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex:none;color:var(--danger)"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M6.2 6.2l11.6 11.6" stroke="currentColor" stroke-width="1.7"/></svg>
+                  <span class="pm-block-path">{{ bucketName(b.bucketId) }} {{ prefixLabel(b.prefix) }}</span>
+                  <button class="pm-unblock" @click="removeUserBlock(b)">desbloquear</button>
+                </div>
+                <button class="pm-add-block" @click="startAdd('user-block', editUser.username)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M6.2 6.2l11.6 11.6" stroke="currentColor" stroke-width="1.8"/></svg>
+                  Bloquear pasta
+                </button>
+              </div>
+            </section>
+          </template>
         </div>
-        <button class="btn btn-danger" @click="startAdd('user-block', editUser.username)"><Icon name="x" :size="15" /> Bloquear pasta</button>
-      </template>
-      <template #foot>
-        <button class="btn btn-primary" @click="editUser = null"><Icon name="check" :size="16" />Fechar</button>
-      </template>
-    </Modal>
+
+        <div class="pm-foot">
+          <div class="pm-foot-note"><span class="pm-dot"></span>alterações aplicadas na hora · tudo vai pro log de auditoria</div>
+          <div style="flex:1"></div>
+          <button class="pm-close" @click="editUser = null">Fechar</button>
+        </div>
+      </div>
+    </div>
 
     <!-- group grants editor -->
-    <Modal v-if="editGroup" :title="`Grants — ${editGroup.name}`" icon="database" @close="editGroup = null">
-      <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px">
-        <div v-for="gr in editGroup.grants" :key="gr.bucketId + gr.prefix" class="grant-row">
-          <span class="grant-loc"><strong>{{ bucketName(gr.bucketId) }}</strong> <span class="muted">{{ prefixLabel(gr.prefix) }}</span></span>
-          <button class="perm-btn" @click="cycleGroupGrant(editGroup, gr)"><PermBadge :perm="gr.perm" small /></button>
-          <button class="iconbtn iconbtn-danger" @click="removeGroupGrant(editGroup, gr)"><Icon name="x" :size="14" /></button>
+    <Modal v-if="editGroup" :title="`Grants — ${editGroup.name}`" icon="database" wide @close="editGroup = null">
+      <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px">
+        <div v-for="gr in editGroup.grants" :key="gr.bucketId + gr.prefix" class="grant-card">
+          <div class="grant-card-top">
+            <span class="grant-loc"><Icon name="folder" :size="14" /><strong>{{ bucketName(gr.bucketId) }}</strong><span class="muted">{{ prefixLabel(gr.prefix) }}</span></span>
+            <button class="iconbtn iconbtn-danger" title="Remover concessão" @click="removeGroupGrant(editGroup, gr)"><Icon name="trash" :size="14" /></button>
+          </div>
+          <PermPicker :perm="gr.perm" @change="setGroupGrantPerm(editGroup, gr, $event)" />
         </div>
         <p v-if="!editGroup.grants.length" class="muted">Nenhuma concessão.</p>
       </div>
@@ -396,9 +439,46 @@ const prefixLabel = (prefix: string) => prefix ? '/' + prefix : '(bucket inteiro
 .chip-on { background: color-mix(in srgb, var(--neon) 14%, var(--bg-2)); border-color: color-mix(in srgb, var(--neon) 45%, transparent); color: var(--neon); }
 .grant-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
 .grant-row:first-child { border-top: none; }
-.grant-loc { flex: 1; font-size: 13px; color: var(--text); }
-.muted { color: var(--text-3); font-family: var(--mono); font-size: 12px; }
-.perm-btn { display: inline-flex; background: none; border: none; cursor: pointer; padding: 0; }
+.grant-loc { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text); }
+.grant-loc svg { color: var(--neon); flex: none; }
+.grant-loc strong { white-space: nowrap; }
+.muted { color: var(--text-3); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grant-card { display: flex; flex-direction: column; gap: 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px 15px; }
+.grant-card-top { display: flex; align-items: center; gap: 10px; }
+.gc-folder { color: var(--neon); flex: none; }
+.gc-name { font-weight: 600; font-size: 15px; color: var(--text); }
+.gc-scope { font-family: var(--mono); font-size: 11px; color: var(--text-3); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; white-space: nowrap; flex: none; }
+.gc-del { width: 30px; height: 30px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color .14s, background .14s, border-color .14s; }
+.gc-del:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); border-color: color-mix(in srgb, var(--danger) 32%, transparent); }
 .row-acts { display: flex; align-items: center; gap: 6px; }
 .row-acts .iconbtn { width: 30px; height: 30px; }
+
+.pm { width: 100%; max-width: 660px; max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: linear-gradient(180deg, var(--bg-1), var(--bg-0)); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: 0 24px 70px rgba(0,0,0,.6); overflow: hidden; animation: pop .18s cubic-bezier(.2,.9,.3,1.2); }
+.pm-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.pm-head-ic { width: 38px; height: 38px; border-radius: 10px; background: color-mix(in srgb, var(--neon) 9%, transparent); border: 1px solid color-mix(in srgb, var(--neon) 28%, transparent); color: var(--neon); display: flex; align-items: center; justify-content: center; flex: none; }
+.pm-title { font-weight: 700; font-size: 18px; letter-spacing: .2px; color: var(--text); }
+.pm-sub { display: flex; align-items: center; gap: 7px; margin-top: 2px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.pm-user { color: var(--neon); }
+.pm-x { width: 32px; height: 32px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color .14s, background .14s, border-color .14s; }
+.pm-x:hover { color: var(--text); background: color-mix(in srgb, var(--text-2) 12%, transparent); border-color: var(--line); }
+.pm-body { padding: 20px 22px 24px; display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
+.pm-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2.5px; color: var(--text-3); margin-bottom: 10px; }
+.pm-eyebrow-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.pm-eyebrow-row .pm-eyebrow { margin: 0; }
+.pm-count { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.pm-note { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px dashed var(--line-2); border-radius: 11px; color: var(--text-2); font-size: 13.5px; }
+.pm-add { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 12px; border: 1px dashed var(--line-2); border-radius: 11px; background: transparent; color: var(--text-2); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.pm-add:hover { color: var(--neon); border-color: color-mix(in srgb, var(--neon) 45%, transparent); background: color-mix(in srgb, var(--neon) 5%, transparent); }
+.pm-block-empty { font-size: 13.5px; color: var(--text-3); }
+.pm-block { display: flex; align-items: center; gap: 10px; border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); background: color-mix(in srgb, var(--danger) 6%, transparent); border-radius: 11px; padding: 11px 14px; }
+.pm-block-path { font-family: var(--mono); font-size: 13px; color: var(--text); flex: 1; }
+.pm-unblock { border: none; background: transparent; color: var(--text-3); font-family: var(--mono); font-size: 11.5px; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: color .14s, background .14s; }
+.pm-unblock:hover { color: var(--text); background: color-mix(in srgb, var(--text-2) 12%, transparent); }
+.pm-add-block { display: flex; align-items: center; gap: 9px; width: fit-content; padding: 9px 16px; border: 1px solid color-mix(in srgb, var(--danger) 34%, transparent); border-radius: 9px; background: transparent; color: var(--danger); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s; }
+.pm-add-block:hover { background: color-mix(in srgb, var(--danger) 9%, transparent); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.pm-foot { display: flex; align-items: center; gap: 14px; padding: 15px 22px; border-top: 1px solid var(--line); background: rgba(0,0,0,.18); }
+.pm-foot-note { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.pm-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
+.pm-close { padding: 10px 26px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--neon) 42%, transparent); background: color-mix(in srgb, var(--neon) 10%, transparent); color: var(--neon); font-weight: 700; font-size: 14px; letter-spacing: .3px; cursor: pointer; transition: background .15s, box-shadow .15s; }
+.pm-close:hover { background: color-mix(in srgb, var(--neon) 18%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--neon) 22%, transparent); }
 </style>
