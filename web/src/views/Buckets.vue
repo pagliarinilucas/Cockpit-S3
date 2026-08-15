@@ -163,13 +163,9 @@ async function confirmDelete() {
         <label class="enc-opt" :class="{ on: newEncrypted }">
           <input type="checkbox" v-model="newEncrypted" class="enc-opt-check" />
           <span class="enc-opt-body">
-            <span class="enc-opt-title"><Icon name="lock" :size="15" /> Criptografar em repouso (at-rest)</span>
+            <span class="enc-opt-title"><Icon name="lock" :size="15" /> Criptografar os arquivos</span>
             <span class="enc-opt-desc">
-              Os arquivos são cifrados <b>no servidor, antes de irem para o storage</b>.
-              No bucket eles ficam com nomes aleatórios e conteúdo ilegível — quem obtiver
-              as chaves do bucket, um backup do storage ou o disco só vê dados embaralhados.
-              Preview e download continuam normais para quem tem acesso aqui.
-              <br />Só pode ser ativado num bucket <b>novo e vazio</b>, e não dá para desfazer depois de subir arquivos.
+              Protege o conteúdo deste bucket. Só num bucket <b>novo e vazio</b> — não dá pra desfazer depois.
             </span>
           </span>
         </label>
@@ -214,7 +210,10 @@ async function confirmDelete() {
             <PermBadge :perm="b.perm" :small="true" />
           </div>
           <div v-if="b.alias?.trim()" class="bcard-name">{{ b.name ?? b.id }}</div>
-          <div class="bcard-region">{{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}</div>
+          <div class="bcard-region">
+            {{ b.connection ? b.connection + ' · ' : '' }}{{ b.region }}
+            <span v-if="b.encrypted" class="bcard-enc" title="Criptografado em repouso"><Icon name="lock" :size="11" /> cifrado</span>
+          </div>
           <div class="bcard-tiles">
             <div class="bcard-tile">
               <span class="bcard-tile-val">
