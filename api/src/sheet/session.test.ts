@@ -178,10 +178,25 @@ describe('clientes e broadcast', () => {
     S.attach(session, a.client);
     S.attach(session, b.client);
 
-    S.relayPresence(session, new TextEncoder().encode('{"cursor":"A1"}'), 1);
+    S.relayPresence(session, new TextEncoder().encode('{"row":0,"col":1}'), 1);
     const last = b.frames[b.frames.length - 1]!;
     expect(last[0]).toBe(S.FRAME_PRESENCE);
-    expect(new TextDecoder().decode(last.subarray(1))).toBe('{"cursor":"A1"}');
+    expect(JSON.parse(new TextDecoder().decode(last.subarray(1)))).toEqual({
+      row: 0, col: 1, clientId: 1, user: 'ana',
+    });
+  });
+
+  it('presença não aceita identidade forjada no payload', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const { session } = await open(io);
+    S.attach(session, fakeClient(1, 'ana').client);
+    const b = fakeClient(2, 'bia');
+    S.attach(session, b.client);
+
+    S.relayPresence(session, new TextEncoder().encode('{"user":"admin","clientId":99,"row":3,"col":3}'), 1);
+    const msg = JSON.parse(new TextDecoder().decode(b.frames[b.frames.length - 1]!.subarray(1)));
+    expect(msg.user).toBe('ana');
+    expect(msg.clientId).toBe(1);
   });
 
   it('lista de peers é anunciada quando alguém entra', async () => {
@@ -296,6 +311,31 @@ describe('ciclo de vida', () => {
     await Bun.sleep(20);
     expect(state.writes).toBe(1);
     expect(S.findSession('c:b', key)).toBeNull();
+  });
+
+  it('materialização na saída grava em nome de quem editou por último', async () => {
+    const { io, state } = fakeIo(xlsxOf([['a']]));
+    // authorize restrito: só passa 'ana'. Um autor fictício seria recusado aqui.
+    const { session } = await open(io, [], (u) => u === 'ana');
+    S.attach(session, fakeClient(1, 'ana').client);
+
+    const edit = new Y.Doc();
+    Y.applyUpdate(edit, Y.encodeStateAsUpdate(session.doc));
+    ydoc.setCell(edit, 'A', 0, 0, 'da ana');
+    S.applyClientUpdate(session, Y.encodeStateAsUpdate(edit), 'ana', 1);
+
+    S.detach(session, 1);
+    await Bun.sleep(20);
+    expect(state.writes).toBe(1);
+    expect(XLSX.read(state.bytes, { type: 'array' }).Sheets['A']!['A1']!.v).toBe('da ana');
+  });
+
+  it('duas aberturas simultâneas do mesmo arquivo devolvem a MESMA sessão', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const key = `planilhas/${randomUUID()}.xlsx`;
+    const args = { bucketId: 'c:b', key, io, authorize: () => true, onEvent: () => {} };
+    const [s1, s2] = await Promise.all([S.openSession(args), S.openSession(args)]);
+    expect(s1).toBe(s2);
   });
 
   it('saída de um entre dois não materializa nem encerra', async () => {

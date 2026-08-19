@@ -8,7 +8,7 @@
  * não perde edição.
  */
 import * as Y from 'yjs';
-import { docIdFor, MAX_CELLS } from './model';
+import { docIdFor, MAX_BYTES, MAX_CELLS } from './model';
 import { parseWorkbook } from './import';
 import { applyWorkbook, cellCount, sheetNames } from './ydoc';
 import { sheetStore } from './store';
@@ -38,6 +38,8 @@ export interface LiveSession {
   authorize: (user: string) => boolean;
   idleTimer: ReturnType<typeof setTimeout> | null;
   onEvent: (session: LiveSession, event: SessionEvent) => void;
+  /** Último a editar: é em nome dele que a materialização automática grava. */
+  lastAuthor: string | null;
 }
 
 export type SessionEvent =
@@ -47,6 +49,10 @@ export type SessionEvent =
   | { t: 'error'; message: string };
 
 const sessions = new Map<string, LiveSession>();
+// Aberturas em voo: dois clientes entrando junto no mesmo arquivo têm que
+// receber a MESMA sessão — sem isso cada um ganharia um Y.Doc próprio e as
+// edições de um seriam invisíveis pro outro.
+const opening = new Map<string, Promise<LiveSession>>();
 
 export const FRAME_UPDATE = 1;
 export const FRAME_PRESENCE = 2;
@@ -78,7 +84,21 @@ export async function openSession(a: {
   const docId = docIdFor(a.bucketId, a.key);
   const existing = sessions.get(docId);
   if (existing) return existing;
+  const inFlight = opening.get(docId);
+  if (inFlight) return inFlight;
 
+  const promise = buildSession(docId, a).finally(() => { opening.delete(docId); });
+  opening.set(docId, promise);
+  return promise;
+}
+
+async function buildSession(docId: string, a: {
+  bucketId: string;
+  key: string;
+  io: SheetIo;
+  authorize: (user: string) => boolean;
+  onEvent: (session: LiveSession, event: SessionEvent) => void;
+}): Promise<LiveSession> {
   const fingerprint = await a.io.fingerprint(a.bucketId, a.key);
   const stored = sheetStore.find(docId);
   const doc = new Y.Doc();
@@ -94,6 +114,9 @@ export async function openSession(a: {
   } else {
     if (stored) sheetStore.remove(docId);
     const bytes = await a.io.fetchBytes(a.bucketId, a.key);
+    // Teto de bytes ANTES de parsear: um xlsx enorme travaria o processo já na
+    // leitura, antes de qualquer contagem de células.
+    if (bytes.byteLength > MAX_BYTES) throw new Error('planilha_grande');
     applyWorkbook(doc, parseWorkbook(bytes, a.key));
     if (cellCount(doc) > MAX_CELLS) throw new Error('planilha_grande');
     sheetStore.create({ docId, bucketId: a.bucketId, key: a.key, fingerprint, snapshot: Y.encodeStateAsUpdate(doc) });
@@ -104,6 +127,7 @@ export async function openSession(a: {
     clients: new Map(), presence: new Map(),
     fingerprint, diverged, saving: false,
     io: a.io, authorize: a.authorize, idleTimer: null, onEvent: a.onEvent,
+    lastAuthor: null,
   };
   sessions.set(docId, session);
   return session;
@@ -112,15 +136,18 @@ export async function openSession(a: {
 export const findSession = (bucketId: string, key: string): LiveSession | null =>
   sessions.get(docIdFor(bucketId, key)) ?? null;
 
-/** Há sessão de edição aberta em qualquer key sob este prefixo? */
+/**
+ * Há sessão de edição viva em alguma key sob este prefixo? Conta também a
+ * sessão sem clientes que ainda está materializando: apagar nessa janela faria
+ * a materialização recriar o objeto logo depois.
+ */
 export function hasSessionUnder(bucketId: string, prefix: string): boolean {
   for (const s of sessions.values()) {
-    if (s.bucketId === bucketId && s.key.startsWith(prefix) && s.clients.size > 0) return true;
+    if (s.bucketId === bucketId && s.key.startsWith(prefix)) return true;
   }
   return false;
 }
 
-export const activeSessionCount = (): number => sessions.size;
 
 export function attach(session: LiveSession, client: SessionClient): void {
   session.clients.set(client.id, client);
@@ -139,7 +166,9 @@ export function detach(session: LiveSession, clientId: number): void {
   session.presence.delete(clientId);
   if (session.clients.size) { broadcastPeers(session); return; }
   clearIdle(session);
-  void flush(session, 'sistema').finally(() => {
+  // Materializa em nome de quem editou por último: `authorize` precisa de um
+  // usuário real, e um nome fictício faria o flush final ser sempre recusado.
+  void flush(session, session.lastAuthor ?? '').finally(() => {
     if (!session.clients.size) {
       session.doc.destroy();
       sessions.delete(session.docId);
@@ -161,6 +190,7 @@ export function broadcast(session: LiveSession, data: Uint8Array, exceptClientId
 
 /** Aplica update do cliente, persiste cifrado e repassa aos outros. */
 export function applyClientUpdate(session: LiveSession, update: Uint8Array, author: string, fromClientId: number): void {
+  session.lastAuthor = author;
   Y.applyUpdate(session.doc, update, `client:${fromClientId}`);
   sheetStore.append(session.docId, update, author);
   broadcast(session, frame(FRAME_UPDATE, update), fromClientId);
@@ -175,9 +205,18 @@ function maybeCompact(session: LiveSession): void {
   sheetStore.compact(session.docId, Y.encodeStateAsUpdate(session.doc), loaded.seq);
 }
 
+/**
+ * Repassa cursor/seleção. O clientId e o usuário são atribuídos AQUI, nunca
+ * aceitos do payload — senão um cliente poderia se anunciar como outro.
+ */
 export function relayPresence(session: LiveSession, payload: Uint8Array, fromClientId: number): void {
-  session.presence.set(fromClientId, new TextDecoder().decode(payload));
-  broadcast(session, frame(FRAME_PRESENCE, payload), fromClientId);
+  const client = session.clients.get(fromClientId);
+  if (!client) return;
+  let body: Record<string, unknown>;
+  try { body = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>; } catch { return; }
+  const stamped = JSON.stringify({ ...body, clientId: fromClientId, user: client.user });
+  session.presence.set(fromClientId, stamped);
+  broadcast(session, frame(FRAME_PRESENCE, new TextEncoder().encode(stamped)), fromClientId);
 }
 
 function clearIdle(session: LiveSession): void {

@@ -9,12 +9,16 @@ import { api } from '../core/api';
 import { fmtBytes, timeAgo, ICON_FOR } from '../core/util';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
+import { isSheetName } from '../sheet/model';
 
 const props = defineProps<{
   bucketId: string; bucketPerm: Perm; path: string;
   items: ObjectItem[]; startKey: string; canWrite: boolean; canDownload: boolean;
 }>();
-const emit = defineEmits<{ close: []; download: [ObjectItem]; copyLink: [ObjectItem]; delete: [ObjectItem] }>();
+const emit = defineEmits<{ close: []; download: [ObjectItem]; copyLink: [ObjectItem]; delete: [ObjectItem]; edit: [ObjectItem] }>();
+
+/** Planilha editável abre o editor colaborativo; quem só lê não vê o botão. */
+const editable = (it: ObjectItem) => it.kind === 'file' && props.canWrite && isSheetName(it.name);
 
 const MAX_ROWS = 5000;   // cap rendered rows so huge sheets don't freeze the tab
 
@@ -131,6 +135,7 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
             </div>
           </div>
           <div class="pv-head-r">
+            <button v-if="editable(item)" class="btn btn-primary" @click="emit('edit', item)"><Icon name="edit" :size="16" />Editar</button>
             <button v-if="canDownload" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
             <button v-if="canDownload" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>

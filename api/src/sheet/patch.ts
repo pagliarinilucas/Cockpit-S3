@@ -194,9 +194,4 @@ export function patchXlsx(original: Uint8Array, patches: SheetPatch[]): Uint8Arr
   return zipSync(files, { level: 6, mtime: ZIP_EPOCH });
 }
 
-/** Nomes das abas na ordem do workbook — usado na importação e na criação. */
-export function sheetNamesOf(files: Record<string, Uint8Array>): string[] {
-  return [...resolveSheetParts(files).keys()];
-}
 
-export { colName };

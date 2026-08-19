@@ -157,10 +157,6 @@ export const sheetStore = {
       .where(eq(sheetDocs.docId, docId)).run();
   },
 
-  setFingerprint(docId: string, fingerprint: string | null): void {
-    db.update(sheetDocs).set({ fingerprint }).where(eq(sheetDocs.docId, docId)).run();
-  },
-
   remove(docId: string): void {
     const tx = sqlite.transaction(() => {
       db.delete(sheetUpdates).where(eq(sheetUpdates.docId, docId)).run();

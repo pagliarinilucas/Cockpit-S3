@@ -17,8 +17,8 @@ import { isSheetKey, isZipWorkbook } from './model';
 import { newWorkbookBytes } from './import';
 import { contentTypeFor, makeSheetIo, parseBucketId } from './io';
 import { sheetTickets } from './tickets';
+import { decodeFrame } from './protocol';
 import {
-  FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE,
   applyClientUpdate, attach, broadcast, controlFrame, detach, flush,
   openSession, relayPresence, type LiveSession,
 } from './session';
@@ -120,22 +120,10 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
     message(ws, raw) {
       const data = sockets.get(ws.id);
       if (!data) { ws.close(1008, 'sem_sessao'); return; }
-      const bytes = toBytes(raw);
-      if (!bytes || !bytes.byteLength) return;
-
-      const payload = bytes.subarray(1);
-      if (bytes[0] === FRAME_UPDATE) {
-        applyClientUpdate(data.session, payload, data.user, data.clientId);
-        return;
-      }
-      if (bytes[0] === FRAME_PRESENCE) {
-        relayPresence(data.session, payload, data.clientId);
-        return;
-      }
-      if (bytes[0] === FRAME_CONTROL) {
-        const msg = safeJson(payload);
-        if (msg?.t === 'save') void flush(data.session, data.user);
-      }
+      const action = decodeFrame(raw);
+      if (action.kind === 'update') applyClientUpdate(data.session, action.payload, data.user, data.clientId);
+      else if (action.kind === 'presence') relayPresence(data.session, action.payload, data.clientId);
+      else if (action.kind === 'save') void flush(data.session, data.user);
     },
 
     close(ws) {
@@ -146,13 +134,3 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
     },
   });
 
-function toBytes(raw: unknown): Uint8Array | null {
-  if (raw instanceof Uint8Array) return raw;
-  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
-  if (typeof raw === 'string') return new TextEncoder().encode(raw);
-  return null;
-}
-
-function safeJson(payload: Uint8Array): { t?: string } | null {
-  try { return JSON.parse(new TextDecoder().decode(payload)) as { t?: string }; } catch { return null; }
-}

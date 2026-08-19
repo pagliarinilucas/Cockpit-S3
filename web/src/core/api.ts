@@ -191,6 +191,13 @@ export const api = {
   /** Miniatura (imagem/1ª página de PDF) como Blob; rejeita (415) quando não há thumb. */
   thumbBlob: (bucketId: string, key: string) => fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/thumb`, { key }),
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
+
+  /** Ticket de uso único para abrir o WebSocket do editor (a permissão é conferida aqui). */
+  sheetTicket: (bucketId: string, key: string) =>
+    req<{ ticket: string }>('POST', `/buckets/${encodeURIComponent(bucketId)}/sheet-ticket`, { body: { key } }),
+  /** Cria uma planilha nova e vazia no diretório atual. */
+  createSheet: (bucketId: string, path: string, name: string) =>
+    req<{ key: string }>('POST', `/buckets/${encodeURIComponent(bucketId)}/sheets`, { body: { path, name } }),
   deleteObjects: (bucketId: string, keys: string[]) =>
     req<{ ok: boolean; failed?: string[] }>('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 
