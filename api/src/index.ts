@@ -21,6 +21,7 @@ import { publicShareRoutes } from './shares/public';
 import { staticRoutes } from './web/static';
 import { bootKekProvider } from './crypto/kek';
 import { escrowRoutes } from './escrow/routes';
+import { sheetRoutes } from './sheet/routes';
 import { startEscrowScheduler } from './escrow/backup';
 
 await bootstrap();
@@ -69,6 +70,7 @@ const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(userRoutes)
   .use(groupRoutes)
   .use(storageRoutes)
+  .use(sheetRoutes)
   .use(escrowRoutes)
   .use(connectionsRoutes)
   .use(clusterRoutes)
