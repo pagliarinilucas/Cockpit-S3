@@ -40,6 +40,21 @@ export interface SheetHandlers {
 const RETRY_MS = [500, 1000, 2000, 5000, 10_000];
 const PERMANENT = new Set([403, 415, 503]);
 
+/**
+ * Em produção o SPA e a API são a mesma origem, então o WS usa `location.host`.
+ * Em dev o vite serve o SPA numa porta e a API roda noutra, e o proxy de
+ * WebSocket do vite não repassa o upgrade (testado: até um servidor WS trivial
+ * dá timeout através dele) — por isso o dev fala direto com a API. Ajuste a
+ * porta com VITE_API_WS se sua API não estiver na 3000.
+ */
+function wsOrigin(): string {
+  const override = import.meta.env.VITE_API_WS as string | undefined;
+  if (override) return override.replace(/\/$/, '');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (import.meta.env.DEV) return `${proto}//${location.hostname}:3000`;
+  return `${proto}//${location.host}`;
+}
+
 export class SheetSession {
   readonly doc = new Y.Doc();
   private ws: WebSocket | null = null;
@@ -105,8 +120,7 @@ export class SheetSession {
       return;
     }
 
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/api/sheets?ticket=${encodeURIComponent(ticket)}`);
+    const ws = new WebSocket(`${wsOrigin()}/api/sheets?ticket=${encodeURIComponent(ticket)}`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
 
