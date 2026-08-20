@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import { describe, expect, it } from 'bun:test';
-import { cellKey, cellRef, coerce, colName, display, editText, isSheetName, parseCellKey } from './model';
+import {
+  cellKey, cellRef, coerce, colName, display, editText, isBlankStyle, isSheetName,
+  mergeStyle, parseCellKey, styleKey,
+} from './model';
 
 describe('coerce', () => {
   it('vazio vira null (apaga a célula)', () => {
@@ -49,7 +52,12 @@ describe('coerce', () => {
 describe('display e editText', () => {
   it('display usa o formatado do Excel quando existe', () => {
     expect(display({ v: 1234.5, w: '1.234,50' })).toBe('1.234,50');
-    expect(display({ v: 1234.5 })).toBe('1234.5');
+  });
+
+  it('sem `w`, formata pelo código de formato do estilo', () => {
+    expect(display({ v: 1234.5 })).toBe('1234,5');
+    expect(display({ v: 1234.5 }, { numFmt: '#,##0.00' })).toBe('1.234,50');
+    expect(display({ v: 0.42 }, { numFmt: '0.00%' })).toBe('42,00%');
   });
 
   it('editText ignora o formatado e mostra o valor cru', () => {
@@ -86,6 +94,36 @@ describe('endereçamento', () => {
   it('cellKey e parseCellKey são inversos', () => {
     expect(parseCellKey(cellKey(7, 3))).toEqual({ row: 7, col: 3 });
     expect(parseCellKey('lixo')).toBeNull();
+  });
+});
+
+describe('mergeStyle e styleKey', () => {
+  it('mescla mantendo o que já existia', () => {
+    expect(mergeStyle({ bold: true }, { bg: 'FF0000' })).toEqual({ bold: true, bg: 'FF0000' });
+  });
+
+  it('undefined e false removem o atributo (desligar negrito)', () => {
+    expect(mergeStyle({ bold: true, bg: 'FF0000' }, { bold: undefined })).toEqual({ bg: 'FF0000' });
+    expect(mergeStyle({ italic: true }, { italic: false })).toEqual({});
+  });
+
+  it('descarta o xf: visual novo não corresponde mais ao estilo do arquivo', () => {
+    expect(mergeStyle({ xf: 7, bold: true }, { bg: '00FF00' })).toEqual({ bold: true, bg: '00FF00' });
+  });
+
+  it('trocar de cor substitui, não acumula', () => {
+    expect(mergeStyle({ bg: 'FF0000' }, { bg: '00FF00' })).toEqual({ bg: '00FF00' });
+  });
+
+  it('styleKey ignora o xf e detecta visual igual', () => {
+    expect(styleKey({ xf: 1, bg: 'FF0000' })).toBe(styleKey({ xf: 99, bg: 'FF0000' }));
+    expect(styleKey({ bg: 'FF0000' })).not.toBe(styleKey({ bg: 'FF0001' }));
+  });
+
+  it('isBlankStyle reconhece estilo sem nada', () => {
+    expect(isBlankStyle({})).toBe(true);
+    expect(isBlankStyle({ xf: 4 })).toBe(true);
+    expect(isBlankStyle({ bold: true })).toBe(false);
   });
 });
 

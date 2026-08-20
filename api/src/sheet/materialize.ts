@@ -9,9 +9,10 @@
  */
 import type * as Y from 'yjs';
 import { extOf, parseWorkbook, serializeDelimited } from './import';
-import { patchXlsx, type SheetPatch } from './patch';
-import { sheetMap, sheetNames } from './ydoc';
-import { cellRef, isZipWorkbook, parseCellKey, type Cell, type CellValue } from './model';
+import { patchXlsx, type CellPatch, type SheetPatch } from './patch';
+import { sheetMap, sheetNames, stylesMap } from './ydoc';
+import { cellRef, isZipWorkbook, parseCellKey, type Cell, type CellStyle, type CellValue } from './model';
+import { styleKey } from './styles';
 
 export interface SheetIo {
   /** Bytes atuais do objeto (decifrados, se for bucket cifrado). */
@@ -34,27 +35,45 @@ function refOfKey(k: string): string | null {
   return pos ? cellRef(pos.row, pos.col) : null;
 }
 
-/** Células do doc que diferem do arquivo base, por aba, indexadas por A1. */
+/**
+ * Células do doc que diferem do arquivo base, por aba, indexadas por A1. Valor e
+ * estilo são comparados separadamente: mudar só a cor gera patch só de estilo,
+ * que preserva a fórmula da célula no arquivo.
+ */
 export function diffAgainstBase(doc: Y.Doc, base: Uint8Array, key: string): SheetPatch[] {
   const parsed = parseWorkbook(base, key);
+  const styles = stylesMap(doc);
   const patches: SheetPatch[] = [];
 
   for (const name of sheetNames(doc)) {
-    const baseCells = parsed.sheets.find((s) => s.name === name)?.cells ?? new Map<string, Cell>();
+    const baseSheet = parsed.sheets.find((s) => s.name === name);
+    const baseCells = baseSheet?.cells ?? new Map<string, Cell>();
     const live = sheetMap(doc, name);
-    const cells = new Map<string, CellValue>();
+    const cells = new Map<string, CellPatch>();
+
+    // Y.Map e Map nativo não compartilham tipo; a busca entra como função.
+    const styleFor = (cell: Cell | undefined, get: (id: string) => CellStyle | undefined): CellStyle | null =>
+      cell?.s ? get(cell.s) ?? null : null;
 
     for (const [k, cell] of live.entries()) {
       const ref = refOfKey(k);
-      if (!ref) continue;
-      const value = cell?.v ?? null;
-      if (!same(baseCells.get(k)?.v ?? null, value)) cells.set(ref, value);
+      if (!ref || !cell) continue;
+      const before = baseCells.get(k);
+      const patch: CellPatch = {};
+
+      if (!same(before?.v ?? null, cell.v ?? null)) patch.v = cell.v ?? null;
+
+      const liveStyle = styleFor(cell, (id) => styles.get(id));
+      const baseStyle = styleFor(before, (id) => parsed.styles.get(id));
+      if (styleKey(liveStyle ?? {}) !== styleKey(baseStyle ?? {})) patch.style = liveStyle;
+
+      if (patch.v !== undefined || patch.style !== undefined) cells.set(ref, patch);
     }
 
     for (const k of baseCells.keys()) {
       if (live.has(k)) continue;
       const ref = refOfKey(k);
-      if (ref) cells.set(ref, null);
+      if (ref) cells.set(ref, { v: null, style: null });
     }
 
     if (cells.size) patches.push({ name, cells });

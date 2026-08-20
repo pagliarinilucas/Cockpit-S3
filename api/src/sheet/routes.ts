@@ -17,9 +17,9 @@ import { isSheetKey, isZipWorkbook } from './model';
 import { newWorkbookBytes } from './import';
 import { contentTypeFor, makeSheetIo, parseBucketId } from './io';
 import { sheetTickets } from './tickets';
-import { binarySend, decodeFrame } from './protocol';
+import { binarySend, controlFrame, decodeFrame } from './protocol';
 import {
-  applyClientUpdate, attach, broadcast, controlFrame, detach, flush,
+  applyClientUpdate, attach, broadcast, detach, flush,
   openSession, relayPresence, type LiveSession,
 } from './session';
 

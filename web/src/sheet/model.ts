@@ -1,16 +1,59 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 /** Espelha api/src/sheet/model.ts — o layout do doc tem que ser idêntico. */
+import { formatValue } from './format';
 
 export type CellValue = string | number | boolean | null;
+
+/** Mesmo formato de api/src/sheet/styles.ts. */
+export interface CellStyle {
+  /** Índice do xf original; presente só em estilo que veio do arquivo. */
+  xf?: number;
+  bg?: string;
+  fg?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  align?: 'left' | 'center' | 'right';
+  numFmt?: string;
+  border?: boolean;
+}
 
 export interface Cell {
   v: CellValue;
   w?: string;
+  s?: string;
 }
 
 export const SHEET_PREFIX = 'sheet:';
 export const SHEET_ORDER = 'sheetNames';
+export const STYLES = 'styles';
+
+/** Dois estilos com o mesmo visual são o mesmo estilo (o `xf` não conta). */
+export function styleKey(style: CellStyle): string {
+  return JSON.stringify([
+    style.bg ?? '', style.fg ?? '', !!style.bold, !!style.italic,
+    !!style.underline, style.align ?? '', style.numFmt ?? '', !!style.border,
+  ]);
+}
+
+/**
+ * Aplica uma alteração parcial sobre o estilo atual. O `xf` é descartado: o
+ * visual resultante é novo e não corresponde mais ao estilo do arquivo.
+ * Propriedade com `undefined` na alteração é removida (é como se desliga negrito).
+ */
+export function mergeStyle(current: CellStyle, change: Partial<CellStyle>): CellStyle {
+  const { xf: _drop, ...base } = current;
+  const next: CellStyle = { ...base };
+  for (const [k, v] of Object.entries(change) as [keyof CellStyle, unknown][]) {
+    if (v === undefined || v === false || v === '') delete next[k];
+    else Object.assign(next, { [k]: v });
+  }
+  return next;
+}
+
+/** Estilo vazio (sem nada aplicado) não precisa existir. */
+export const isBlankStyle = (style: CellStyle): boolean => styleKey(style) === styleKey({});
 
 export const cellKey = (row: number, col: number) => `R${row}C${col}`;
 
@@ -52,13 +95,15 @@ export function coerce(text: string): CellValue {
   return text;
 }
 
-/** Texto exibido na célula: o formatado do Excel quando existe. */
-export function display(cell: Cell | undefined): string {
+/**
+ * Texto exibido na célula. Prioridade para o `w` que o próprio Excel calculou —
+ * é mais fiel que o nosso formatador; quando a formatação foi feita aqui (o `w`
+ * é descartado nesse momento), formata pelo código do estilo.
+ */
+export function display(cell: Cell | undefined, style?: CellStyle): string {
   if (!cell) return '';
   if (cell.w) return cell.w;
-  if (cell.v === null) return '';
-  if (typeof cell.v === 'boolean') return cell.v ? 'VERDADEIRO' : 'FALSO';
-  return String(cell.v);
+  return formatValue(cell.v, style?.numFmt);
 }
 
 /** Texto que aparece ao editar: sempre o valor cru, nunca o formatado. */

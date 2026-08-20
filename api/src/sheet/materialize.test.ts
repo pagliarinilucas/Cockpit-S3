@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 import * as XLSX from 'xlsx';
 import { diffAgainstBase, materialize, type SheetIo } from './materialize';
 import { parseWorkbook } from './import';
-import { applyWorkbook, setCell } from './ydoc';
+import { applyWorkbook, setCell, setStyle } from './ydoc';
 
 function xlsxOf(sheets: Record<string, unknown[][]>): Uint8Array {
   const wb = XLSX.utils.book_new();
@@ -47,21 +47,21 @@ describe('diffAgainstBase', () => {
     setCell(doc, 'A', 0, 1, 99);
     const patches = diffAgainstBase(doc, base, 'x.xlsx');
     expect(patches).toHaveLength(1);
-    expect([...patches[0]!.cells]).toEqual([['B1', 99]]);
+    expect([...patches[0]!.cells]).toEqual([['B1', { v: 99 }]]);
   });
 
   it('acha célula nova fora do range original', () => {
     const base = xlsxOf({ A: [['a']] });
     const doc = docOf(base);
     setCell(doc, 'A', 4, 2, 'novo');
-    expect([...diffAgainstBase(doc, base, 'x.xlsx')[0]!.cells]).toEqual([['C5', 'novo']]);
+    expect([...diffAgainstBase(doc, base, 'x.xlsx')[0]!.cells]).toEqual([['C5', { v: 'novo' }]]);
   });
 
   it('marca como null a célula apagada no doc', () => {
     const base = xlsxOf({ A: [['a', 'b']] });
     const doc = docOf(base);
     setCell(doc, 'A', 0, 1, null);
-    expect([...diffAgainstBase(doc, base, 'x.xlsx')[0]!.cells]).toEqual([['B1', null]]);
+    expect([...diffAgainstBase(doc, base, 'x.xlsx')[0]!.cells]).toEqual([['B1', { v: null, style: null }]]);
   });
 
   it('separa as mudanças por aba', () => {
@@ -71,7 +71,7 @@ describe('diffAgainstBase', () => {
     setCell(doc, 'Dois', 1, 1, 'y');
     const patches = diffAgainstBase(doc, base, 'x.xlsx');
     expect(patches.map((p) => p.name)).toEqual(['Um', 'Dois']);
-    expect([...patches[1]!.cells]).toEqual([['B2', 'y']]);
+    expect([...patches[1]!.cells]).toEqual([['B2', { v: 'y' }]]);
   });
 });
 
@@ -155,6 +155,77 @@ describe('materialize', () => {
     const res = await materialize({ doc, bucketId: 'c:b', key: 'x.csv', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.csv'), io });
     expect(res.status).toBe('saved');
     expect(new TextDecoder().decode(state.bytes)).toBe('a,b\n1,9\n');
+  });
+
+  it('pinta célula, salva no arquivo e a cor volta na releitura', async () => {
+    const base = xlsxOf({ A: [['a', 1]] });
+    const { io, state } = fakeIo(base);
+    const doc = docOf(base);
+    setStyle(doc, 'A', 0, 0, { bg: 'FFEB3B', bold: true });
+
+    const res = await materialize({ doc, bucketId: 'c:b', key: 'x.xlsx', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.xlsx'), io });
+    expect(res.status).toBe('saved');
+
+    const reaberto = parseWorkbook(state.bytes, 'x.xlsx');
+    const cell = reaberto.sheets[0]!.cells.get('R0C0')!;
+    expect(cell.v).toBe('a');
+    const style = reaberto.styles.get(cell.s!)!;
+    expect(style.bg).toBe('FFEB3B');
+    expect(style.bold).toBe(true);
+  });
+
+  it('pintar linha vazia sobrevive ao round-trip', async () => {
+    const base = xlsxOf({ A: [['a']] });
+    const { io, state } = fakeIo(base);
+    const doc = docOf(base);
+    for (let c = 0; c < 4; c++) setStyle(doc, 'A', 6, c, { bg: '2196F3' });
+
+    await materialize({ doc, bucketId: 'c:b', key: 'x.xlsx', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.xlsx'), io });
+
+    const reaberto = parseWorkbook(state.bytes, 'x.xlsx');
+    const cells = reaberto.sheets[0]!.cells;
+    for (let c = 0; c < 4; c++) {
+      const cell = cells.get(`R6C${c}`)!;
+      expect(cell.v).toBeNull();
+      expect(reaberto.styles.get(cell.s!)!.bg).toBe('2196F3');
+    }
+  });
+
+  it('mudar só a cor não conta como mudança de valor', async () => {
+    const base = xlsxOf({ A: [['mantido', 10]] });
+    const { io, state } = fakeIo(base);
+    const doc = docOf(base);
+    setStyle(doc, 'A', 0, 1, { bg: 'FF0000' });
+
+    await materialize({ doc, bucketId: 'c:b', key: 'x.xlsx', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.xlsx'), io });
+    expect(cellOf(state.bytes, 'A', 'A1')).toBe('mantido');
+    expect(cellOf(state.bytes, 'A', 'B1')).toBe(10);
+  });
+
+  it('formato de número aplicado é lido de volta pelo SheetJS', async () => {
+    const base = xlsxOf({ A: [[0.42]] });
+    const { io, state } = fakeIo(base);
+    const doc = docOf(base);
+    setStyle(doc, 'A', 0, 0, { numFmt: '0.00%' });
+
+    await materialize({ doc, bucketId: 'c:b', key: 'x.xlsx', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.xlsx'), io });
+    const sheet = XLSX.read(state.bytes, { type: 'array', cellNF: true, cellText: true }).Sheets['A']!;
+    expect(sheet['A1']!.w).toBe('42.00%');
+  });
+
+  it('tirar a cor de uma célula pintada volta ao padrão', async () => {
+    const base = xlsxOf({ A: [['a']] });
+    const { io, state } = fakeIo(base);
+    const doc = docOf(base);
+    setStyle(doc, 'A', 0, 0, { bg: 'FF0000' });
+    await materialize({ doc, bucketId: 'c:b', key: 'x.xlsx', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.xlsx'), io });
+
+    const doc2 = docOf(state.bytes);
+    setStyle(doc2, 'A', 0, 0, null);
+    await materialize({ doc: doc2, bucketId: 'c:b', key: 'x.xlsx', user: 'ana', expectedFingerprint: await io.fingerprint('c:b', 'x.xlsx'), io });
+
+    const reaberto = parseWorkbook(state.bytes, 'x.xlsx');
+    expect(reaberto.sheets[0]!.cells.get('R0C0')!.s).toBeUndefined();
   });
 
   it('registra o autor da escrita', async () => {

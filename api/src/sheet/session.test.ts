@@ -2,33 +2,18 @@
 // Copyright (C) 2026 Lucas Pagliarini
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { bootTestEnv } from './test-env';
 import * as Y from 'yjs';
 import * as XLSX from 'xlsx';
 import type { SheetIo } from './materialize';
 import type { LiveSession, SessionClient, SessionEvent } from './session';
-
-const DIR = join(tmpdir(), `sheet-session-${randomUUID()}`);
-mkdirSync(DIR, { recursive: true });
-const KEK_FILE = join(DIR, 'kek.bin');
-writeFileSync(KEK_FILE, Buffer.alloc(32, 3));
-process.env.COCKPIT_KEK_FILE = KEK_FILE;
-
-const DB = join(tmpdir(), `cockpit-sheet-session-${randomUUID()}.sqlite`);
-process.env.DB_PATH = DB;
 
 let S: typeof import('./session');
 let ydoc: typeof import('./ydoc');
 let sheetStore: typeof import('./store').sheetStore;
 
 beforeAll(async () => {
-  await import('../db');
-  // O bun compartilha o registro de módulos entre arquivos de teste: se outro
-  // arquivo já inicializou a KEK, ela é a que casa com o banco em uso.
-  const kek = await import('../crypto/kek');
-  if (!kek.getKekProvider()) kek.initFileKekProvider();
+  await bootTestEnv();
   S = await import('./session');
   ydoc = await import('./ydoc');
   ({ sheetStore } = await import('./store'));
@@ -36,11 +21,7 @@ beforeAll(async () => {
 
 beforeEach(() => { S.resetSessions(); });
 
-afterAll(() => {
-  S.resetSessions();
-  for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true });
-  rmSync(DIR, { recursive: true, force: true });
-});
+afterAll(() => { S.resetSessions(); });
 
 function xlsxOf(rows: unknown[][]): Uint8Array {
   const wb = XLSX.utils.book_new();

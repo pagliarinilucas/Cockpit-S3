@@ -1,11 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 /**
- * Decodificação e despacho dos frames do WebSocket. Fica fora da rota para ser
- * testável sem subir servidor — e porque o que chega do socket é dado não
- * confiável: tipo, tamanho e conteúdo são todos validados aqui.
+ * Formato do fio do WebSocket: tipos de frame, montagem, decodificação e envio.
+ * Não importa nada com estado (sessão, banco) de propósito — assim é testável
+ * sozinho, e testar o protocolo não inicializa o banco por tabela. O que chega
+ * do socket é dado não confiável: tipo, tamanho e conteúdo são validados aqui.
  */
-import { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE } from './session';
+
+export const FRAME_UPDATE = 1;
+export const FRAME_PRESENCE = 2;
+export const FRAME_CONTROL = 3;
+
+/** Prefixa o byte de tipo no payload. */
+export function frame(type: number, payload: Uint8Array): Uint8Array {
+  const out = new Uint8Array(payload.byteLength + 1);
+  out[0] = type;
+  out.set(payload, 1);
+  return out;
+}
+
+export const controlFrame = (msg: unknown): Uint8Array =>
+  frame(FRAME_CONTROL, new TextEncoder().encode(JSON.stringify(msg)));
 
 export type FrameAction =
   | { kind: 'update'; payload: Uint8Array }

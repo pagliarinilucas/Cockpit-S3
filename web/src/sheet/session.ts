@@ -8,7 +8,10 @@
  */
 import * as Y from 'yjs';
 import { api, ApiError } from '../core/api';
-import { SHEET_ORDER, SHEET_PREFIX, cellKey, type Cell, type CellValue } from './model';
+import {
+  SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey, isBlankStyle, mergeStyle, styleKey,
+  type Cell, type CellStyle, type CellValue,
+} from './model';
 
 export const FRAME_UPDATE = 1;
 export const FRAME_PRESENCE = 2;
@@ -77,13 +80,77 @@ export class SheetSession {
   sheetMap(name: string) { return this.doc.getMap<Cell>(SHEET_PREFIX + name); }
   sheetNames(): string[] { return this.doc.getArray<string>(SHEET_ORDER).toArray(); }
 
-  /** Escreve uma célula. `w` é limpo: o formatado do Excel não vale mais. */
+  /**
+   * Escreve uma célula preservando a formatação dela. O `w` é descartado: o
+   * texto formatado do Excel era do valor antigo.
+   */
   setCell(sheet: string, row: number, col: number, value: CellValue): void {
     const map = this.sheetMap(sheet);
     const k = cellKey(row, col);
     this.doc.transact(() => {
-      if (value === null || value === '') map.delete(k);
-      else map.set(k, { v: value });
+      const style = map.get(k)?.s;
+      if ((value === null || value === '') && style === undefined) map.delete(k);
+      else map.set(k, style === undefined ? { v: value } : { v: value, s: style });
+    }, 'local');
+  }
+
+  stylesMap() { return this.doc.getMap<CellStyle>(STYLES); }
+
+  styleOf(cell: Cell | undefined): CellStyle | undefined {
+    return cell?.s === undefined ? undefined : this.stylesMap().get(cell.s);
+  }
+
+  styleAt(sheet: string, row: number, col: number): CellStyle {
+    return this.styleOf(this.sheetMap(sheet).get(cellKey(row, col))) ?? {};
+  }
+
+  /**
+   * Id do estilo com esse visual, criando se não existir. Mesma regra do
+   * servidor: visual novo é gravado sem `xf`, senão o arquivo seria remontado
+   * com o estilo antigo e a mudança sumiria.
+   */
+  private ensureStyle(style: CellStyle): string {
+    const styles = this.stylesMap();
+    const wanted = styleKey(style);
+    for (const [id, existing] of styles.entries()) {
+      if (existing && styleKey(existing) === wanted) return id;
+    }
+    const { xf: _drop, ...visual } = style;
+    let n = styles.size;
+    let id = `n${n}`;
+    while (styles.has(id)) id = `n${++n}`;
+    styles.set(id, visual);
+    return id;
+  }
+
+  /**
+   * Aplica uma alteração de formatação em cada célula da faixa, mesclando com o
+   * que a célula já tinha (pintar não apaga o negrito que já estava lá).
+   */
+  applyStyle(
+    sheet: string,
+    range: { top: number; left: number; bottom: number; right: number },
+    change: Partial<CellStyle>,
+  ): void {
+    const map = this.sheetMap(sheet);
+    this.doc.transact(() => {
+      for (let row = range.top; row <= range.bottom; row++) {
+        for (let col = range.left; col <= range.right; col++) {
+          const k = cellKey(row, col);
+          const prev = map.get(k);
+          const next = mergeStyle(this.styleOf(prev) ?? {}, change);
+          const value = prev?.v ?? null;
+
+          if (isBlankStyle(next)) {
+            if (value === null) map.delete(k);
+            else map.set(k, { v: value });
+            continue;
+          }
+          // O texto formatado do Excel é descartado: quem passa a renderizar é
+          // o formatador local, com o código de formato novo.
+          map.set(k, { v: value, s: this.ensureStyle(next) });
+        }
+      }
     }, 'local');
   }
 
@@ -93,8 +160,9 @@ export class SheetSession {
     this.doc.transact(() => {
       rows.forEach((cols, r) => cols.forEach((value, c) => {
         const k = cellKey(top + r, left + c);
-        if (value === null || value === '') map.delete(k);
-        else map.set(k, { v: value });
+        const style = map.get(k)?.s;
+        if ((value === null || value === '') && style === undefined) map.delete(k);
+        else map.set(k, style === undefined ? { v: value } : { v: value, s: style });
       }));
     }, 'local');
   }

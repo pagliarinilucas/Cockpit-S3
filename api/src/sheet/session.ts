@@ -13,6 +13,7 @@ import { parseWorkbook } from './import';
 import { applyWorkbook, cellCount, sheetNames } from './ydoc';
 import { sheetStore } from './store';
 import { materialize, type MaterializeResult, type SheetIo } from './materialize';
+import { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE, controlFrame, frame } from './protocol';
 
 export const IDLE_SAVE_MS = 30_000;
 export const COMPACT_AFTER_UPDATES = 200;
@@ -54,19 +55,7 @@ const sessions = new Map<string, LiveSession>();
 // edições de um seriam invisíveis pro outro.
 const opening = new Map<string, Promise<LiveSession>>();
 
-export const FRAME_UPDATE = 1;
-export const FRAME_PRESENCE = 2;
-export const FRAME_CONTROL = 3;
-
-export function frame(type: number, payload: Uint8Array): Uint8Array {
-  const out = new Uint8Array(payload.byteLength + 1);
-  out[0] = type;
-  out.set(payload, 1);
-  return out;
-}
-
-export const controlFrame = (msg: unknown): Uint8Array =>
-  frame(FRAME_CONTROL, new TextEncoder().encode(JSON.stringify(msg)));
+export { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE, controlFrame, frame };
 
 /**
  * Abre (ou reaproveita) a sessão do arquivo. Regra de estado velho: se o doc

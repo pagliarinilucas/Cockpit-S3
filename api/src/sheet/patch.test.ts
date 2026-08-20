@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'bun:test';
 import { unzipSync, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
-import { patchXlsx, resolveSheetParts, rewriteSheetData } from './patch';
+import { patchXlsx, resolveSheetParts, rewriteSheetData, type CellPatch } from './patch';
 import type { CellValue } from './model';
 
 const enc = new TextEncoder();
@@ -54,7 +54,12 @@ function fixture(): Uint8Array {
   });
 }
 
-const changed = (entries: [string, CellValue][]) => new Map<string, CellValue>(entries);
+/** Açúcar: valor puro vira { v }, e patch explícito passa direto. */
+const changed = (entries: [string, CellValue | CellPatch][]) =>
+  new Map<string, CellPatch>(entries.map(([ref, e]) => [
+    ref,
+    e !== null && typeof e === 'object' ? e : { v: e },
+  ]));
 
 describe('resolveSheetParts', () => {
   it('mapeia nome da aba para a parte XML, desescapando entidades', () => {
@@ -167,6 +172,89 @@ describe('patchXlsx — leitura pelo consumidor', () => {
     const wb = XLSX.read(out, { type: 'array' });
     expect(wb.Sheets['Dados']!['A2']!.v).toBe(3);
     expect(wb.Sheets['Resumo & Total']!['B2']!.v).toBe('x');
+  });
+});
+
+describe('patchXlsx — estilo', () => {
+  const sheetXml = (bytes: Uint8Array) => dec.decode(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
+  const stylesXml = (bytes: Uint8Array) => dec.decode(unzipSync(bytes)['xl/styles.xml']!);
+
+  it('pintar célula com valor preserva o valor e troca só o s', () => {
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['A2', { style: { bg: 'FFEB3B' } }]]) }]);
+    const xml = sheetXml(out);
+    expect(xml).toContain('<c s="5" r="A2"><v>10</v></c>');
+    expect(stylesXml(out)).toContain('<fgColor rgb="FFFFEB3B"/>');
+  });
+
+  it('pintar célula com fórmula NÃO perde a fórmula', () => {
+    const xml = sheetXml(patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['B2', { style: { bold: true } }]]) }]));
+    expect(xml).toContain('<f>A2*2</f>');
+    expect(xml).toContain('<v>20</v>');
+    expect(/<c s="\d+" r="B2">/.test(xml)).toBe(true);
+  });
+
+  it('pintar célula VAZIA cria célula só com estilo (colorir linha em branco)', () => {
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['A7', { style: { bg: '2196F3' } }]]) }]);
+    expect(sheetXml(out)).toContain('<c r="A7" s="5"/>');
+  });
+
+  it('colorir uma linha inteira gera todas as células daquela linha', () => {
+    const row = changed(['A', 'B', 'C', 'D'].map((c) => [`${c}9`, { style: { bg: 'FF0000' } }] as [string, CellPatch]));
+    const xml = sheetXml(patchXlsx(fixture(), [{ name: 'Dados', cells: row }]));
+    for (const c of ['A9', 'B9', 'C9', 'D9']) expect(xml).toContain(`<c r="${c}" s="5"/>`);
+    expect(xml).toContain('spans="1:4"');
+  });
+
+  it('style null tira o estilo e mantém o valor', () => {
+    const xml = sheetXml(patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['A2', { style: null }]]) }]));
+    expect(xml).toContain('<c r="A2"><v>10</v></c>');
+  });
+
+  it('style null em célula vazia remove a célula', () => {
+    const pintada = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['A7', { style: { bg: 'FF0000' } }]]) }]);
+    const limpa = patchXlsx(pintada, [{ name: 'Dados', cells: changed([['A7', { style: null }]]) }]);
+    expect(sheetXml(limpa)).not.toContain('r="A7"');
+  });
+
+  it('valor e estilo juntos numa tacada', () => {
+    const out = patchXlsx(fixture(), [{
+      name: 'Dados',
+      cells: changed([['D4', { v: 1234.5, style: { bg: '00FF00', bold: true, numFmt: '#,##0.00' } }]]),
+    }]);
+    expect(sheetXml(out)).toContain('<c r="D4" s="5"><v>1234.5</v></c>');
+    const styles = stylesXml(out);
+    expect(styles).toContain('<font><b/><sz val="11"/><name val="Calibri"/></font>');
+    expect(styles).toContain('<fgColor rgb="FF00FF00"/>');
+  });
+
+  it('mesmo estilo em várias células reusa um único xf', () => {
+    const many = changed(['A20', 'B20', 'C20'].map((r) => [r, { style: { bg: 'ABCDEF' } }] as [string, CellPatch]));
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: many }]);
+    expect(stylesXml(out)).toContain('<cellXfs count="6">');
+    expect(stylesXml(out).match(/<fgColor rgb="FFABCDEF"\/>/g)).toHaveLength(1);
+  });
+
+  it('styles.xml não muda quando nenhum estilo é aplicado', () => {
+    const before = unzipSync(fixture())['xl/styles.xml']!;
+    const after = unzipSync(patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['A2', 5]]) }]))['xl/styles.xml']!;
+    expect(after).toEqual(before);
+  });
+
+  it('estilo importado (com xf) não cria entrada nova', () => {
+    const before = unzipSync(fixture())['xl/styles.xml']!;
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['A1', { style: { xf: 4, numFmt: '0.00' } }]]) }]);
+    expect(unzipSync(out)['xl/styles.xml']!).toEqual(before);
+    expect(sheetXml(out)).toContain('<c s="4" r="A1" t="s">');
+  });
+
+  it('o Excel/SheetJS lê o formato aplicado', () => {
+    const out = patchXlsx(fixture(), [{
+      name: 'Dados', cells: changed([['E5', { v: 0.42, style: { numFmt: '0.00%' } }]]),
+    }]);
+    const sheet = XLSX.read(out, { type: 'array', cellNF: true, cellText: true }).Sheets['Dados']!;
+    expect(sheet['E5']!.v).toBe(0.42);
+    expect(sheet['E5']!.z).toBe('0.00%');
+    expect(sheet['E5']!.w).toBe('42.00%');
   });
 });
 

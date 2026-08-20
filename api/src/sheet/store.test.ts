@@ -1,36 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-
+import { describe, it, expect, beforeAll } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-const DIR = join(tmpdir(), `sheet-store-${randomUUID()}`);
-mkdirSync(DIR, { recursive: true });
-const KEK_FILE = join(DIR, 'kek.bin');
-writeFileSync(KEK_FILE, Buffer.alloc(32, 9));
-process.env.COCKPIT_KEK_FILE = KEK_FILE;
-
-const DB = join(tmpdir(), `cockpit-sheet-store-${randomUUID()}.sqlite`);
-process.env.DB_PATH = DB;
+import { bootTestEnv } from './test-env';
 
 let sheetStore: typeof import('./store').sheetStore;
 let sqlite: typeof import('../db').sqlite;
 
 beforeAll(async () => {
-  // handle real do app: o bun compartilha módulos entre arquivos de teste, então o
-  // banco em uso pode ter sido criado por outro arquivo, com o DB_PATH dele.
+  await bootTestEnv();
   ({ sqlite } = await import('../db'));
-  const kek = await import('../crypto/kek');
-  if (!kek.getKekProvider()) kek.initFileKekProvider();
   ({ sheetStore } = await import('./store'));
-});
-
-afterAll(() => {
-  for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true });
-  rmSync(DIR, { recursive: true, force: true });
 });
 
 const bytes = (...n: number[]) => new Uint8Array(n);

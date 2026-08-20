@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import { describe, expect, it } from 'bun:test';
-import { binarySend, decodeFrame, toBytes } from './protocol';
-import { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE, frame } from './session';
+import { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE, binarySend, decodeFrame, frame, toBytes } from './protocol';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 

@@ -2,13 +2,21 @@
 // Copyright (C) 2026 Lucas Pagliarini
 /** Modelo compartilhado do documento de planilha (mesmo formato no cliente). */
 import { createHash } from 'node:crypto';
+import type { CellStyle } from './styles';
 
 export type CellValue = string | number | boolean | null;
 
-/** Valor cru + texto formatado que o Excel exibiria (datas, moeda). */
+export type { CellStyle };
+
+/**
+ * Valor cru, texto formatado que o Excel exibiria (datas, moeda) e o id do
+ * estilo. O estilo é referenciado por id, não embutido: uma linha inteira
+ * pintada da mesma cor compartilha uma entrada só.
+ */
 export interface Cell {
   v: CellValue;
   w?: string;
+  s?: string;
 }
 
 export interface SheetData {
@@ -21,6 +29,8 @@ export interface SheetData {
 export interface WorkbookData {
   sheetNames: string[];
   sheets: SheetData[];
+  /** Id do estilo -> estilo resolvido. Só os que alguma célula usa. */
+  styles: Map<string, CellStyle>;
 }
 
 export const MAX_CELLS = 300_000;

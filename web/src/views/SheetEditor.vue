@@ -5,9 +5,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import Icon from '../components/Icon.vue';
-import Grid from '../sheet/Grid.vue';
+import Grid, { type Range } from '../sheet/Grid.vue';
+import FormatBar from '../sheet/FormatBar.vue';
 import { SheetSession, type Peer, type Presence, type Status } from '../sheet/session';
-import { cellRef, parseCellKey, type Cell, type CellValue } from '../sheet/model';
+import { cellRef, parseCellKey, type Cell, type CellStyle, type CellValue } from '../sheet/model';
 import { useToast } from '../core/toast';
 
 const props = defineProps<{ bucketId: string; objectKey: string; user: string }>();
@@ -20,7 +21,9 @@ const active = ref('');
 const peers = ref<Peer[]>([]);
 const cursors = shallowRef(new Map<number, Presence>());
 const cells = shallowRef(new Map<string, Cell>());
+const styles = shallowRef(new Map<string, CellStyle>());
 const bounds = ref({ rows: 0, cols: 0 });
+const range = ref<Range>({ top: 0, left: 0, bottom: 0, right: 0 });
 const diverged = ref(false);
 const dirty = ref(false);
 const savedAt = ref<string | null>(null);
@@ -51,7 +54,22 @@ function refresh(): void {
     cols = Math.max(cols, pos.col + 1);
   }
   cells.value = next;
+  styles.value = new Map(session.stylesMap().entries());
   bounds.value = { rows, cols };
+}
+
+/** Formatação mostrada na barra: a da célula sob o cursor. */
+const currentStyle = computed<CellStyle>(() => {
+  const cell = cells.value.get(`R${cursor.value.row}C${cursor.value.col}`);
+  return (cell?.s === undefined ? undefined : styles.value.get(cell.s)) ?? {};
+});
+
+function onSelection(r: Range): void { range.value = r; }
+
+function applyFormat(change: Partial<CellStyle>): void {
+  if (readonly.value) return;
+  session?.applyStyle(active.value, range.value, change);
+  dirty.value = true;
 }
 
 function selectSheet(sheetName: string): void {
@@ -164,9 +182,12 @@ const STATUS_LABEL: Record<Status, string> = {
       </button>
     </header>
 
+    <FormatBar :current="currentStyle" :disabled="readonly || status !== 'ligado'" @apply="applyFormat" />
+
     <Grid
       v-if="active"
       :cells="cells"
+      :styles="styles"
       :rows="bounds.rows"
       :cols="bounds.cols"
       :readonly="readonly"
@@ -174,6 +195,7 @@ const STATUS_LABEL: Record<Status, string> = {
       @edit="onEdit"
       @paste="onPasteBlock"
       @cursor="onCursor"
+      @selection="onSelection"
     />
     <div v-else class="se-loading">carregando planilha…</div>
 
@@ -190,7 +212,7 @@ const STATUS_LABEL: Record<Status, string> = {
 <style scoped>
 .se {
   position: fixed; inset: 0; z-index: 60;
-  display: grid; grid-template-rows: 56px 1fr auto;
+  display: grid; grid-template-rows: 56px auto 1fr auto;
   background: var(--bg-0);
 }
 
