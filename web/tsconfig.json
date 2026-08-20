@@ -16,7 +16,7 @@
     "resolveJsonModule": true,
     "jsx": "preserve",
     "noEmit": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "bun-types"]
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "vite.config.ts"]
 }

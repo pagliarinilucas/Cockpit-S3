@@ -32,15 +32,23 @@ export function colName(col: number): string {
 
 export const cellRef = (row: number, col: number) => `${colName(col)}${row + 1}`;
 
-/** O que o usuário digitou vira número quando é número — igual ao Excel. */
+/**
+ * O que o usuário digitou vira número quando é número, na convenção pt-BR:
+ * vírgula é decimal e ponto em grupos de 3 é milhar ("1.500" é mil e quinhentos,
+ * não 1,5). Ponto isolado com 1 ou 2 casas continua sendo decimal, que é o que
+ * quem cola dado em formato internacional espera.
+ */
 export function coerce(text: string): CellValue {
   const t = text.trim();
   if (t === '') return null;
-  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ''));
   if (/^-?\d{1,3}(\.\d{3})*,\d+$/.test(t)) return Number(t.replace(/\./g, '').replace(',', '.'));
   if (/^-?\d+,\d+$/.test(t)) return Number(t.replace(',', '.'));
-  if (t.toUpperCase() === 'VERDADEIRO' || t.toUpperCase() === 'TRUE') return true;
-  if (t.toUpperCase() === 'FALSO' || t.toUpperCase() === 'FALSE') return false;
+  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  if (/^-?\d+(\.\d+)?e[+-]?\d+$/i.test(t)) return Number(t);
+  const upper = t.toUpperCase();
+  if (upper === 'VERDADEIRO' || upper === 'TRUE') return true;
+  if (upper === 'FALSO' || upper === 'FALSE') return false;
   return text;
 }
 
