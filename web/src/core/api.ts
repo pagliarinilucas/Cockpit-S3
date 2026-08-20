@@ -285,6 +285,10 @@ export const api = {
   deleteGarageBucket: (id: string, bucketId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}`),
   setGarageQuotas: (id: string, bucketId: string, maxSize: number | null, maxObjects: number | null) => req('PUT', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}/quotas`, { body: { maxSize, maxObjects } }),
   garageKeys: (id: string) => req<GarageKey[]>('GET', `/clusters/${encodeURIComponent(id)}/keys`),
+  /** Secret de uma access key, sob demanda (fica auditado no servidor). */
+  garageKeySecret: (id: string, keyId: string) =>
+    req<{ accessKeyId: string; name: string; secretAccessKey: string }>(
+      'GET', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/secret`),
   createGarageKey: (id: string, name: string) => req<NewGarageKey>('POST', `/clusters/${encodeURIComponent(id)}/keys`, { body: { name } }),
   deleteGarageKey: (id: string, keyId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`),
   setGarageKeyPerm: (id: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),

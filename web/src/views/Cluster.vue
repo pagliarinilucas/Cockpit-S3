@@ -78,6 +78,53 @@ async function copy(text: string, label = 'copiado') {
   catch { toast.error('Falha ao copiar'); }
 }
 
+// ── credenciais por bucket: secret sob demanda ──
+// O secret nunca vem na listagem (o Garage o esconde por padrão e o servidor
+// audita cada revelação), então cada linha expande e busca só quando pedido.
+const openCreds = ref<string | null>(null);          // id do bucket expandido
+const secrets = ref<Map<string, string>>(new Map()); // accessKeyId -> secret revelado
+const loadingSecret = ref<string | null>(null);
+
+function toggleCreds(bucketId: string) {
+  openCreds.value = openCreds.value === bucketId ? null : bucketId;
+}
+
+async function revealSecret(keyId: string) {
+  if (secrets.value.has(keyId)) { hideSecret(keyId); return; }
+  loadingSecret.value = keyId;
+  try {
+    const r = await api.garageKeySecret(clusterId.value, keyId);
+    secrets.value = new Map(secrets.value).set(keyId, r.secretAccessKey);
+  } catch (e) {
+    toast.error(apiErrMsg(e, 'obter secret'));
+  } finally {
+    loadingSecret.value = null;
+  }
+}
+
+function hideSecret(keyId: string) {
+  const next = new Map(secrets.value);
+  next.delete(keyId);
+  secrets.value = next;
+}
+
+async function copySecret(keyId: string) {
+  const known = secrets.value.get(keyId);
+  if (known) { await copy(known, 'secret copiado'); return; }
+  loadingSecret.value = keyId;
+  try {
+    const r = await api.garageKeySecret(clusterId.value, keyId);
+    await copy(r.secretAccessKey, 'secret copiado');
+  } catch (e) {
+    toast.error(apiErrMsg(e, 'obter secret'));
+  } finally {
+    loadingSecret.value = null;
+  }
+}
+
+const permTag = (p: GaragePerm) =>
+  [p.read && 'R', p.write && 'W', p.owner && 'O'].filter(Boolean).join('') || '—';
+
 // ── buckets: create / delete / quota ──
 const showNewBucket = ref(false);
 const newAlias = ref('');
@@ -281,27 +328,85 @@ async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
         <div v-else class="card tbl-card">
           <table class="tbl">
             <thead>
-              <tr><th>Alias</th><th class="num">Objetos</th><th class="num">Tamanho</th><th>Quota</th><th></th></tr>
+              <tr><th>Alias</th><th class="num">Objetos</th><th class="num">Tamanho</th><th>Quota</th><th>Chaves</th><th></th></tr>
             </thead>
             <tbody>
-              <tr v-for="b in gbuckets" :key="b.id">
-                <td>
-                  <span class="node-dot" style="background:var(--neon)"></span>{{ bucketLabel(b) }}
-                  <span v-if="b.aliases.length > 1" class="muted">+{{ b.aliases.length - 1 }}</span>
-                </td>
-                <td class="num">{{ b.objects.toLocaleString('pt-BR') }}</td>
-                <td class="num">{{ fmtBytes(b.bytes) }}</td>
-                <td class="muted">
-                  {{ b.quotas.maxSize != null ? fmtBytes(b.quotas.maxSize) : '—' }}
-                  · {{ b.quotas.maxObjects != null ? b.quotas.maxObjects.toLocaleString('pt-BR') + ' obj' : '—' }}
-                </td>
-                <td class="num">
-                  <div class="row-acts">
-                    <button class="iconbtn" title="Quota" @click="openQuota(b)"><Icon name="gauge" :size="16" /></button>
-                    <button class="iconbtn iconbtn-danger" title="Excluir" @click="delBucket = b"><Icon name="trash" :size="16" /></button>
-                  </div>
-                </td>
-              </tr>
+              <template v-for="b in gbuckets" :key="b.id">
+                <tr>
+                  <td>
+                    <span class="node-dot" style="background:var(--neon)"></span>{{ bucketLabel(b) }}
+                    <span v-if="b.aliases.length > 1" class="muted">+{{ b.aliases.length - 1 }}</span>
+                  </td>
+                  <td class="num">{{ b.objects.toLocaleString('pt-BR') }}</td>
+                  <td class="num">{{ fmtBytes(b.bytes) }}</td>
+                  <td class="muted">
+                    {{ b.quotas.maxSize != null ? fmtBytes(b.quotas.maxSize) : '—' }}
+                    · {{ b.quotas.maxObjects != null ? b.quotas.maxObjects.toLocaleString('pt-BR') + ' obj' : '—' }}
+                  </td>
+                  <td>
+                    <button
+                      v-if="b.keys.length" class="btn-inline"
+                      :title="openCreds === b.id ? 'Ocultar credenciais' : 'Ver credenciais de acesso'"
+                      @click="toggleCreds(b.id)"
+                    >
+                      <Icon name="key" :size="13" />
+                      {{ b.keys.length }}
+                      <Icon :name="openCreds === b.id ? 'chevD' : 'chevR'" :size="13" />
+                    </button>
+                    <span v-else class="muted">nenhuma</span>
+                  </td>
+                  <td class="num">
+                    <div class="row-acts">
+                      <button class="iconbtn" title="Quota" @click="openQuota(b)"><Icon name="gauge" :size="16" /></button>
+                      <button class="iconbtn iconbtn-danger" title="Excluir" @click="delBucket = b"><Icon name="trash" :size="16" /></button>
+                    </div>
+                  </td>
+                </tr>
+
+                <tr v-if="openCreds === b.id" class="creds-row">
+                  <td colspan="6">
+                    <div v-for="k in b.keys" :key="k.accessKeyId" class="cred">
+                      <div class="cred-head">
+                        <Icon name="key" :size="13" />
+                        <span class="cred-name">{{ k.name || '(sem nome)' }}</span>
+                        <span class="perm-tags">{{ permTag(k.permissions) }}</span>
+                      </div>
+
+                      <div class="cred-line">
+                        <span class="cred-label">access key</span>
+                        <span class="mono cred-val copyable" @click="copy(k.accessKeyId, 'access key copiada')">
+                          {{ k.accessKeyId }}<Icon name="copy" :size="12" />
+                        </span>
+                      </div>
+
+                      <div class="cred-line">
+                        <span class="cred-label">secret</span>
+                        <span v-if="secrets.has(k.accessKeyId)" class="mono cred-val cred-secret">
+                          {{ secrets.get(k.accessKeyId) }}
+                        </span>
+                        <span v-else class="mono cred-val muted">••••••••••••••••••••••••</span>
+                        <button
+                          class="btn-inline" :disabled="loadingSecret === k.accessKeyId"
+                          :title="secrets.has(k.accessKeyId) ? 'Ocultar' : 'Revelar (fica na auditoria)'"
+                          @click="revealSecret(k.accessKeyId)"
+                        >
+                          <Icon name="eye" :size="13" />{{ secrets.has(k.accessKeyId) ? 'ocultar' : 'revelar' }}
+                        </button>
+                        <button
+                          class="btn-inline" :disabled="loadingSecret === k.accessKeyId"
+                          title="Copiar secret" @click="copySecret(k.accessKeyId)"
+                        >
+                          <Icon name="copy" :size="13" />copiar
+                        </button>
+                      </div>
+                    </div>
+                    <div class="cred-note">
+                      <Icon name="shield" :size="12" />
+                      O secret é credencial de longa duração: cada revelação fica registrada na Atividade.
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -490,6 +595,33 @@ async function togglePerm(bucketId: string, flag: keyof GaragePerm) {
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .chip { display: inline-flex; align-items: center; gap: 7px; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--text-2); }
 .perm-tags { font-family: var(--mono); font-size: 10px; color: var(--neon); letter-spacing: 1px; }
+
+/* ── credenciais por bucket ── */
+.btn-inline {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.5px; cursor: pointer;
+}
+.btn-inline:hover:not(:disabled) { color: var(--neon); border-color: color-mix(in srgb, var(--neon) 40%, transparent); }
+.btn-inline:disabled { opacity: 0.5; cursor: default; }
+
+.creds-row > td { background: var(--bg-0); padding: 12px 14px; }
+.cred { padding: 8px 0; }
+.cred + .cred { border-top: 1px dashed var(--line); }
+.cred-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; color: var(--text); font-size: 12.5px; }
+.cred-name { font-family: var(--display-font); letter-spacing: 0.3px; }
+.cred-line { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.cred-label {
+  min-width: 74px; font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3);
+}
+.cred-val { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; word-break: break-all; }
+.cred-secret { color: var(--amber); }
+.cred-note {
+  display: flex; align-items: center; gap: 6px; margin-top: 10px;
+  font-size: 11px; color: var(--text-3);
+}
 
 .secret-row { display: flex; align-items: center; gap: 8px; }
 .secret { flex: 1; font-family: var(--mono); font-size: 13px; color: var(--text); background: var(--bg-0); border: 1px solid var(--line-2); border-radius: 9px; padding: 11px 13px; word-break: break-all; }
