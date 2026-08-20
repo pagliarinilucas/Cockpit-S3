@@ -258,6 +258,64 @@ describe('patchXlsx — estilo', () => {
   });
 });
 
+describe('patchXlsx — fórmulas', () => {
+  const sheetXml = (bytes: Uint8Array) => dec.decode(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
+
+  it('escreve fórmula com o valor em cache', () => {
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['D5', { v: 30, f: 'A2*3' }]]) }]);
+    expect(sheetXml(out)).toContain('<c r="D5"><f>A2*3</f><v>30</v></c>');
+  });
+
+  it('atualizar só o valor preserva a fórmula que já estava lá', () => {
+    const xml = sheetXml(patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['B2', 99]]) }]));
+    expect(xml).toContain('<f>A2*2</f>');
+    expect(xml).toContain('<v>99</v>');
+  });
+
+  it('fórmula compartilhada é preservada com seus atributos', () => {
+    const comShared = SHEET1.replace('<c r="B2"><f>A2*2</f><v>20</v></c>',
+      '<c r="B2"><f t="shared" ref="B2:B9" si="3">A2*2</f><v>20</v></c>');
+    const zip = unzipSync(fixture());
+    zip['xl/worksheets/sheet1.xml'] = enc.encode(comShared);
+    const base = zipSync(zip, { mtime: new Date('1980-06-01T12:00:00Z') });
+
+    const xml = sheetXml(patchXlsx(base, [{ name: 'Dados', cells: changed([['B2', 42]]) }]));
+    expect(xml).toContain('<f t="shared" ref="B2:B9" si="3">A2*2</f>');
+    expect(xml).toContain('<v>42</v>');
+  });
+
+  it('f null remove a fórmula e deixa valor puro', () => {
+    const xml = sheetXml(patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['B2', { v: 7, f: null }]]) }]));
+    expect(xml).not.toContain('<f>A2*2</f>');
+    expect(xml).toContain('<c r="B2"><v>7</v></c>');
+  });
+
+  it('fórmula com texto como resultado usa t="str"', () => {
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['E5', { v: 'ok', f: 'IF(1>0,"ok","nao")' }]]) }]);
+    expect(sheetXml(out)).toContain('t="str"><f>IF(1&gt;0,&quot;ok&quot;,&quot;nao&quot;)</f><v>ok</v>');
+  });
+
+  it('pintar célula com fórmula mantém a fórmula e o valor', () => {
+    const xml = sheetXml(patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['B2', { style: { bg: 'FFEB3B' } }]]) }]));
+    expect(xml).toContain('<f>A2*2</f>');
+    expect(xml).toContain('<v>20</v>');
+  });
+
+  it('resultado de erro vira célula de erro (t="e"), não texto', () => {
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['D7', { v: '#DIV/0!', f: 'A2/0' }]]) }]);
+    const xml = sheetXml(out);
+    expect(xml).toContain('t="e"><f>A2/0</f><v>#DIV/0!</v>');
+    expect(xml).not.toContain('inlineStr"><is><t xml:space="preserve">#DIV/0!');
+  });
+
+  it('o SheetJS lê a fórmula escrita', () => {
+    const out = patchXlsx(fixture(), [{ name: 'Dados', cells: changed([['D6', { v: 12, f: 'SUM(A2:B2)' }]]) }]);
+    const cell = XLSX.read(out, { type: 'array' }).Sheets['Dados']!['D6']!;
+    expect(cell.f).toBe('SUM(A2:B2)');
+    expect(cell.v).toBe(12);
+  });
+});
+
 describe('patchXlsx — falhas', () => {
   it('lança em aba desconhecida, sem devolver zip', () => {
     expect(() => patchXlsx(fixture(), [{ name: 'Inexistente', cells: changed([['A1', 1]]) }]))

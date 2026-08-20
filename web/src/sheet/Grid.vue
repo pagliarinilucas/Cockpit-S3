@@ -4,14 +4,19 @@
 -->
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { colName, coerce, display, editText, type Cell, type CellStyle, type CellValue } from './model';
+import {
+  colName, coerce, display, editText, formulaOf, isFormulaInput,
+  type Cell, type CellStyle, type CellValue,
+} from './model';
 import { Axis, colAxis, rowAxis } from './geometry';
 import { inkFor } from './contrast';
 import {
   cellsOf, colTouched, contains, isMulti, rangeOf, rowTouched, wholeCol, wholeRow,
   type Range,
 } from './selection';
-import { conditionalStyle, contextFrom, todaySerial, type CfRule } from '@sheet/conditional';
+import {
+  conditionalVisual, contextFrom, todaySerial, type CfRule, type CfVisual,
+} from '@sheet/conditional';
 import { coveredBy, defaultStyleFor, mergeAt, type SheetLayout } from '@sheet/layout';
 
 // O modelo de seleção vive em selection.ts (testável sem DOM).
@@ -32,6 +37,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   edit: [row: number, col: number, value: CellValue];
+  /** Fórmula digitada (sem o "="), a ser calculada pela sessão. */
+  formula: [row: number, col: number, formula: string];
   paste: [row: number, col: number, block: CellValue[][]];
   cursor: [row: number, col: number];
   /** Todas as faixas selecionadas — com Ctrl dá para juntar faixas soltas. */
@@ -79,8 +86,25 @@ const lastRow = computed(() => Math.min(totalRows.value, rowAx.value.indexAt(scr
 const firstCol = computed(() => Math.max(0, colAx.value.indexAt(scrollLeft.value) - 2));
 const lastCol = computed(() => Math.min(totalCols.value, colAx.value.indexAt(scrollLeft.value + width.value) + 2));
 
-const visibleRows = computed(() => range(firstRow.value, lastRow.value));
-const visibleCols = computed(() => range(firstCol.value, lastCol.value));
+/**
+ * Linhas/colunas desenhadas: a janela visível MAIS a faixa congelada, que
+ * precisa existir no DOM mesmo quando a rolagem já passou dela.
+ */
+const visibleRows = computed(() => withFrozen(
+  range(firstRow.value, lastRow.value),
+  props.layout?.frozenRows ?? 0,
+));
+const visibleCols = computed(() => withFrozen(
+  range(firstCol.value, lastCol.value),
+  props.layout?.frozenCols ?? 0,
+));
+
+function withFrozen(window: number[], frozen: number): number[] {
+  if (frozen <= 0) return window;
+  const head = range(0, frozen);
+  const rest = window.filter((i) => i >= frozen);
+  return [...head, ...rest];
+}
 
 function range(from: number, to: number): number[] {
   const out: number[] = [];
@@ -111,18 +135,38 @@ const cfContext = computed(() => contextFrom(props.cells, todaySerial()));
  * Estilo efetivo: o do arquivo (célula, senão o padrão da linha/coluna) com a
  * formatação condicional aplicada por cima — é essa a ordem no Excel.
  */
+/** Visual condicional da célula (estilo, barra, escala ou ícone). */
+function visualFor(row: number, col: number): CfVisual | null {
+  const rules = props.cf ?? [];
+  if (!rules.length) return null;
+  const value = cellAt(row, col)?.v ?? null;
+  return conditionalVisual(rules, props.dxfs ?? [], row, col, value, cfContext.value);
+}
+
 function styleFor(row: number, col: number): CellStyle | undefined {
   const cell = cellAt(row, col);
   const own = cell?.s !== undefined ? props.styles.get(cell.s) : undefined;
   const fallbackId = own || !props.layout ? undefined : defaultStyleFor(props.layout, row, col);
   const base = own ?? (fallbackId === undefined ? undefined : props.styles.get(String(fallbackId)));
 
-  const rules = props.cf ?? [];
-  if (!rules.length) return base;
-  const cond = conditionalStyle(rules, props.dxfs ?? [], row, col, cell?.v ?? null, cfContext.value);
-  if (!cond) return base;
-  return { ...base, ...cond };
+  const visual = visualFor(row, col);
+  if (!visual) return base;
+  // Estilo condicional entra por cima; escala de cores substitui só o fundo.
+  if (visual.kind === 'style') return { ...base, ...visual.style };
+  if (visual.kind === 'colorScale') return { ...base, bg: visual.color };
+  return base;
 }
+
+/** Barra de dados da célula, quando a regra é desse tipo. */
+const barAt = (row: number, col: number) => {
+  const visual = visualFor(row, col);
+  return visual?.kind === 'dataBar' ? visual : null;
+};
+
+const iconAt = (row: number, col: number) => {
+  const visual = visualFor(row, col);
+  return visual?.kind === 'iconSet' ? visual.icon : null;
+};
 
 const textAt = (row: number, col: number) => display(cellAt(row, col), styleFor(row, col));
 const isNumeric = (row: number, col: number) => typeof cellAt(row, col)?.v === 'number';
@@ -155,11 +199,82 @@ function cellCss(row: number, col: number): Record<string, string> {
   if (s?.bold) css.fontWeight = '700';
   if (s?.italic) css.fontStyle = 'italic';
   if (s?.underline) css.textDecoration = 'underline';
-  if (s?.border) css.boxShadow = 'inset 0 0 0 1px var(--sg-border)';
+  if (s?.fontName) css.fontFamily = `"${s.fontName}", var(--mono)`;
+  if (s?.fontSize) css.fontSize = `${Math.round(s.fontSize * (4 / 3))}px`;
+  if (s?.indent) css.paddingLeft = `${7 + s.indent * 8}px`;
+
+  if (s?.wrap) {
+    css.whiteSpace = 'pre-wrap';
+    css.wordBreak = 'break-word';
+  }
+
+  // Vertical: o padrão do Excel é embaixo; o nosso, centralizado (fica melhor
+  // em linha de altura padrão). Só muda quando o arquivo pede.
+  if (s?.vAlign === 'top') css.alignItems = 'flex-start';
+  else if (s?.vAlign === 'bottom') css.alignItems = 'flex-end';
+
+  // Bordas lado a lado do arquivo; sem detalhe, a borda uniforme do editor.
+  if (s?.borders) Object.assign(css, borderCss(s.borders));
+  else if (s?.border) css.boxShadow = 'inset 0 0 0 1px var(--sg-border)';
+
   if (s?.align) css.justifyContent = s.align === 'right' ? 'flex-end' : s.align === 'center' ? 'center' : 'flex-start';
   else if (isNumeric(row, col)) css.justifyContent = 'flex-end';
+
+  Object.assign(css, frozenCss(row, col));
+  // Célula congelada precisa ser opaca para o conteúdo que passa por baixo não
+  // aparecer atrás dela — mas sem apagar o preenchimento do arquivo.
+  if (!s?.bg && isFrozen(row, col)) css.background = 'var(--sg-bg)';
   return css;
 }
+
+/** Espessura aproximada de cada estilo de borda do OOXML. */
+const BORDER_WIDTH: Record<string, string> = {
+  hair: '1px', thin: '1px', dotted: '1px', dashed: '1px', dashDot: '1px', dashDotDot: '1px',
+  medium: '2px', mediumDashed: '2px', mediumDashDot: '2px', mediumDashDotDot: '2px', slantDashDot: '2px',
+  thick: '3px', double: '3px',
+};
+
+const BORDER_LINE: Record<string, string> = {
+  dotted: 'dotted', dashed: 'dashed', dashDot: 'dashed', dashDotDot: 'dashed',
+  mediumDashed: 'dashed', mediumDashDot: 'dashed', mediumDashDotDot: 'dashed',
+  double: 'double', hair: 'solid',
+};
+
+const SIDE_PROP = { top: 'borderTop', right: 'borderRight', bottom: 'borderBottom', left: 'borderLeft' } as const;
+
+function borderCss(borders: NonNullable<CellStyle['borders']>): Record<string, string> {
+  const css: Record<string, string> = {};
+  for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+    const edge = borders[side];
+    if (!edge) continue;
+    const width = BORDER_WIDTH[edge.style] ?? '1px';
+    const line = BORDER_LINE[edge.style] ?? 'solid';
+    const color = edge.color ? `#${edge.color}` : 'var(--sg-border)';
+    css[SIDE_PROP[side]] = `${width} ${line} ${color}`;
+  }
+  return css;
+}
+
+/**
+ * Painel congelado: as células da faixa travada acompanham o scroll no eixo
+ * correspondente, o mesmo truque dos cabeçalhos.
+ */
+function frozenCss(row: number, col: number): Record<string, string> {
+  const rows = props.layout?.frozenRows ?? 0;
+  const cols = props.layout?.frozenCols ?? 0;
+  const frozenRow = rows > 0 && row < rows;
+  const frozenCol = cols > 0 && col < cols;
+  if (!frozenRow && !frozenCol) return {};
+  const x = frozenCol ? scrollLeft.value : 0;
+  const y = frozenRow ? scrollTop.value : 0;
+  return {
+    transform: `translate(${x}px, ${y}px)`,
+    zIndex: String(frozenRow && frozenCol ? 5 : frozenRow ? 4 : 3),
+  };
+}
+
+const isFrozen = (row: number, col: number): boolean =>
+  row < (props.layout?.frozenRows ?? 0) || col < (props.layout?.frozenCols ?? 0);
 
 /** Célula coberta por mesclagem não é desenhada — quem ocupa é a âncora. */
 const isCovered = (row: number, col: number) => !!coveredBy(merges.value, row, col);
@@ -259,9 +374,18 @@ function commitEdit(move: 'down' | 'right' | 'none'): void {
   const e = editing.value;
   if (!e) return;
   editing.value = null;
-  const before = cellAt(e.row, e.col)?.v ?? null;
-  const value = coerce(e.text);
-  if ((before ?? null) !== (value ?? null)) emit('edit', e.row, e.col, value);
+  const cell = cellAt(e.row, e.col);
+
+  if (isFormulaInput(e.text)) {
+    const formula = formulaOf(e.text);
+    if (formula !== (cell?.f ?? '')) emit('formula', e.row, e.col, formula);
+  } else {
+    const value = coerce(e.text);
+    // Trocar fórmula por valor literal também é mudança, mesmo que o resultado
+    // exibido seja o mesmo número.
+    if ((cell?.v ?? null) !== (value ?? null) || cell?.f) emit('edit', e.row, e.col, value);
+  }
+
   if (move === 'down') focusCell(e.row + 1, e.col);
   else if (move === 'right') focusCell(e.row, e.col + 1);
 }
@@ -397,7 +521,13 @@ defineExpose({ focusCell });
             @blur="commitEdit('none')"
           />
           <template v-else>
-            <span class="sg-text">{{ textAt(r, c) }}</span>
+            <span
+              v-if="barAt(r, c)"
+              class="sg-bar"
+              :style="{ width: `${Math.round(barAt(r, c)!.ratio * 100)}%`, background: `#${barAt(r, c)!.color}` }"
+            />
+            <span v-if="iconAt(r, c)" class="sg-icon">{{ iconAt(r, c) }}</span>
+            <span v-if="!barAt(r, c)?.hideValue" class="sg-text">{{ textAt(r, c) }}</span>
             <span v-if="peerAt(r, c)" class="sg-peer">{{ peerAt(r, c)!.user }}</span>
           </template>
         </div>
@@ -468,7 +598,13 @@ defineExpose({ focusCell });
 .sg-cell.in-sel { box-shadow: inset 0 0 0 100px color-mix(in srgb, var(--neon) 10%, transparent); }
 .sg-cell.is-cur { outline: 2px solid var(--neon); outline-offset: -2px; z-index: 2; }
 .sg-cell.has-peer { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--amber) 60%, transparent); }
-.sg-text { overflow: hidden; text-overflow: ellipsis; }
+.sg-text { overflow: hidden; text-overflow: ellipsis; position: relative; }
+/* Barra de dados: fica atrás do texto, alinhada à esquerda da célula. */
+.sg-bar {
+  position: absolute; left: 0; top: 2px; bottom: 2px;
+  border-radius: 2px; opacity: 0.55; pointer-events: none;
+}
+.sg-icon { margin-right: 5px; font-size: 11px; line-height: 1; }
 .sg-peer {
   position: absolute; top: -1px; right: 2px;
   font-size: 9px; letter-spacing: 0.5px; color: var(--amber);

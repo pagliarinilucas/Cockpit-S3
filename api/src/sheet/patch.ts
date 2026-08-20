@@ -38,6 +38,11 @@ const enc = new TextEncoder();
 export interface CellPatch {
   v?: CellValue;
   style?: CellStyle | null;
+  /**
+   * Fórmula sem o "=". Ausente = mantém a que estiver na célula (inclusive
+   * fórmula compartilhada); `null` = remove, deixando só o valor.
+   */
+  f?: string | null;
 }
 
 /** `cells` é indexado por referência A1 (ex: "B7"). */
@@ -136,8 +141,34 @@ function withStyleAttr(cellXml: string, styleIndex: number | null): string {
   return tag + cellXml.slice(open[0].length);
 }
 
-function cellXml(ref: string, styleIndex: number | null, value: CellValue): string {
+/** Valores de erro do Excel, que têm tipo próprio no arquivo (t="e"). */
+const ERROR_TEXTS = new Set([
+  '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#N/A', '#NUM!', '#NULL!', '#CYCLE!',
+]);
+
+const isErrorText = (v: CellValue): v is string => typeof v === 'string' && ERROR_TEXTS.has(v);
+
+/** Elemento <f> original da célula (preserva fórmula compartilhada e atributos). */
+const formulaXmlOf = (cellXmlText: string): string | null =>
+  /<f\b[^>]*(?:\/>|>[\s\S]*?<\/f>)/.exec(cellXmlText)?.[0] ?? null;
+
+/**
+ * Monta a célula. Com fórmula, o valor entra como cache — é o que o Excel faz,
+ * e é o que permite abrir o arquivo em qualquer leitor sem recalcular.
+ */
+function cellXml(ref: string, styleIndex: number | null, value: CellValue, formulaXml: string | null): string {
   const s = styleIndex === null ? '' : ` s="${styleIndex}"`;
+
+  if (formulaXml) {
+    if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"${s}>${formulaXml}<v>${value}</v></c>`;
+    if (typeof value === 'boolean') return `<c r="${ref}"${s} t="b">${formulaXml}<v>${value ? 1 : 0}</v></c>`;
+    // Resultado de erro tem tipo próprio no formato ("e"); gravar como texto
+    // faria o Excel mostrar a string "#DIV/0!" em vez de uma célula com erro.
+    if (isErrorText(value)) return `<c r="${ref}"${s} t="e">${formulaXml}<v>${value}</v></c>`;
+    if (typeof value === 'string' && value !== '') return `<c r="${ref}"${s} t="str">${formulaXml}<v>${escapeXml(value)}</v></c>`;
+    return `<c r="${ref}"${s}>${formulaXml}</c>`;
+  }
+
   if (value === null || value === '') return `<c r="${ref}"${s}/>`;
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return `<c r="${ref}"${s}/>`;
@@ -181,10 +212,16 @@ export function rewriteSheetData(
       ? (prev ? styleIndexOf(prev.xml) : null)
       : patch.style === null ? null : resolveStyle(patch.style);
 
+    // Fórmula: a do patch ganha; sem menção, a original é preservada (inclusive
+    // compartilhada); `null` remove e deixa a célula com valor puro.
+    const formulaXml = patch.f === undefined
+      ? (prev ? formulaXmlOf(prev.xml) : null)
+      : patch.f === null ? null : `<f>${escapeXml(patch.f)}</f>`;
+
     // Só estilo: preserva fórmula, tipo e valor em cache da célula original.
-    const xml = patch.v === undefined && prev
+    const xml = patch.v === undefined && patch.f === undefined && prev
       ? withStyleAttr(prev.xml, styleIndex)
-      : cellXml(ref, styleIndex, patch.v ?? null);
+      : cellXml(ref, styleIndex, patch.v ?? null, formulaXml);
 
     if (isEmptyCell(xml)) { cells.delete(ref); continue; }
     cells.set(ref, { ref, row: pos.row, col: pos.col, xml });

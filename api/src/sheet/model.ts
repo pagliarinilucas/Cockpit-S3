@@ -18,6 +18,8 @@ export interface Cell {
   v: CellValue;
   w?: string;
   s?: string;
+  /** Fórmula sem o "=", quando a célula é calculada. `v` guarda o resultado. */
+  f?: string;
 }
 
 export interface SheetData {

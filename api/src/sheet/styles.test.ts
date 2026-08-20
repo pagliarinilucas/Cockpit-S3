@@ -34,8 +34,45 @@ describe('parseStyles / resolveXf', () => {
 
   it('resolve itálico, sublinhado, borda e alinhamento juntos', () => {
     expect(resolveXf(table(), 4)).toEqual({
-      xf: 4, italic: true, underline: true, border: true, align: 'center',
+      xf: 4, italic: true, underline: true, align: 'center',
+      fontName: 'Arial', fontSize: 14,
+      border: true,
+      borders: {
+        top: { style: 'thin' }, right: { style: 'thin' },
+        bottom: { style: 'thin' }, left: { style: 'thin' },
+      },
     });
+  });
+
+  it('fonte diferente da padrão da planilha é registrada', () => {
+    const s = resolveXf(table(), 4);
+    expect(s.fontName).toBe('Arial');
+    expect(s.fontSize).toBe(14);
+  });
+
+  it('fonte igual à padrão não vira atributo (estilo continua vazio)', () => {
+    expect(resolveXf(table(), 0)).toEqual({ xf: 0 });
+  });
+
+  it('bordas vêm lado a lado, com estilo de cada uma', () => {
+    const xml = STYLES.replace(
+      '<border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>',
+      '<border><left style="medium"><color rgb="FFFF0000"/></left><top style="dashed"/><diagonal/></border>',
+    );
+    const s = resolveXf(parseStyles(xml), 4);
+    expect(s.borders).toEqual({
+      left: { style: 'medium', color: 'FF0000' },
+      top: { style: 'dashed' },
+    });
+  });
+
+  it('quebra de texto, alinhamento vertical e recuo', () => {
+    const xml = STYLES.replace('<alignment horizontal="center"/>',
+      '<alignment horizontal="center" vertical="center" wrapText="1" indent="2"/>');
+    const s = resolveXf(parseStyles(xml), 4);
+    expect(s.wrap).toBe(true);
+    expect(s.vAlign).toBe('middle');
+    expect(s.indent).toBe(2);
   });
 
   it('estilo padrão não carrega atributo nenhum', () => {

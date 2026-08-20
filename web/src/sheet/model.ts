@@ -71,12 +71,23 @@ export function display(cell: Cell | undefined, style?: CellStyle): string {
   return formatValue(cell.v, style?.numFmt);
 }
 
-/** Texto que aparece ao editar: sempre o valor cru, nunca o formatado. */
+/**
+ * Texto que aparece ao editar: a fórmula quando a célula é calculada, senão o
+ * valor cru (nunca o formatado — editar "1.234,50" devolveria texto).
+ */
 export function editText(cell: Cell | undefined): string {
-  if (!cell || cell.v === null) return '';
+  if (!cell) return '';
+  if (cell.f) return `=${cell.f}`;
+  if (cell.v === null) return '';
   if (typeof cell.v === 'boolean') return cell.v ? 'VERDADEIRO' : 'FALSO';
   return String(cell.v);
 }
+
+/** O que o usuário digitou é fórmula? */
+export const isFormulaInput = (text: string): boolean => text.trimStart().startsWith('=');
+
+/** Fórmula sem o "=" e sem espaços na borda. */
+export const formulaOf = (text: string): string => text.trim().replace(/^=/, '');
 
 export const isSheetName = (name: string): boolean => {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';

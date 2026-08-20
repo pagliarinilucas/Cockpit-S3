@@ -74,7 +74,7 @@ function readFileFacts(bytes: Uint8Array): FileFacts {
     const xml = dec.decode(raw);
     byRef.set(name, readStyleRefs(xml));
     layouts.set(name, parseLayout(xml));
-    cf.set(name, parseConditionalFormatting(xml));
+    cf.set(name, parseConditionalFormatting(xml, palette));
   }
 
   return { byRef, resolved: resolveAll(table), dxfs: table.dxfs, layouts, cf };
@@ -120,6 +120,8 @@ function readSheet(
         const cell: Cell = { v };
         if (w) cell.w = w;
         if (styleId) cell.s = styleId;
+        // Fórmula da célula (sem o "="); `v` fica sendo o valor em cache.
+        if (raw && typeof raw.f === 'string' && raw.f !== '') cell.f = raw.f;
         cells.set(cellKey(r, c), cell);
         rows = Math.max(rows, r + 1);
         cols = Math.max(cols, c + 1);

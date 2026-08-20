@@ -10,6 +10,8 @@ import * as Y from 'yjs';
 import { api, ApiError } from '../core/api';
 import type { SheetLayout } from '@sheet/layout';
 import type { CfRule } from '@sheet/conditional';
+import { recalc } from '@sheet/recalc';
+import { todaySerial } from '@sheet/conditional';
 import {
   SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey, isBlankStyle, mergeStyle, styleKey,
   type Cell, type CellStyle, type CellValue,
@@ -96,8 +98,9 @@ export class SheetSession {
   sheetNames(): string[] { return this.doc.getArray<string>(SHEET_ORDER).toArray(); }
 
   /**
-   * Escreve uma célula preservando a formatação dela. O `w` é descartado: o
-   * texto formatado do Excel era do valor antigo.
+   * Escreve um valor literal na célula. A formatação é preservada; a fórmula, se
+   * havia, é removida — digitar um valor sobre uma célula calculada substitui o
+   * cálculo, como no Excel. O `w` é descartado: era do valor antigo.
    */
   setCell(sheet: string, row: number, col: number, value: CellValue): void {
     const map = this.sheetMap(sheet);
@@ -106,7 +109,46 @@ export class SheetSession {
       const style = map.get(k)?.s;
       if ((value === null || value === '') && style === undefined) map.delete(k);
       else map.set(k, style === undefined ? { v: value } : { v: value, s: style });
+      this.recalcInto(map);
     }, 'local');
+  }
+
+  /**
+   * Escreve uma fórmula (sem o "="). O valor é calculado na hora e guardado
+   * junto: é o cache que o arquivo leva, e o que outro leitor mostra sem
+   * precisar recalcular.
+   */
+  setFormula(sheet: string, row: number, col: number, formula: string): void {
+    const map = this.sheetMap(sheet);
+    const k = cellKey(row, col);
+    this.doc.transact(() => {
+      const prev = map.get(k);
+      const next: Cell = { v: prev?.v ?? null, f: formula };
+      if (prev?.s !== undefined) next.s = prev.s;
+      map.set(k, next);
+      this.recalcInto(map);
+    }, 'local');
+  }
+
+  /**
+   * Recalcula as fórmulas da aba e grava o resultado no cache das células.
+   * Roda dentro da transação da edição, então uma digitação vira um update só
+   * mesmo mexendo em várias células calculadas.
+   */
+  private recalcInto(map: Y.Map<Cell>): void {
+    const snapshot = new Map<string, Cell>();
+    for (const [key, cell] of map.entries()) if (cell) snapshot.set(key, cell);
+
+    const { values } = recalc(snapshot, todaySerial());
+    for (const [key, value] of values) {
+      const cell = snapshot.get(key);
+      if (!cell?.f) continue;
+      const fresh = (value ?? null) as CellValue;
+      if ((cell.v ?? null) === fresh) continue;
+      const next: Cell = { v: fresh, f: cell.f };
+      if (cell.s !== undefined) next.s = cell.s;
+      map.set(key, next);
+    }
   }
 
   stylesMap() { return this.doc.getMap<CellStyle>(STYLES); }
@@ -186,6 +228,7 @@ export class SheetSession {
         if ((value === null || value === '') && style === undefined) map.delete(k);
         else map.set(k, style === undefined ? { v: value } : { v: value, s: style });
       }));
+      this.recalcInto(map);
     }, 'local');
   }
 

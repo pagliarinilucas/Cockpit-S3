@@ -14,16 +14,27 @@
  */
 import { cellKey, parseCellRef, type Cell, type CellValue } from './model';
 import type { CellStyle } from './styles';
+import { parseTheme, themeColor, type ThemePalette } from './theme';
 
 export type CfOperator =
   | 'greaterThan' | 'lessThan' | 'equal' | 'notEqual'
   | 'greaterThanOrEqual' | 'lessThanOrEqual' | 'between' | 'notBetween'
   | 'containsText' | 'notContains' | 'beginsWith' | 'endsWith';
 
+export type CfType =
+  | 'cellIs' | 'expression' | 'containsText' | 'notContainsText'
+  | 'dataBar' | 'colorScale' | 'iconSet' | 'unsupported';
+
+/** Ponto de referência de barra/escala: mínimo, máximo, número, percentil… */
+export interface Cfvo {
+  type: string;
+  val?: string;
+}
+
 export interface CfRule {
   /** Faixas de aplicação, em referência A1 (ex.: ["F2:F26", "F28:F51"]). */
   ranges: string[];
-  type: 'cellIs' | 'expression' | 'containsText' | 'notContainsText' | 'unsupported';
+  type: CfType;
   operator?: CfOperator;
   formulas: string[];
   /** Índice em `dxfs`; ausente = regra sem formato (o Excel permite). */
@@ -32,7 +43,24 @@ export interface CfRule {
   stopIfTrue?: boolean;
   /** Âncora da primeira faixa — origem das referências relativas. */
   anchor: { row: number; col: number };
+  /** Cores de barra de dados (1) ou escala de cores (2 ou 3). */
+  colors?: string[];
+  cfvo?: Cfvo[];
+  /** Nome do conjunto de ícones do Excel (3TrafficLights1, 3Arrows…). */
+  iconSet?: string;
+  /** Barra de dados pode esconder o número e mostrar só a barra. */
+  hideValue?: boolean;
 }
+
+/**
+ * Resultado visual de uma regra. Barra, escala e ícone não são "estilo de
+ * célula" — precisam de desenho próprio, por isso o tipo é mais rico.
+ */
+export type CfVisual =
+  | { kind: 'style'; style: CellStyle }
+  | { kind: 'dataBar'; ratio: number; color: string; hideValue: boolean }
+  | { kind: 'colorScale'; color: string }
+  | { kind: 'iconSet'; icon: string };
 
 const OPERATORS = new Set<CfOperator>([
   'greaterThan', 'lessThan', 'equal', 'notEqual', 'greaterThanOrEqual',
@@ -55,7 +83,7 @@ function anchorOf(ranges: string[]): { row: number; col: number } {
 }
 
 /** Lê `<conditionalFormatting>` de uma aba, na ordem em que aparecem. */
-export function parseConditionalFormatting(sheetXml: string): CfRule[] {
+export function parseConditionalFormatting(sheetXml: string, palette: ThemePalette = parseTheme(null)): CfRule[] {
   const out: CfRule[] = [];
   for (const block of sheetXml.matchAll(/<conditionalFormatting\b[^>]*>[\s\S]*?<\/conditionalFormatting>/g)) {
     const open = /<conditionalFormatting\b[^>]*>/.exec(block[0])![0];
@@ -68,10 +96,17 @@ export function parseConditionalFormatting(sheetXml: string): CfRule[] {
       const rawType = attr(tag, 'type') ?? '';
       const operator = attr(tag, 'operator') as CfOperator | undefined;
       const dxf = attr(tag, 'dxfId');
-      const type: CfRule['type'] = rawType === 'cellIs' || rawType === 'expression'
-        || rawType === 'containsText' || rawType === 'notContainsText'
-        ? rawType
-        : 'unsupported';
+      const known: CfType[] = ['cellIs', 'expression', 'containsText', 'notContainsText',
+        'dataBar', 'colorScale', 'iconSet'];
+      const type: CfType = known.includes(rawType as CfType) ? rawType as CfType : 'unsupported';
+
+      const colors = [...ruleXml[0].matchAll(/<color\b[^>]*\/?>/g)]
+        .map((c) => colorFrom(c[0], palette))
+        .filter((c): c is string => !!c);
+      const cfvo = [...ruleXml[0].matchAll(/<cfvo\b[^>]*\/?>/g)].map((c) => {
+        const val = attr(c[0], 'val');
+        return { type: attr(c[0], 'type') ?? 'num', ...(val === undefined ? {} : { val }) };
+      });
 
       out.push({
         ranges,
@@ -82,6 +117,10 @@ export function parseConditionalFormatting(sheetXml: string): CfRule[] {
         priority: Number(attr(tag, 'priority') ?? '999'),
         ...(attr(tag, 'stopIfTrue') === '1' ? { stopIfTrue: true } : {}),
         anchor: anchorOf(ranges),
+        ...(colors.length ? { colors } : {}),
+        ...(cfvo.length ? { cfvo } : {}),
+        ...(attr(tag, 'iconSet') === undefined ? {} : { iconSet: attr(tag, 'iconSet')! }),
+        ...(/<dataBar\b[^>]*\bshowValue="0"/.test(ruleXml[0]) ? { hideValue: true } : {}),
         ...(attr(tag, 'text') === undefined ? {} : { formulas: [attr(tag, 'text')!] }),
       });
     }
@@ -380,4 +419,139 @@ export function contextFrom(cells: Map<string, Cell>, today: number): EvalContex
     valueAt: (row, col) => cells.get(cellKey(row, col))?.v ?? null,
     today,
   };
+}
+
+/** RRGGBB de um `<color>` de regra (aceita rgb, tema com tint e indexado do Excel). */
+function colorFrom(tag: string, palette: ThemePalette): string | null {
+  const rgb = attr(tag, 'rgb');
+  if (rgb) return (rgb.length === 8 ? rgb.slice(2) : rgb).toUpperCase();
+  const theme = attr(tag, 'theme');
+  if (theme !== undefined) {
+    const tint = Number(attr(tag, 'tint') ?? '0');
+    return themeColor(palette, Number(theme), Number.isFinite(tint) ? tint : 0);
+  }
+  return null;
+}
+
+/** Números presentes nas faixas da regra — base de mínimo, máximo e percentil. */
+function rangeNumbers(rule: CfRule, ctx: EvalContext): number[] {
+  const out: number[] = [];
+  for (const range of rule.ranges) {
+    const [a, b] = range.split(':');
+    const from = parseCellRef(a ?? '');
+    if (!from) continue;
+    const to = b ? parseCellRef(b) : from;
+    if (!to) continue;
+    const top = Math.min(from.row, to.row);
+    const bottom = Math.max(from.row, to.row);
+    const left = Math.min(from.col, to.col);
+    const right = Math.max(from.col, to.col);
+    for (let row = top; row <= bottom; row++) {
+      for (let col = left; col <= right; col++) {
+        const v = ctx.valueAt(row, col);
+        if (typeof v === 'number') out.push(v);
+      }
+    }
+  }
+  return out;
+}
+
+/** Valor de um cfvo: min/max/percentil vêm dos dados, num vem da própria regra. */
+function cfvoValue(cfvo: Cfvo | undefined, numbers: number[], fallback: number): number {
+  if (!cfvo || !numbers.length) return fallback;
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const explicit = Number(cfvo.val ?? '');
+  switch (cfvo.type) {
+    case 'min': return sorted[0]!;
+    case 'max': return sorted[sorted.length - 1]!;
+    case 'percent': {
+      const lo = sorted[0]!;
+      const hi = sorted[sorted.length - 1]!;
+      return Number.isFinite(explicit) ? lo + ((hi - lo) * explicit) / 100 : fallback;
+    }
+    case 'percentile': {
+      if (!Number.isFinite(explicit)) return fallback;
+      const idx = Math.min(sorted.length - 1, Math.max(0, Math.round(((sorted.length - 1) * explicit) / 100)));
+      return sorted[idx]!;
+    }
+    default: return Number.isFinite(explicit) ? explicit : fallback;
+  }
+}
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+/** Interpola duas cores em RRGGBB. */
+function mix(a: string, b: string, t: number): string {
+  const chan = (hex: string, i: number) => parseInt(hex.slice(i, i + 2), 16);
+  const out = [0, 2, 4].map((i) => Math.round(chan(a, i) + (chan(b, i) - chan(a, i)) * clamp01(t)));
+  return out.map((c) => c.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+const ICONS: Record<string, string[]> = {
+  '3TrafficLights1': ['🔴', '🟡', '🟢'],
+  '3TrafficLights2': ['🔴', '🟡', '🟢'],
+  '3Signs': ['🔻', '🔶', '🔷'],
+  '3Arrows': ['↓', '→', '↑'],
+  '3ArrowsGray': ['↓', '→', '↑'],
+  '3Symbols': ['✖', '❗', '✔'],
+  '3Symbols2': ['✖', '❗', '✔'],
+  '3Flags': ['🚩', '🚩', '🚩'],
+  '4Arrows': ['↓', '↘', '↗', '↑'],
+  '5Arrows': ['↓', '↘', '→', '↗', '↑'],
+  '5Quarters': ['○', '◔', '◑', '◕', '●'],
+};
+
+/**
+ * Visual efetivo de uma célula: percorre as regras por prioridade e devolve o
+ * primeiro desenho aplicável — estilo, barra, escala de cor ou ícone.
+ */
+export function conditionalVisual(
+  rules: CfRule[],
+  dxfs: CellStyle[],
+  row: number,
+  col: number,
+  value: CellValue,
+  ctx: EvalContext,
+): CfVisual | null {
+  const applicable = rules
+    .filter((r) => r.type !== 'unsupported' && inRanges(r.ranges, row, col))
+    .sort((a, b) => a.priority - b.priority);
+
+  for (const rule of applicable) {
+    if (rule.type === 'dataBar' || rule.type === 'colorScale' || rule.type === 'iconSet') {
+      if (typeof value !== 'number') continue;
+      const numbers = rangeNumbers(rule, ctx);
+      if (!numbers.length) continue;
+      const lo = cfvoValue(rule.cfvo?.[0], numbers, Math.min(...numbers));
+      const hi = cfvoValue(rule.cfvo?.[rule.cfvo.length - 1], numbers, Math.max(...numbers));
+      const span = hi - lo;
+      const ratio = span === 0 ? 1 : clamp01((value - lo) / span);
+
+      if (rule.type === 'dataBar') {
+        const color = rule.colors?.[0] ?? '638EC6';
+        return { kind: 'dataBar', ratio, color, hideValue: !!rule.hideValue };
+      }
+      if (rule.type === 'colorScale') {
+        const colors = rule.colors ?? [];
+        if (colors.length < 2) continue;
+        if (colors.length === 2) return { kind: 'colorScale', color: mix(colors[0]!, colors[1]!, ratio) };
+        // Três cores: a do meio fica no ponto declarado (padrão, o meio).
+        const mid = rule.cfvo?.[1] ? cfvoValue(rule.cfvo[1], numbers, lo + span / 2) : lo + span / 2;
+        const midRatio = span === 0 ? 0.5 : clamp01((mid - lo) / span);
+        const color = ratio <= midRatio
+          ? mix(colors[0]!, colors[1]!, midRatio === 0 ? 0 : ratio / midRatio)
+          : mix(colors[1]!, colors[2]!, midRatio === 1 ? 1 : (ratio - midRatio) / (1 - midRatio));
+        return { kind: 'colorScale', color };
+      }
+      const icons = ICONS[rule.iconSet ?? ''] ?? ICONS['3TrafficLights1']!;
+      const idx = Math.min(icons.length - 1, Math.floor(ratio * icons.length));
+      return { kind: 'iconSet', icon: icons[idx]! };
+    }
+
+    if (!ruleMatches(rule, row, col, value, ctx)) continue;
+    const dxf = rule.dxfId === undefined ? null : dxfs[rule.dxfId] ?? null;
+    if (dxf) return { kind: 'style', style: dxf };
+    if (rule.stopIfTrue) return null;
+  }
+  return null;
 }

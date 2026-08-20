@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Lucas Pagliarini
 import { describe, expect, it } from 'bun:test';
 import {
-  conditionalStyle, contextFrom, evalFormula, inRanges,
+  conditionalStyle, conditionalVisual, contextFrom, evalFormula, inRanges,
   parseConditionalFormatting, ruleMatches, todaySerial, type CfRule, type EvalContext,
 } from './conditional';
 import { cellKey, type Cell } from './model';
@@ -207,6 +207,94 @@ describe('conditionalStyle', () => {
       { ranges: ['A1'], type: 'unsupported', formulas: [], dxfId: 1, priority: 1, anchor: { row: 0, col: 0 } },
     ];
     expect(conditionalStyle(barras, dxfs, 0, 0, 1, ctx())).toBeNull();
+  });
+});
+
+describe('barra de dados, escala de cores e ícones', () => {
+  const BAR = `<worksheet><sheetData/><conditionalFormatting sqref="A1:A5"><cfRule type="dataBar" priority="1"><dataBar showValue="0"><cfvo type="min"/><cfvo type="max"/><color rgb="FF638EC6"/></dataBar></cfRule></conditionalFormatting></worksheet>`;
+  const SCALE = `<worksheet><sheetData/><conditionalFormatting sqref="B1:B5"><cfRule type="colorScale" priority="1"><colorScale><cfvo type="min"/><cfvo type="percentile" val="50"/><cfvo type="max"/><color rgb="FFF8696B"/><color rgb="FFFFEB84"/><color rgb="FF63BE7B"/></colorScale></cfRule></conditionalFormatting></worksheet>`;
+  const ICON = `<worksheet><sheetData/><conditionalFormatting sqref="C1:C3"><cfRule type="iconSet" priority="1"><iconSet iconSet="3TrafficLights1"><cfvo type="percent" val="0"/><cfvo type="percent" val="33"/><cfvo type="percent" val="67"/></iconSet></cfRule></conditionalFormatting></worksheet>`;
+
+  const cells = (entries: [number, number, number][]) => {
+    const map = new Map<string, Cell>();
+    for (const [row, col, v] of entries) map.set(cellKey(row, col), { v });
+    return map;
+  };
+
+  it('lê a regra de barra de dados com cor e cfvo', () => {
+    const [rule] = parseConditionalFormatting(BAR);
+    expect(rule!.type).toBe('dataBar');
+    expect(rule!.colors).toEqual(['638EC6']);
+    expect(rule!.cfvo?.map((c) => c.type)).toEqual(['min', 'max']);
+    expect(rule!.hideValue).toBe(true);
+  });
+
+  it('barra é proporcional ao valor dentro da faixa', () => {
+    const rules = parseConditionalFormatting(BAR);
+    const map = cells([[0, 0, 0], [1, 0, 5], [2, 0, 10]]);
+    const ctx = contextFrom(map, TODAY);
+
+    const menor = conditionalVisual(rules, [], 0, 0, 0, ctx);
+    const meio = conditionalVisual(rules, [], 1, 0, 5, ctx);
+    const maior = conditionalVisual(rules, [], 2, 0, 10, ctx);
+
+    expect(menor).toEqual({ kind: 'dataBar', ratio: 0, color: '638EC6', hideValue: true });
+    expect(meio?.kind === 'dataBar' && meio.ratio).toBe(0.5);
+    expect(maior?.kind === 'dataBar' && maior.ratio).toBe(1);
+  });
+
+  it('escala de três cores interpola até o meio e depois até o topo', () => {
+    const rules = parseConditionalFormatting(SCALE);
+    const map = cells([[0, 1, 0], [1, 1, 50], [2, 1, 100]]);
+    const ctx = contextFrom(map, TODAY);
+
+    const baixo = conditionalVisual(rules, [], 0, 1, 0, ctx);
+    const meio = conditionalVisual(rules, [], 1, 1, 50, ctx);
+    const alto = conditionalVisual(rules, [], 2, 1, 100, ctx);
+
+    expect(baixo).toEqual({ kind: 'colorScale', color: 'F8696B' });
+    expect(meio).toEqual({ kind: 'colorScale', color: 'FFEB84' });
+    expect(alto).toEqual({ kind: 'colorScale', color: '63BE7B' });
+  });
+
+  it('escala interpola entre as cores fora dos pontos declarados', () => {
+    // Dados 0, 10 e 100: o percentil 50 cai em 10, então o valor 5 fica no meio
+    // do caminho entre a primeira cor e a do meio.
+    const rules = parseConditionalFormatting(SCALE);
+    const map = cells([[0, 1, 0], [1, 1, 10], [2, 1, 100], [3, 1, 5]]);
+    const visual = conditionalVisual(rules, [], 3, 1, 5, contextFrom(map, TODAY));
+    expect(visual?.kind).toBe('colorScale');
+    const color = visual?.kind === 'colorScale' ? visual.color : '';
+    expect(color).not.toBe('F8696B');
+    expect(color).not.toBe('FFEB84');
+    expect(color).toMatch(/^[0-9A-F]{6}$/);
+  });
+
+  it('ícone escolhido pela posição do valor', () => {
+    const rules = parseConditionalFormatting(ICON);
+    const map = cells([[0, 2, 1], [1, 2, 5], [2, 2, 9]]);
+    const ctx = contextFrom(map, TODAY);
+    expect(conditionalVisual(rules, [], 0, 2, 1, ctx)).toEqual({ kind: 'iconSet', icon: '🔴' });
+    expect(conditionalVisual(rules, [], 2, 2, 9, ctx)).toEqual({ kind: 'iconSet', icon: '🟢' });
+  });
+
+  it('texto não recebe barra nem escala', () => {
+    const rules = parseConditionalFormatting(BAR);
+    const map = new Map<string, Cell>([[cellKey(0, 0), { v: 'abc' }]]);
+    expect(conditionalVisual(rules, [], 0, 0, 'abc', contextFrom(map, TODAY))).toBeNull();
+  });
+
+  it('regra de estilo continua vindo como estilo', () => {
+    const rules = parseConditionalFormatting(SHEET_CF);
+    const visual = conditionalVisual(rules, [{ bg: 'ABCDEF' }, {}, {}, {}, {}, {}, {}, {}, {}, { bg: '112233' }], 1, 5, 10, ctx());
+    expect(visual).toEqual({ kind: 'style', style: { bg: '112233' } });
+  });
+
+  it('faixa toda com o mesmo valor não divide por zero', () => {
+    const rules = parseConditionalFormatting(BAR);
+    const map = cells([[0, 0, 7], [1, 0, 7]]);
+    const visual = conditionalVisual(rules, [], 0, 0, 7, contextFrom(map, TODAY));
+    expect(visual?.kind === 'dataBar' && visual.ratio).toBe(1);
   });
 });
 

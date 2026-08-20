@@ -92,6 +92,12 @@ function selectSheet(sheetName: string): void {
   refresh();
 }
 
+function onFormula(row: number, col: number, formula: string): void {
+  if (readonly.value) return;
+  session?.setFormula(active.value, row, col, formula);
+  dirty.value = true;
+}
+
 function onEdit(row: number, col: number, value: CellValue): void {
   if (readonly.value) return;
   session?.setCell(active.value, row, col, value);
@@ -222,6 +228,7 @@ const STATUS_LABEL: Record<Status, string> = {
       :light="light"
       :peers="peerCursors"
       @edit="onEdit"
+      @formula="onFormula"
       @paste="onPasteBlock"
       @cursor="onCursor"
       @selection="onSelection"

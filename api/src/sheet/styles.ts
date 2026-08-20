@@ -10,6 +10,12 @@
 
 import { parseTheme, themeColor, type ThemePalette } from './theme';
 
+/** Uma aresta de borda: estilo do OOXML (thin, medium, dashed…) e cor. */
+export interface BorderEdge {
+  style: string;
+  color?: string;
+}
+
 export interface CellStyle {
   /** Índice do xf original quando o estilo veio do arquivo; ausente = criado aqui. */
   xf?: number;
@@ -20,7 +26,17 @@ export interface CellStyle {
   underline?: boolean;
   align?: 'left' | 'center' | 'right';
   numFmt?: string;    // código de formato do Excel ("#,##0.00", "dd/mm/yyyy")
-  border?: boolean;   // borda fina nos quatro lados
+  border?: boolean;   // borda fina nos quatro lados (a que o editor aplica)
+  /** Bordas do arquivo, lado por lado — só exibição, mais rica que `border`. */
+  borders?: { top?: BorderEdge; right?: BorderEdge; bottom?: BorderEdge; left?: BorderEdge };
+  fontName?: string;
+  /** Tamanho em pontos, como o arquivo guarda. */
+  fontSize?: number;
+  /** Quebra o texto dentro da célula. */
+  wrap?: boolean;
+  vAlign?: 'top' | 'middle' | 'bottom';
+  /** Recuo, em passos (cada um vale ~1 caractere). */
+  indent?: number;
 }
 
 /** Formatos embutidos que o Excel não lista no numFmts (ECMA-376, §18.8.30). */
@@ -168,6 +184,17 @@ export function resolveXf(table: StyleTable, index: number): CellStyle {
     if (/<u\b[^>]*\/?>/.test(font)) style.underline = true;
     const fg = colorOf(font, table.palette);
     if (fg && fg !== '000000') style.fg = fg;
+    // Fonte só entra no estilo quando difere da padrão da planilha: registrar a
+    // padrão em toda célula incharia o documento e faria todo estilo parecer
+    // "não vazio" — inclusive o xf 0.
+    const base = table.fonts.items[0] ?? '';
+    const name = /<name\b[^>]*\bval="([^"]*)"/.exec(font)?.[1];
+    const baseName = /<name\b[^>]*\bval="([^"]*)"/.exec(base)?.[1];
+    if (name && name !== baseName) style.fontName = name;
+
+    const size = Number(/<sz\b[^>]*\bval="([^"]*)"/.exec(font)?.[1] ?? '');
+    const baseSize = Number(/<sz\b[^>]*\bval="([^"]*)"/.exec(base)?.[1] ?? '');
+    if (Number.isFinite(size) && size > 0 && size !== baseSize) style.fontSize = size;
   }
 
   const fillId = Number(attr(xf, 'fillId') ?? '0');
@@ -179,17 +206,49 @@ export function resolveXf(table: StyleTable, index: number): CellStyle {
 
   const borderId = Number(attr(xf, 'borderId') ?? '0');
   const border = table.borders.items[borderId];
-  if (border && /<(left|right|top|bottom)\b[^>]*style="/.test(border)) style.border = true;
+  if (border) {
+    const edges = readBorderEdges(border, table.palette);
+    if (edges) {
+      style.borders = edges;
+      style.border = true;   // compatível com quem só olha "tem borda?"
+    }
+  }
 
   const numFmtId = Number(attr(xf, 'numFmtId') ?? '0');
   const code = table.numFmts.get(numFmtId) ?? BUILTIN_NUM_FMTS[numFmtId];
   if (code) style.numFmt = code;
 
-  const align = /<alignment\b[^>]*>/.exec(xf)?.[0];
-  const horizontal = align ? attr(align, 'horizontal') : undefined;
-  if (horizontal === 'left' || horizontal === 'center' || horizontal === 'right') style.align = horizontal;
+  const align = /<alignment\b[^>]*\/?>/.exec(xf)?.[0];
+  if (align) {
+    const horizontal = attr(align, 'horizontal');
+    if (horizontal === 'left' || horizontal === 'center' || horizontal === 'right') style.align = horizontal;
+    const vertical = attr(align, 'vertical');
+    if (vertical === 'top' || vertical === 'bottom') style.vAlign = vertical;
+    else if (vertical === 'center') style.vAlign = 'middle';
+    if (attr(align, 'wrapText') === '1') style.wrap = true;
+    const indent = Number(attr(align, 'indent') ?? '');
+    if (Number.isFinite(indent) && indent > 0) style.indent = indent;
+  }
 
   return style;
+}
+
+const BORDER_SIDES = ['top', 'right', 'bottom', 'left'] as const;
+
+/** Bordas lado a lado; devolve null quando nenhum lado tem estilo. */
+function readBorderEdges(borderXml: string, palette: ThemePalette): CellStyle['borders'] | null {
+  const out: NonNullable<CellStyle['borders']> = {};
+  let any = false;
+  for (const side of BORDER_SIDES) {
+    const block = new RegExp(`<${side}\\b[^>]*?(?:/>|>[\\s\\S]*?</${side}>)`).exec(borderXml)?.[0];
+    if (!block) continue;
+    const style = attr(block, 'style');
+    if (!style || style === 'none') continue;
+    const color = colorIn(block, 'color', palette);
+    out[side] = color ? { style, color } : { style };
+    any = true;
+  }
+  return any ? out : null;
 }
 
 /** Todos os estilos do arquivo, por índice — usado na importação. */
@@ -231,7 +290,13 @@ export class StyleWriter {
     const borderId = style.border ? this.ensureBorder() : 0;
     const numFmtId = this.ensureNumFmt(style.numFmt);
 
-    const alignment = style.align ? `<alignment horizontal="${style.align}"/>` : '';
+    const alignAttrs = [
+      style.align ? ` horizontal="${style.align}"` : '',
+      style.vAlign ? ` vertical="${style.vAlign === 'middle' ? 'center' : style.vAlign}"` : '',
+      style.wrap ? ' wrapText="1"' : '',
+      style.indent ? ` indent="${style.indent}"` : '',
+    ].join('');
+    const alignment = alignAttrs ? `<alignment${alignAttrs}/>` : '';
     const applies = [
       numFmtId ? ' applyNumberFormat="1"' : '',
       fontId ? ' applyFont="1"' : '',
@@ -252,10 +317,18 @@ export class StyleWriter {
   }
 
   private ensureFont(style: CellStyle): number {
-    if (!style.bold && !style.italic && !style.underline && !style.fg) return 0;
+    const custom = style.bold || style.italic || style.underline || style.fg
+      || style.fontName || style.fontSize;
+    if (!custom) return 0;
     const base = this.fonts[0] ?? '<font><sz val="11"/><name val="Calibri"/></font>';
-    const size = /<sz\b[^>]*\/>/.exec(base)?.[0] ?? '<sz val="11"/>';
-    const name = /<name\b[^>]*\/>/.exec(base)?.[0] ?? '<name val="Calibri"/>';
+    // Tamanho e família vêm do estilo quando ele os traz (é o caso de uma
+    // célula do arquivo que ganhou cor: a fonte dela precisa continuar igual).
+    const size = style.fontSize
+      ? `<sz val="${style.fontSize}"/>`
+      : /<sz\b[^>]*\/>/.exec(base)?.[0] ?? '<sz val="11"/>';
+    const name = style.fontName
+      ? `<name val="${escapeXml(style.fontName)}"/>`
+      : /<name\b[^>]*\/>/.exec(base)?.[0] ?? '<name val="Calibri"/>';
     const font = '<font>'
       + (style.bold ? '<b/>' : '')
       + (style.italic ? '<i/>' : '')
@@ -346,6 +419,9 @@ export function styleKey(style: CellStyle): string {
   return JSON.stringify([
     style.bg ?? '', style.fg ?? '', !!style.bold, !!style.italic,
     !!style.underline, style.align ?? '', style.numFmt ?? '', !!style.border,
+    style.fontName ?? '', style.fontSize ?? 0, !!style.wrap,
+    style.vAlign ?? '', style.indent ?? 0,
+    style.borders ? JSON.stringify(style.borders) : '',
   ]);
 }
 

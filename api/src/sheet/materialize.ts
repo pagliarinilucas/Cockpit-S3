@@ -63,6 +63,15 @@ export function diffAgainstBase(doc: Y.Doc, base: Uint8Array, key: string): Shee
 
       if (!same(before?.v ?? null, cell.v ?? null)) patch.v = cell.v ?? null;
 
+      // Fórmula mudou (ou foi removida): vai explícita no patch, junto com o
+      // valor em cache — é assim que o arquivo abre certo em qualquer leitor.
+      const liveFormula = cell.f ?? null;
+      const baseFormula = before?.f ?? null;
+      if (liveFormula !== baseFormula) {
+        patch.f = liveFormula;
+        patch.v = cell.v ?? null;
+      }
+
       const liveStyle = styleFor(cell, (id) => styles.get(id));
       const baseStyle = styleFor(before, (id) => parsed.styles.get(id));
       if (styleKey(liveStyle ?? {}) !== styleKey(baseStyle ?? {})) patch.style = liveStyle;
