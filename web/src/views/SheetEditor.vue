@@ -5,7 +5,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import Icon from '../components/Icon.vue';
-import Grid, { type Range } from '../sheet/Grid.vue';
+import Grid from '../sheet/Grid.vue';
+import { countCells, type Range } from '../sheet/selection';
 import FormatBar from '../sheet/FormatBar.vue';
 import { SheetSession, type Peer, type Presence, type Status } from '../sheet/session';
 import { cellRef, parseCellKey, type Cell, type CellStyle, type CellValue } from '../sheet/model';
@@ -23,7 +24,7 @@ const cursors = shallowRef(new Map<number, Presence>());
 const cells = shallowRef(new Map<string, Cell>());
 const styles = shallowRef(new Map<string, CellStyle>());
 const bounds = ref({ rows: 0, cols: 0 });
-const range = ref<Range>({ top: 0, left: 0, bottom: 0, right: 0 });
+const ranges = ref<Range[]>([{ top: 0, left: 0, bottom: 0, right: 0 }]);
 const render = shallowRef<Record<string, SheetRender>>({});
 const dxfs = shallowRef<CellStyle[]>([]);
 // Preferência de tema do grid, lembrada entre sessões.
@@ -75,11 +76,14 @@ const currentStyle = computed<CellStyle>(() => {
   return (cell?.s === undefined ? undefined : styles.value.get(cell.s)) ?? {};
 });
 
-function onSelection(r: Range): void { range.value = r; }
+function onSelection(r: Range[]): void { ranges.value = r; }
+
+/** Quantas células a formatação vai atingir — confirma a seleção solta. */
+const selectedCount = computed(() => countCells(ranges.value));
 
 function applyFormat(change: Partial<CellStyle>): void {
   if (readonly.value) return;
-  session?.applyStyle(active.value, range.value, change);
+  session?.applyStyle(active.value, ranges.value, change);
   dirty.value = true;
 }
 
@@ -172,6 +176,7 @@ const STATUS_LABEL: Record<Status, string> = {
       <div class="se-id">
         <span class="se-name">{{ name }}</span>
         <span class="se-cell">{{ cellRef(cursor.row, cursor.col) }}</span>
+        <span v-if="selectedCount > 1" class="se-count">{{ selectedCount.toLocaleString('pt-BR') }} células</span>
       </div>
 
       <div class="se-status" :class="'st-' + status">
@@ -250,6 +255,7 @@ const STATUS_LABEL: Record<Status, string> = {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw;
 }
 .se-cell { font-family: var(--mono); font-size: 11px; color: var(--neon); letter-spacing: 1px; }
+.se-count { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); letter-spacing: 0.6px; }
 .se-spacer { flex: 1; }
 
 .se-status {

@@ -6,10 +6,16 @@
 import { computed, nextTick, ref } from 'vue';
 import { colName, coerce, display, editText, type Cell, type CellStyle, type CellValue } from './model';
 import { Axis, colAxis, rowAxis } from './geometry';
+import { inkFor } from './contrast';
+import {
+  cellsOf, colTouched, contains, isMulti, rangeOf, rowTouched, wholeCol, wholeRow,
+  type Range,
+} from './selection';
 import { conditionalStyle, contextFrom, todaySerial, type CfRule } from '@sheet/conditional';
 import { coveredBy, defaultStyleFor, mergeAt, type SheetLayout } from '@sheet/layout';
 
-export interface Range { top: number; left: number; bottom: number; right: number }
+// O modelo de seleção vive em selection.ts (testável sem DOM).
+export type { Range };
 
 const props = defineProps<{
   cells: Map<string, Cell>;
@@ -28,7 +34,8 @@ const emit = defineEmits<{
   edit: [row: number, col: number, value: CellValue];
   paste: [row: number, col: number, block: CellValue[][]];
   cursor: [row: number, col: number];
-  selection: [Range];
+  /** Todas as faixas selecionadas — com Ctrl dá para juntar faixas soltas. */
+  selection: [Range[]];
 }>();
 
 const DEFAULT_COL_W = 112;
@@ -81,15 +88,19 @@ function range(from: number, to: number): number[] {
   return out;
 }
 
-const selection = computed<Range>(() => ({
-  top: Math.min(anchor.value.row, cursor.value.row),
-  left: Math.min(anchor.value.col, cursor.value.col),
-  bottom: Math.max(anchor.value.row, cursor.value.row),
-  right: Math.max(anchor.value.col, cursor.value.col),
-}));
+/** Faixa em construção (âncora até o cursor). */
+const active = computed<Range>(() => rangeOf(anchor.value, cursor.value));
 
-const multi = computed(() => selection.value.top !== selection.value.bottom
-  || selection.value.left !== selection.value.right);
+/** Faixas já fixadas com Ctrl; a ativa entra por cima na hora de usar. */
+const pinned = ref<Range[]>([]);
+const selection = computed<Range[]>(() => [...pinned.value, active.value]);
+
+const multi = computed(() => isMulti(selection.value));
+
+function emitSelection(): void { emit('selection', selection.value); }
+
+/** Fixa a faixa atual e começa outra — é o Ctrl+clique do Excel. */
+function pinActive(): void { pinned.value = [...pinned.value, active.value]; }
 
 const cellAt = (row: number, col: number) => props.cells.get(`R${row}C${col}`);
 
@@ -137,7 +148,10 @@ function cellCss(row: number, col: number): Record<string, string> {
     height: `${box.height}px`,
   };
   if (s?.bg) css.background = `#${s.bg}`;
+  // Sem cor de fonte no arquivo, ela vem do preenchimento: no tema escuro o
+  // texto padrão é claro e ficaria ilegível sobre um amarelo do arquivo.
   if (s?.fg) css.color = `#${s.fg}`;
+  else if (s?.bg) css.color = inkFor(s.bg);
   if (s?.bold) css.fontWeight = '700';
   if (s?.italic) css.fontStyle = 'italic';
   if (s?.underline) css.textDecoration = 'underline';
@@ -156,10 +170,11 @@ function resolveTarget(row: number, col: number): { row: number; col: number } {
   return covering ? { row: covering.top, col: covering.left } : { row, col };
 }
 
-const inSelection = (row: number, col: number) => {
-  const r = selection.value;
-  return row >= r.top && row <= r.bottom && col >= r.left && col <= r.right;
-};
+const inSelection = (row: number, col: number) => contains(selection.value, row, col);
+
+/** Cabeçalho aceso quando a linha/coluna toca qualquer faixa selecionada. */
+const rowSelected = (row: number) => rowTouched(selection.value, row);
+const colSelected = (col: number) => colTouched(selection.value, col);
 
 const peerAt = (row: number, col: number) => (props.peers ?? []).find((p) => p.row === row && p.col === col);
 
@@ -177,7 +192,7 @@ function focusCell(row: number, col: number, extend = false): void {
   cursor.value = target;
   if (!extend) anchor.value = { ...target };
   emit('cursor', target.row, target.col);
-  emit('selection', selection.value);
+  emitSelection();
   scrollIntoView();
 }
 
@@ -194,23 +209,35 @@ function scrollIntoView(): void {
   else if (left + w > el.scrollLeft + el.clientWidth - HEAD_W) el.scrollLeft = left + w - el.clientWidth + HEAD_W;
 }
 
+const additive = (ev: MouseEvent | KeyboardEvent) => ev.ctrlKey || ev.metaKey;
+
 /** Linha inteira: até a última coluna usada, com um mínimo pra planilha estreita. */
-function selectRow(row: number): void {
-  anchor.value = { row, col: 0 };
-  cursor.value = { row, col: Math.max(props.cols - 1, 11) };
+function selectRow(row: number, ev: MouseEvent): void {
+  if (additive(ev)) pinActive();
+  else pinned.value = [];
+  const r = wholeRow(row, props.cols);
+  anchor.value = { row: r.top, col: r.left };
+  cursor.value = { row: r.bottom, col: r.right };
   emit('cursor', row, 0);
-  emit('selection', selection.value);
+  emitSelection();
 }
 
-function selectCol(col: number): void {
-  anchor.value = { row: 0, col };
-  cursor.value = { row: Math.max(props.rows - 1, 29), col };
+function selectCol(col: number, ev: MouseEvent): void {
+  if (additive(ev)) pinActive();
+  else pinned.value = [];
+  const r = wholeCol(col, props.rows);
+  anchor.value = { row: r.top, col: r.left };
+  cursor.value = { row: r.bottom, col: r.right };
   emit('cursor', 0, col);
-  emit('selection', selection.value);
+  emitSelection();
 }
 
 function onCellDown(row: number, col: number, ev: MouseEvent): void {
   dragging.value = true;
+  // Ctrl fixa o que já estava selecionado e abre uma faixa nova; sem Ctrl,
+  // recomeça. Shift estende a faixa atual, como no Excel.
+  if (additive(ev)) pinActive();
+  else if (!ev.shiftKey) pinned.value = [];
   focusCell(row, col, ev.shiftKey);
 }
 
@@ -241,11 +268,8 @@ function commitEdit(move: 'down' | 'right' | 'none'): void {
 
 function clearSelection(): void {
   if (props.readonly) return;
-  const r = selection.value;
-  for (let row = r.top; row <= r.bottom; row++) {
-    for (let col = r.left; col <= r.right; col++) {
-      if ((cellAt(row, col)?.v ?? null) !== null) emit('edit', row, col, null);
-    }
+  for (const { row, col } of cellsOf(selection.value)) {
+    if ((cellAt(row, col)?.v ?? null) !== null) emit('edit', row, col, null);
   }
 }
 
@@ -271,11 +295,12 @@ function onKey(ev: KeyboardEvent): void {
     case 'Delete': case 'Backspace': ev.preventDefault(); clearSelection(); return;
     default: break;
   }
-  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'a') {
+  if (additive(ev) && ev.key.toLowerCase() === 'a') {
     ev.preventDefault();
+    pinned.value = [];
     anchor.value = { row: 0, col: 0 };
     cursor.value = { row: Math.max(props.rows - 1, 0), col: Math.max(props.cols - 1, 0) };
-    emit('selection', selection.value);
+    emitSelection();
     return;
   }
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && ev.key.length === 1) {
@@ -297,7 +322,9 @@ function onPaste(ev: ClipboardEvent): void {
 function onCopy(ev: ClipboardEvent): void {
   if (editing.value) return;
   ev.preventDefault();
-  const r = selection.value;
+  // Faixas soltas não têm forma retangular para colar; copia a faixa ativa,
+  // que é a última em que o cursor está (o Excel simplesmente recusa).
+  const r = active.value;
   const lines: string[] = [];
   for (let row = r.top; row <= r.bottom; row++) {
     const cols: string[] = [];
@@ -329,20 +356,20 @@ defineExpose({ focusCell });
         <div class="sg-corner" :style="{ width: HEAD_W + 'px', height: HEAD_H + 'px', transform: `translateX(${scrollLeft}px)` }" />
         <div
           v-for="c in visibleCols" :key="'h' + c"
-          class="sg-ch" :class="{ 'is-cur': c >= selection.left && c <= selection.right }"
+          class="sg-ch" :class="{ 'is-cur': colSelected(c) }"
           :style="{ left: HEAD_W + colAx.offset(c) + 'px', width: colAx.size(c) + 'px', height: HEAD_H + 'px' }"
           title="Clique para selecionar a coluna"
-          @mousedown="selectCol(c)"
+          @mousedown="selectCol(c, $event)"
         >{{ colName(c) }}</div>
       </div>
 
       <!-- cabeçalho de linhas -->
       <div
         v-for="r in visibleRows" :key="'r' + r"
-        class="sg-rh" :class="{ 'is-cur': r >= selection.top && r <= selection.bottom }"
+        class="sg-rh" :class="{ 'is-cur': rowSelected(r) }"
         :style="{ top: rowAx.offset(r) + 'px', height: rowAx.size(r) + 'px', width: HEAD_W + 'px', transform: `translateX(${scrollLeft}px)` }"
         title="Clique para selecionar a linha"
-        @mousedown="selectRow(r)"
+        @mousedown="selectRow(r, $event)"
       >{{ r + 1 }}</div>
 
       <!-- células -->

@@ -144,26 +144,33 @@ export class SheetSession {
    */
   applyStyle(
     sheet: string,
-    range: { top: number; left: number; bottom: number; right: number },
+    ranges: { top: number; left: number; bottom: number; right: number }[],
     change: Partial<CellStyle>,
   ): void {
     const map = this.sheetMap(sheet);
+    const seen = new Set<string>();
+    // Uma transação para todas as faixas: vira um update e um undo, mesmo com
+    // seleção solta. Células repetidas entre faixas são aplicadas uma vez.
     this.doc.transact(() => {
-      for (let row = range.top; row <= range.bottom; row++) {
-        for (let col = range.left; col <= range.right; col++) {
-          const k = cellKey(row, col);
-          const prev = map.get(k);
-          const next = mergeStyle(this.styleOf(prev) ?? {}, change);
-          const value = prev?.v ?? null;
+      for (const range of ranges) {
+        for (let row = range.top; row <= range.bottom; row++) {
+          for (let col = range.left; col <= range.right; col++) {
+            if (seen.has(`${row}:${col}`)) continue;
+            seen.add(`${row}:${col}`);
+            const k = cellKey(row, col);
+            const prev = map.get(k);
+            const next = mergeStyle(this.styleOf(prev) ?? {}, change);
+            const value = prev?.v ?? null;
 
-          if (isBlankStyle(next)) {
-            if (value === null) map.delete(k);
-            else map.set(k, { v: value });
-            continue;
+            if (isBlankStyle(next)) {
+              if (value === null) map.delete(k);
+              else map.set(k, { v: value });
+              continue;
+            }
+            // O texto formatado do Excel é descartado: quem passa a renderizar
+            // é o formatador local, com o código de formato novo.
+            map.set(k, { v: value, s: this.ensureStyle(next) });
           }
-          // O texto formatado do Excel é descartado: quem passa a renderizar é
-          // o formatador local, com o código de formato novo.
-          map.set(k, { v: value, s: this.ensureStyle(next) });
         }
       }
     }, 'local');
