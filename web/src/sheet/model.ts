@@ -1,46 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
-/** Espelha api/src/sheet/model.ts — o layout do doc tem que ser idêntico. */
+/**
+ * Modelo do cliente. Os tipos e o endereçamento vêm dos módulos compartilhados
+ * com o servidor (`@sheet/*` = api/src/sheet), então não existe uma segunda
+ * definição do que é uma célula ou de como se lê uma referência A1. Aqui ficam
+ * só as decisões de interface: como interpretar o que o usuário digita e o que
+ * mostrar na tela.
+ */
 import { formatValue } from './format';
+import {
+  cellKey, cellRef, colIndex, colName, parseCellKey, parseCellRef,
+  SHEET_ORDER, SHEET_PREFIX, STYLES,
+  type Cell, type CellStyle, type CellValue,
+} from '@sheet/model';
+import { styleKey } from '@sheet/styles';
 
-export type CellValue = string | number | boolean | null;
-
-/** Mesmo formato de api/src/sheet/styles.ts. */
-export interface CellStyle {
-  /** Índice do xf original; presente só em estilo que veio do arquivo. */
-  xf?: number;
-  bg?: string;
-  fg?: string;
-  bold?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  align?: 'left' | 'center' | 'right';
-  numFmt?: string;
-  border?: boolean;
-}
-
-export interface Cell {
-  v: CellValue;
-  w?: string;
-  s?: string;
-}
-
-export const SHEET_PREFIX = 'sheet:';
-export const SHEET_ORDER = 'sheetNames';
-export const STYLES = 'styles';
-
-/** Dois estilos com o mesmo visual são o mesmo estilo (o `xf` não conta). */
-export function styleKey(style: CellStyle): string {
-  return JSON.stringify([
-    style.bg ?? '', style.fg ?? '', !!style.bold, !!style.italic,
-    !!style.underline, style.align ?? '', style.numFmt ?? '', !!style.border,
-  ]);
-}
+export {
+  cellKey, cellRef, colIndex, colName, parseCellKey, parseCellRef,
+  SHEET_ORDER, SHEET_PREFIX, STYLES, styleKey,
+};
+export type { Cell, CellStyle, CellValue };
 
 /**
  * Aplica uma alteração parcial sobre o estilo atual. O `xf` é descartado: o
  * visual resultante é novo e não corresponde mais ao estilo do arquivo.
- * Propriedade com `undefined` na alteração é removida (é como se desliga negrito).
+ * Propriedade com `undefined` (ou false/'') na alteração é removida — é assim
+ * que se desliga negrito ou se tira o preenchimento.
  */
 export function mergeStyle(current: CellStyle, change: Partial<CellStyle>): CellStyle {
   const { xf: _drop, ...base } = current;
@@ -54,26 +39,6 @@ export function mergeStyle(current: CellStyle, change: Partial<CellStyle>): Cell
 
 /** Estilo vazio (sem nada aplicado) não precisa existir. */
 export const isBlankStyle = (style: CellStyle): boolean => styleKey(style) === styleKey({});
-
-export const cellKey = (row: number, col: number) => `R${row}C${col}`;
-
-export function parseCellKey(k: string): { row: number; col: number } | null {
-  const m = /^R(\d+)C(\d+)$/.exec(k);
-  return m ? { row: Number(m[1]), col: Number(m[2]) } : null;
-}
-
-export function colName(col: number): string {
-  let n = col + 1;
-  let out = '';
-  while (n > 0) {
-    const rem = (n - 1) % 26;
-    out = String.fromCharCode(65 + rem) + out;
-    n = Math.floor((n - 1) / 26);
-  }
-  return out;
-}
-
-export const cellRef = (row: number, col: number) => `${colName(col)}${row + 1}`;
 
 /**
  * O que o usuário digitou vira número quando é número, na convenção pt-BR:

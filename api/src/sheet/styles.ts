@@ -8,6 +8,8 @@
  * que o usuário nem tocou.
  */
 
+import { parseTheme, themeColor, type ThemePalette } from './theme';
+
 export interface CellStyle {
   /** Índice do xf original quando o estilo veio do arquivo; ausente = criado aqui. */
   xf?: number;
@@ -50,6 +52,10 @@ export interface StyleTable {
   fills: Section;
   borders: Section;
   cellXfs: Section;
+  /** Paleta do tema, para resolver `theme="N" tint="T"`. */
+  palette: ThemePalette;
+  /** Formatos diferenciais usados pela formatação condicional (`dxfId`). */
+  dxfs: CellStyle[];
 }
 
 const attr = (tag: string, name: string): string | undefined =>
@@ -67,7 +73,7 @@ function readSection(xml: string, name: string, item: string): Section {
   return { items: splitItems(block[0], item), raw: block[0] };
 }
 
-export function parseStyles(xml: string): StyleTable {
+export function parseStyles(xml: string, palette: ThemePalette = parseTheme(null)): StyleTable {
   const numFmts = new Map<number, string>();
   for (const m of xml.matchAll(/<numFmt\b[^>]*\/>/g)) {
     const id = Number(attr(m[0], 'numFmtId'));
@@ -81,7 +87,38 @@ export function parseStyles(xml: string): StyleTable {
     fills: readSection(xml, 'fills', 'fill'),
     borders: readSection(xml, 'borders', 'border'),
     cellXfs: readSection(xml, 'cellXfs', 'xf'),
+    palette,
+    dxfs: parseDxfs(xml, palette),
   };
+}
+
+/**
+ * `<dxf>` é o formato "diferencial" que a formatação condicional aplica por
+ * cima da célula. Diferente de um xf normal, o preenchimento vem em `bgColor`
+ * (e não `fgColor`) — quirk do formato.
+ */
+function parseDxfs(xml: string, palette: ThemePalette): CellStyle[] {
+  const block = /<dxfs\b[^>]*?(?:\/>|>[\s\S]*?<\/dxfs>)/.exec(xml);
+  if (!block) return [];
+  return splitItems(block[0], 'dxf').map((dxf) => {
+    const style: CellStyle = {};
+    const font = /<font>[\s\S]*?<\/font>/.exec(dxf)?.[0];
+    if (font) {
+      if (/<b\b[^>]*\/?>/.test(font)) style.bold = true;
+      if (/<i\b[^>]*\/?>/.test(font)) style.italic = true;
+      const fg = colorIn(font, 'color', palette);
+      if (fg) style.fg = fg;
+    }
+    const fill = /<fill>[\s\S]*?<\/fill>/.exec(dxf)?.[0];
+    if (fill) {
+      const bg = colorIn(fill, 'bgColor', palette) ?? colorIn(fill, 'fgColor', palette);
+      if (bg) style.bg = bg;
+    }
+    const numFmt = /<numFmt\b[^>]*\/>/.exec(dxf)?.[0];
+    const code = numFmt ? attr(numFmt, 'formatCode') : undefined;
+    if (code) style.numFmt = unescapeXml(code);
+    return style;
+  });
 }
 
 function unescapeXml(s: string): string {
@@ -92,14 +129,30 @@ function unescapeXml(s: string): string {
 const escapeXml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]!));
 
-/** RRGGBB de um <color rgb="FFRRGGBB"/>; cor de tema/indexada fica indefinida. */
-function colorOf(itemXml: string, tag = 'color'): string | undefined {
+/**
+ * RRGGBB de um elemento de cor. Aceita `rgb="FFRRGGBB"`, `theme="N" tint="T"`
+ * (resolvido pela paleta) e ignora `auto="1"` — automático significa "a cor
+ * padrão do tema do leitor", que quem renderiza decide. `indexed` (paleta
+ * legada do Excel 95) também fica de fora.
+ */
+function colorIn(itemXml: string, tag: string, palette: ThemePalette): string | undefined {
   const m = new RegExp(`<${tag}\\b[^>]*/?>`).exec(itemXml);
   if (!m) return undefined;
-  const rgb = attr(m[0], 'rgb');
-  if (!rgb) return undefined;
-  return (rgb.length === 8 ? rgb.slice(2) : rgb).toUpperCase();
+  const tag0 = m[0];
+
+  const rgb = attr(tag0, 'rgb');
+  if (rgb) return (rgb.length === 8 ? rgb.slice(2) : rgb).toUpperCase();
+
+  const theme = attr(tag0, 'theme');
+  if (theme !== undefined) {
+    const tint = Number(attr(tag0, 'tint') ?? '0');
+    return themeColor(palette, Number(theme), Number.isFinite(tint) ? tint : 0) ?? undefined;
+  }
+  return undefined;
 }
+
+const colorOf = (itemXml: string, palette: ThemePalette, tag = 'color') =>
+  colorIn(itemXml, tag, palette);
 
 /** Estilo resolvido de um índice de cellXfs — o que o cliente precisa pra pintar. */
 export function resolveXf(table: StyleTable, index: number): CellStyle {
@@ -113,14 +166,14 @@ export function resolveXf(table: StyleTable, index: number): CellStyle {
     if (/<b\b[^>]*\/?>/.test(font)) style.bold = true;
     if (/<i\b[^>]*\/?>/.test(font)) style.italic = true;
     if (/<u\b[^>]*\/?>/.test(font)) style.underline = true;
-    const fg = colorOf(font);
+    const fg = colorOf(font, table.palette);
     if (fg && fg !== '000000') style.fg = fg;
   }
 
   const fillId = Number(attr(xf, 'fillId') ?? '0');
   const fill = table.fills.items[fillId];
   if (fill && /patternType="solid"/.test(fill)) {
-    const bg = colorOf(fill, 'fgColor');
+    const bg = colorOf(fill, table.palette, 'fgColor');
     if (bg) style.bg = bg;
   }
 

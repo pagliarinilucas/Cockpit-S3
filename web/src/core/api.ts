@@ -6,6 +6,7 @@ import type {
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
   Cluster, ClusterInput, Share, SharePublicMeta,
 } from './models';
+import type { SheetView } from '../sheet/view';
 
 export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
@@ -192,6 +193,9 @@ export const api = {
   thumbBlob: (bucketId: string, key: string) => fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/thumb`, { key }),
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
 
+  /** Planilha já interpretada (valores, estilos, mesclagens, condicional) para exibição. */
+  sheetView: (bucketId: string, key: string) =>
+    req<SheetView>('GET', `/buckets/${encodeURIComponent(bucketId)}/sheet-view`, { params: { key } }),
   /** Ticket de uso único para abrir o WebSocket do editor (a permissão é conferida aqui). */
   sheetTicket: (bucketId: string, key: string) =>
     req<{ ticket: string }>('POST', `/buckets/${encodeURIComponent(bucketId)}/sheet-ticket`, { body: { key } }),

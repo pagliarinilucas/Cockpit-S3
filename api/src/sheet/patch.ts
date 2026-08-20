@@ -13,6 +13,7 @@
 import { unzipSync, zipSync } from 'fflate';
 import { cellRef, parseCellRef, type CellValue } from './model';
 import { StyleWriter, parseStyles, type CellStyle, type StyleTable } from './styles';
+import type { ThemePalette } from './theme';
 
 // Data fixa p/ saída determinística; longe das bordas de 1980/2099 do formato zip,
 // que são avaliadas no fuso LOCAL (1980-01-01T00:00Z cai em 1979 em fuso negativo).
@@ -254,7 +255,7 @@ export function patchXlsx(original: Uint8Array, patches: SheetPatch[]): Uint8Arr
 }
 
 /** Tabela de estilos do arquivo — usada na importação para resolver cada `s`. */
-export function stylesOf(files: Record<string, Uint8Array>): StyleTable {
+export function stylesOf(files: Record<string, Uint8Array>, palette?: ThemePalette): StyleTable {
   const raw = files[STYLES_PART];
-  return parseStyles(raw ? dec.decode(raw) : EMPTY_STYLES);
+  return parseStyles(raw ? dec.decode(raw) : EMPTY_STYLES, palette);
 }

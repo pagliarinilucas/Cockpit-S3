@@ -16,7 +16,12 @@
     "resolveJsonModule": true,
     "jsx": "preserve",
     "noEmit": true,
-    "types": ["vite/client", "bun-types"]
+    "types": ["vite/client", "bun-types"],
+    "paths": { "@sheet/*": ["../api/src/sheet/*"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "vite.config.ts",
+    "../api/src/sheet/model.ts", "../api/src/sheet/styles.ts", "../api/src/sheet/theme.ts",
+    "../api/src/sheet/conditional.ts", "../api/src/sheet/layout.ts"
+  ]
 }

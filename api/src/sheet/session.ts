@@ -8,8 +8,11 @@
  * não perde edição.
  */
 import * as Y from 'yjs';
-import { docIdFor, MAX_BYTES, MAX_CELLS } from './model';
-import { parseWorkbook } from './import';
+import { MAX_BYTES, MAX_CELLS, type CellStyle, type WorkbookData } from './model';
+import { docIdFor } from './docid';
+import type { SheetLayout } from './layout';
+import type { CfRule } from './conditional';
+import { EMPTY_LAYOUT, parseWorkbook } from './import';
 import { applyWorkbook, cellCount, sheetNames } from './ydoc';
 import { sheetStore } from './store';
 import { materialize, type MaterializeResult, type SheetIo } from './materialize';
@@ -41,7 +44,25 @@ export interface LiveSession {
   onEvent: (session: LiveSession, event: SessionEvent) => void;
   /** Último a editar: é em nome dele que a materialização automática grava. */
   lastAuthor: string | null;
+  /** Geometria e regras condicionais por aba (não editáveis, vêm do arquivo). */
+  layout: Record<string, SheetRender>;
+  /** Formatos das regras condicionais, indexados por dxfId. */
+  dxfs: CellStyle[];
 }
+
+/** O que o cliente precisa para desenhar a aba igual ao Excel. */
+export interface SheetRender {
+  layout: SheetLayout;
+  cf: CfRule[];
+}
+
+const layoutOf = (parsed: WorkbookData): Record<string, SheetRender> => {
+  const out: Record<string, SheetRender> = {};
+  for (const sheet of parsed.sheets) {
+    out[sheet.name] = { layout: sheet.layout ?? EMPTY_LAYOUT, cf: sheet.cf ?? [] };
+  }
+  return out;
+};
 
 export type SessionEvent =
   | { t: 'saved'; changed: number }
@@ -96,17 +117,22 @@ async function buildSession(docId: string, a: {
   const staleDoc = !!stored && (stored.fingerprint ?? null) !== (fingerprint ?? null);
   const reuseStored = !!stored && (!staleDoc || stored.dirty === 1);
 
+  // O arquivo é lido mesmo quando o documento vem do banco: mesclagens,
+  // larguras, alturas e regras condicionais não moram no documento
+  // colaborativo (não são editáveis ainda), então vêm sempre da fonte.
+  const bytes = await a.io.fetchBytes(a.bucketId, a.key);
+  // Teto de bytes ANTES de parsear: um xlsx enorme travaria o processo já na
+  // leitura, antes de qualquer contagem de células.
+  if (bytes.byteLength > MAX_BYTES) throw new Error('planilha_grande');
+  const parsed = parseWorkbook(bytes, a.key);
+
   if (reuseStored) {
     const loaded = sheetStore.load(docId);
     if (loaded) for (const update of loaded.updates) Y.applyUpdate(doc, update, 'db');
     diverged = staleDoc;
   } else {
     if (stored) sheetStore.remove(docId);
-    const bytes = await a.io.fetchBytes(a.bucketId, a.key);
-    // Teto de bytes ANTES de parsear: um xlsx enorme travaria o processo já na
-    // leitura, antes de qualquer contagem de células.
-    if (bytes.byteLength > MAX_BYTES) throw new Error('planilha_grande');
-    applyWorkbook(doc, parseWorkbook(bytes, a.key));
+    applyWorkbook(doc, parsed);
     if (cellCount(doc) > MAX_CELLS) throw new Error('planilha_grande');
     sheetStore.create({ docId, bucketId: a.bucketId, key: a.key, fingerprint, snapshot: Y.encodeStateAsUpdate(doc) });
   }
@@ -117,6 +143,8 @@ async function buildSession(docId: string, a: {
     fingerprint, diverged, saving: false,
     io: a.io, authorize: a.authorize, idleTimer: null, onEvent: a.onEvent,
     lastAuthor: null,
+    layout: layoutOf(parsed),
+    dxfs: parsed.dxfs,
   };
   sessions.set(docId, session);
   return session;
@@ -146,6 +174,8 @@ export function attach(session: LiveSession, client: SessionClient): void {
     sheets: sheetNames(session.doc),
     diverged: session.diverged,
     peers: [...session.clients.values()].map((c) => ({ id: c.id, user: c.user })),
+    layout: session.layout,
+    dxfs: session.dxfs,
   }));
   broadcastPeers(session);
 }

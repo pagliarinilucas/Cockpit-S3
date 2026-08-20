@@ -6,12 +6,15 @@
  * Y.Array com a ordem das abas e um Y.Map de estilos indexado por id.
  */
 import * as Y from 'yjs';
-import { cellKey, type Cell, type CellStyle, type CellValue, type WorkbookData } from './model';
+import {
+  SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey,
+  type Cell, type CellStyle, type CellValue, type WorkbookData,
+} from './model';
 import { styleKey } from './styles';
 
-export const SHEET_PREFIX = 'sheet:';
-export const SHEET_ORDER = 'sheetNames';
-export const STYLES = 'styles';
+
+
+
 
 export const sheetMap = (doc: Y.Doc, name: string) => doc.getMap<Cell>(SHEET_PREFIX + name);
 

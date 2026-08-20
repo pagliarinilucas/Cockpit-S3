@@ -10,6 +10,9 @@
 import { unzipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 import { stylesOf, resolveSheetParts } from './patch';
+import { parseTheme } from './theme';
+import { parseConditionalFormatting, type CfRule } from './conditional';
+import { parseLayout, type SheetLayout } from './layout';
 import { resolveAll, styleKey, type CellStyle } from './styles';
 import { MAX_CELLS, cellKey, type Cell, type CellValue, type SheetData, type WorkbookData } from './model';
 import { isZipWorkbook } from './model';
@@ -39,18 +42,47 @@ function readStyleRefs(sheetXml: string): Map<string, number> {
   return out;
 }
 
-/** Estilos por aba, prontos para casar com as células lidas pelo SheetJS. */
-function readStyles(bytes: Uint8Array): { byRef: Map<string, Map<string, number>>; resolved: CellStyle[] } {
+interface FileFacts {
+  /** Índice de estilo por referência A1, por aba. */
+  byRef: Map<string, Map<string, number>>;
+  /** Estilos resolvidos por índice de cellXfs. */
+  resolved: CellStyle[];
+  /** Formatos diferenciais usados pela formatação condicional. */
+  dxfs: CellStyle[];
+  layouts: Map<string, SheetLayout>;
+  cf: Map<string, CfRule[]>;
+}
+
+/**
+ * Tudo que o xlsx guarda fora dos valores: estilos (já com cor de tema
+ * resolvida), formatos condicionais e geometria de cada aba.
+ */
+function readFileFacts(bytes: Uint8Array): FileFacts {
   const files = unzipSync(bytes);
-  const resolved = resolveAll(stylesOf(files));
-  const byRef = new Map<string, Map<string, number>>();
   const dec = new TextDecoder();
+  const themeRaw = files['xl/theme/theme1.xml'];
+  const palette = parseTheme(themeRaw ? dec.decode(themeRaw) : null);
+  const table = stylesOf(files, palette);
+
+  const byRef = new Map<string, Map<string, number>>();
+  const layouts = new Map<string, SheetLayout>();
+  const cf = new Map<string, CfRule[]>();
+
   for (const [name, part] of resolveSheetParts(files)) {
     const raw = files[part];
-    if (raw) byRef.set(name, readStyleRefs(dec.decode(raw)));
+    if (!raw) continue;
+    const xml = dec.decode(raw);
+    byRef.set(name, readStyleRefs(xml));
+    layouts.set(name, parseLayout(xml));
+    cf.set(name, parseConditionalFormatting(xml));
   }
-  return { byRef, resolved };
+
+  return { byRef, resolved: resolveAll(table), dxfs: table.dxfs, layouts, cf };
 }
+
+export const EMPTY_LAYOUT: SheetLayout = {
+  merges: [], cols: [], rows: [], defaultRowHeight: 20, frozenRows: 0, frozenCols: 0,
+};
 
 function readSheet(
   ws: XLSX.WorkSheet,
@@ -124,17 +156,28 @@ export function parseWorkbook(bytes: Uint8Array, key: string): WorkbookData {
     ? XLSX.read(new TextDecoder().decode(bytes), { type: 'string', FS: ext === 'tsv' ? '\t' : ',', cellNF: true, cellText: true })
     : XLSX.read(bytes, { type: 'array', cellNF: true, cellText: true });
 
-  const { byRef, resolved } = isZipWorkbook(key)
-    ? readStyles(bytes)
-    : { byRef: new Map<string, Map<string, number>>(), resolved: [] as CellStyle[] };
+  const facts: FileFacts = isZipWorkbook(key)
+    ? readFileFacts(bytes)
+    : { byRef: new Map(), resolved: [], dxfs: [], layouts: new Map(), cf: new Map() };
 
   const usedStyles = new Map<string, CellStyle>();
-  const sheets = wb.SheetNames.map((name) =>
-    readSheet(wb.Sheets[name]!, name, byRef.get(name), resolved, usedStyles));
+  const sheets = wb.SheetNames.map((name) => {
+    const sheet = readSheet(wb.Sheets[name]!, name, facts.byRef.get(name), facts.resolved, usedStyles);
+    sheet.layout = facts.layouts.get(name) ?? EMPTY_LAYOUT;
+    sheet.cf = facts.cf.get(name) ?? [];
+    // Estilo padrão de linha/coluna também precisa viajar: a célula não guarda
+    // esse `s`, quem renderiza resolve o fallback.
+    for (const style of [...sheet.layout.rows, ...sheet.layout.cols]) {
+      if (style.style === undefined) continue;
+      const resolvedStyle = facts.resolved[style.style];
+      if (resolvedStyle && !isBlankStyle(resolvedStyle)) usedStyles.set(String(style.style), resolvedStyle);
+    }
+    return sheet;
+  });
 
   const total = sheets.reduce((acc, s) => acc + s.cells.size, 0);
   if (total > MAX_CELLS) throw new Error('planilha_grande');
-  return { sheetNames: wb.SheetNames, sheets, styles: usedStyles };
+  return { sheetNames: wb.SheetNames, sheets, styles: usedStyles, dxfs: facts.dxfs };
 }
 
 /** Bytes de uma planilha nova e vazia — usado pelo "Nova planilha". */

@@ -52,10 +52,20 @@ describe('parseStyles / resolveXf', () => {
     expect(all[2]!.bg).toBe('FFEB3B');
   });
 
-  it('ignora cor de tema, que não dá para resolver sem theme1.xml', () => {
+  it('resolve cor de tema pela paleta (Office quando não há theme1.xml)', () => {
     const t = parseStyles(STYLES.replace('<color rgb="FFFF0000"/>', '<color theme="4"/>'));
-    expect(resolveXf(t, 1).fg).toBeUndefined();
+    expect(resolveXf(t, 1).fg).toBe('5B9BD5');
     expect(resolveXf(t, 1).bold).toBe(true);
+  });
+
+  it('cor de tema com tint é clareada', () => {
+    const t = parseStyles(STYLES.replace('<color rgb="FFFF0000"/>', '<color theme="7" tint="0.8"/>'));
+    expect(resolveXf(t, 1).fg).toBe('FFF2CC');
+  });
+
+  it('cor indexada (paleta legada) continua fora — melhor sem cor que cor errada', () => {
+    const t = parseStyles(STYLES.replace('<color rgb="FFFF0000"/>', '<color indexed="10"/>'));
+    expect(resolveXf(t, 1).fg).toBeUndefined();
   });
 });
 

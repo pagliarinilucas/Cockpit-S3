@@ -24,6 +24,17 @@ const cells = shallowRef(new Map<string, Cell>());
 const styles = shallowRef(new Map<string, CellStyle>());
 const bounds = ref({ rows: 0, cols: 0 });
 const range = ref<Range>({ top: 0, left: 0, bottom: 0, right: 0 });
+const render = shallowRef<Record<string, SheetRender>>({});
+const dxfs = shallowRef<CellStyle[]>([]);
+// Preferência de tema do grid, lembrada entre sessões.
+const light = ref(localStorage.getItem('cs3.sheet.light') === '1');
+
+const sheetRender = computed<SheetRender | undefined>(() => render.value[active.value]);
+
+function toggleLight(): void {
+  light.value = !light.value;
+  localStorage.setItem('cs3.sheet.light', light.value ? '1' : '0');
+}
 const diverged = ref(false);
 const dirty = ref(false);
 const savedAt = ref<string | null>(null);
@@ -101,10 +112,12 @@ function saveNow(): void {
 onMounted(() => {
   session = new SheetSession(props.bucketId, props.objectKey, {
     onStatus: (s) => { status.value = s; },
-    onReady: ({ sheets: names, diverged: div, peers: list }) => {
+    onReady: ({ sheets: names, diverged: div, peers: list, layout, dxfs: diff }) => {
       sheets.value = names;
       peers.value = list;
       diverged.value = div;
+      render.value = layout ?? {};
+      dxfs.value = diff ?? [];
       if (!active.value && names.length) active.value = names[0]!;
       refresh();
       if (div) toast.error('Este arquivo foi alterado fora do editor — abrindo em leitura');
@@ -177,6 +190,13 @@ const STATUS_LABEL: Record<Status, string> = {
       <span v-else-if="dirty" class="se-hint">alterações não salvas</span>
       <span v-else-if="savedAt" class="se-hint">salvo às {{ savedAt }}</span>
 
+      <button
+        class="iconbtn iconbtn-lg" :title="light ? 'Tema escuro na planilha' : 'Tema claro na planilha'"
+        @click="toggleLight"
+      >
+        <Icon name="palette" :size="17" />
+      </button>
+
       <button class="btn btn-primary" :disabled="diverged || status !== 'ligado'" @click="saveNow">
         <Icon name="upload" :size="16" />Salvar agora
       </button>
@@ -190,7 +210,11 @@ const STATUS_LABEL: Record<Status, string> = {
       :styles="styles"
       :rows="bounds.rows"
       :cols="bounds.cols"
+      :layout="sheetRender?.layout ?? null"
+      :cf="sheetRender?.cf ?? []"
+      :dxfs="dxfs"
       :readonly="readonly"
+      :light="light"
       :peers="peerCursors"
       @edit="onEdit"
       @paste="onPasteBlock"

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 /** Modelo compartilhado do documento de planilha (mesmo formato no cliente). */
-import { createHash } from 'node:crypto';
 import type { CellStyle } from './styles';
+import type { SheetLayout } from './layout';
+import type { CfRule } from './conditional';
 
 export type CellValue = string | number | boolean | null;
 
@@ -24,6 +25,10 @@ export interface SheetData {
   rows: number;
   cols: number;
   cells: Map<string, Cell>;
+  /** Geometria e mesclagens; preenchido na importação de xlsx. */
+  layout?: SheetLayout;
+  /** Regras de formatação condicional da aba. */
+  cf?: CfRule[];
 }
 
 export interface WorkbookData {
@@ -31,7 +36,18 @@ export interface WorkbookData {
   sheets: SheetData[];
   /** Id do estilo -> estilo resolvido. Só os que alguma célula usa. */
   styles: Map<string, CellStyle>;
+  /** Formatos diferenciais, indexados por `dxfId` das regras condicionais. */
+  dxfs: CellStyle[];
 }
+
+/**
+ * Nomes das raízes no documento Yjs. Ficam no modelo (e não no ydoc) porque o
+ * cliente monta o MESMO layout: divergir aqui faria os dois lados escreverem em
+ * árvores diferentes e a colaboração silenciosamente não funcionar.
+ */
+export const SHEET_PREFIX = 'sheet:';
+export const SHEET_ORDER = 'sheetNames';
+export const STYLES = 'styles';
 
 export const MAX_CELLS = 300_000;
 export const MAX_BYTES = 25 * 1024 * 1024;
@@ -69,9 +85,6 @@ export function parseCellRef(ref: string): { row: number; col: number } | null {
   return m ? { row: Number(m[2]) - 1, col: colIndex(m[1]!) } : null;
 }
 
-/** Id estável do documento vivo. Muda se o arquivo for movido/renomeado. */
-export const docIdFor = (bucketId: string, key: string): string =>
-  createHash('sha256').update(bucketId + '\u0000' + key).digest('hex');
 
 export const SHEET_EXTS = new Set(['xlsx', 'xlsm', 'csv', 'tsv']);
 

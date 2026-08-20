@@ -13,8 +13,8 @@ import { objectsStore } from '../objects/store';
 import { usersStore } from '../users/store';
 import { s3 } from '../storage/s3';
 import type { Role } from '../types';
-import { isSheetKey, isZipWorkbook } from './model';
-import { newWorkbookBytes } from './import';
+import { MAX_BYTES, isSheetKey, isZipWorkbook } from './model';
+import { newWorkbookBytes, parseWorkbook } from './import';
 import { contentTypeFor, makeSheetIo, parseBucketId } from './io';
 import { sheetTickets } from './tickets';
 import { binarySend, controlFrame, decodeFrame } from './protocol';
@@ -66,6 +66,44 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
       if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
       return { ticket: sheetTickets.create({ bucketId: params.id, key, user: user!.username }) };
     }, { body: t.Object({ key: t.String() }) })
+
+    /**
+     * Planilha já interpretada, para exibição. Serve o preview de quem só tem
+     * leitura: devolve valores, estilos, mesclagens, larguras e regras
+     * condicionais — nunca o arquivo em si, então funciona até para view-only
+     * (que não pode baixar).
+     */
+    .get('/buckets/:id/sheet-view', async ({ user, params, query, set }) => {
+      const key = (query as Record<string, string>)['key'];
+      if (!parseBucketId(params.id)) { set.status = 400; return { error: 'bad_bucket_id' }; }
+      if (!key) { set.status = 400; return { error: 'missing_key' }; }
+      if (!isSheetKey(key)) { set.status = 415; return { error: 'nao_e_planilha' }; }
+
+      const access = perms.access(user!, params.id);
+      if (!access || !perms.canRead(access, key)) { set.status = 403; return { error: 'forbidden' }; }
+
+      try {
+        const bytes = await io.fetchBytes(params.id, key);
+        if (bytes.byteLength > MAX_BYTES) { set.status = 413; return { error: 'planilha_grande' }; }
+        const wb = parseWorkbook(bytes, key);
+        return {
+          sheets: wb.sheets.map((s) => ({
+            name: s.name,
+            rows: s.rows,
+            cols: s.cols,
+            cells: Object.fromEntries(s.cells),
+            layout: s.layout ?? null,
+            cf: s.cf ?? [],
+          })),
+          styles: Object.fromEntries(wb.styles),
+          dxfs: wb.dxfs,
+        };
+      } catch (e) {
+        const message = String((e as Error).message ?? e);
+        set.status = message === 'planilha_grande' ? 413 : 502;
+        return { error: message };
+      }
+    })
 
     /** Cria uma planilha nova e vazia no diretório atual. */
     .post('/buckets/:id/sheets', async ({ user, params, body, set }) => {

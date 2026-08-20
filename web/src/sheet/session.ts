@@ -8,6 +8,8 @@
  */
 import * as Y from 'yjs';
 import { api, ApiError } from '../core/api';
+import type { SheetLayout } from '@sheet/layout';
+import type { CfRule } from '@sheet/conditional';
 import {
   SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey, isBlankStyle, mergeStyle, styleKey,
   type Cell, type CellStyle, type CellValue,
@@ -21,6 +23,12 @@ export type Status = 'conectando' | 'ligado' | 'reconectando' | 'fechado';
 
 export interface Peer { id: number; user: string }
 
+/** Geometria + regras condicionais de uma aba (espelha SheetRender do servidor). */
+export interface SheetRender {
+  layout: SheetLayout;
+  cf: CfRule[];
+}
+
 export interface Presence {
   user: string;
   sheet: string;
@@ -30,7 +38,14 @@ export interface Presence {
 
 export interface SheetHandlers {
   onStatus: (s: Status) => void;
-  onReady: (a: { sheets: string[]; diverged: boolean; peers: Peer[] }) => void;
+  onReady: (a: {
+    sheets: string[];
+    diverged: boolean;
+    peers: Peer[];
+    /** Geometria e regras condicionais por aba, vindas do arquivo. */
+    layout: Record<string, SheetRender>;
+    dxfs: CellStyle[];
+  }) => void;
   onPeers: (peers: Peer[]) => void;
   onPresence: (clientId: number, p: Presence) => void;
   onSaved: (changed: number) => void;
@@ -243,6 +258,8 @@ export class SheetSession {
         sheets: (msg.sheets as string[]) ?? [],
         diverged: !!msg.diverged,
         peers: (msg.peers as Peer[]) ?? [],
+        layout: (msg.layout as Record<string, SheetRender>) ?? {},
+        dxfs: (msg.dxfs as CellStyle[]) ?? [],
       });
     } else if (msg.t === 'peers') this.handlers.onPeers((msg.peers as Peer[]) ?? []);
     else if (msg.t === 'saved') this.handlers.onSaved(Number(msg.changed ?? 0));
