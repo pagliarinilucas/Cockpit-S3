@@ -17,7 +17,7 @@ import { isSheetKey, isZipWorkbook } from './model';
 import { newWorkbookBytes } from './import';
 import { contentTypeFor, makeSheetIo, parseBucketId } from './io';
 import { sheetTickets } from './tickets';
-import { decodeFrame } from './protocol';
+import { binarySend, decodeFrame } from './protocol';
 import {
   applyClientUpdate, attach, broadcast, controlFrame, detach, flush,
   openSession, relayPresence, type LiveSession,
@@ -106,13 +106,13 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
         attach(session, {
           id: clientId,
           user: claim.user,
-          send: (frame) => ws.send(frame),
+          send: binarySend(ws),
           close: (code, reason) => ws.close(code, reason),
         });
         audit.log('download', claim.user, claim.bucketId, `editor:${claim.key}`);
       } catch (e) {
         const reason = String((e as Error).message ?? e);
-        ws.send(controlFrame({ t: 'error', message: reason }));
+        binarySend(ws)(controlFrame({ t: 'error', message: reason }));
         ws.close(1011, reason.slice(0, 120));
       }
     },

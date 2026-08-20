@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import { describe, expect, it } from 'bun:test';
-import { decodeFrame, toBytes } from './protocol';
+import { binarySend, decodeFrame, toBytes } from './protocol';
 import { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE, frame } from './session';
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -32,6 +32,34 @@ describe('toBytes', () => {
     expect(toBytes(null)).toBeNull();
     expect(toBytes(42)).toBeNull();
     expect(toBytes({ t: 'save' })).toBeNull();
+  });
+});
+
+describe('binarySend', () => {
+  /** O wrapper do Elysia serializa Uint8Array como JSON; o socket cru, não. */
+  function fakeWs() {
+    const viaWrapper: unknown[] = [];
+    const viaRaw: Uint8Array[] = [];
+    const ws = {
+      send: (d: unknown) => { viaWrapper.push(d); },
+      raw: { send: (d: Uint8Array) => { viaRaw.push(d); } },
+    };
+    return { ws, viaWrapper, viaRaw };
+  }
+
+  it('manda pelo socket cru, nunca pelo wrapper que faria JSON do binário', () => {
+    const { ws, viaWrapper, viaRaw } = fakeWs();
+    binarySend(ws)(new Uint8Array([1, 2, 3]));
+    expect(viaWrapper).toHaveLength(0);
+    expect(viaRaw).toHaveLength(1);
+  });
+
+  it('entrega exatamente os bytes recebidos', () => {
+    const { ws, viaRaw } = fakeWs();
+    const frame = new Uint8Array([FRAME_UPDATE, 200, 0, 42]);
+    binarySend(ws)(frame);
+    expect([...viaRaw[0]!]).toEqual([FRAME_UPDATE, 200, 0, 42]);
+    expect(typeof viaRaw[0]).toBe('object');
   });
 });
 

@@ -120,6 +120,7 @@ function msgFor(code: string): string {
   if (code === 'planilha_grande') return 'Planilha grande demais para o editor';
   if (code === 'sem_permissao') return 'Você não tem mais permissão de escrita aqui';
   if (code === 'ticket_invalido') return 'Sessão expirada — feche e abra de novo';
+  if (code === 'protocolo_binario') return 'Servidor mandou o documento em formato inválido';
   return code;
 }
 

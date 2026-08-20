@@ -22,6 +22,20 @@ export function toBytes(raw: unknown): Uint8Array | null {
   return null;
 }
 
+/** Socket cru (Bun) por trás do wrapper do Elysia. */
+export interface RawSocket {
+  send(data: Uint8Array): unknown;
+}
+
+/**
+ * Envia bytes SEM passar pelo `ws.send` do Elysia: ele trata Uint8Array como
+ * objeto qualquer e faz JSON.stringify (só `Buffer.isBuffer` escapa), o que
+ * transforma o frame binário no texto {"0":1,...} e o cliente descarta.
+ */
+export const binarySend = (ws: { raw: RawSocket }) => (frame: Uint8Array): void => {
+  ws.raw.send(frame);
+};
+
 export function decodeFrame(raw: unknown): FrameAction {
   const bytes = toBytes(raw);
   if (!bytes || bytes.byteLength < 2) return { kind: 'ignore' };

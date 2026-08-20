@@ -132,7 +132,13 @@ export class SheetSession {
       for (const frame of this.pending.splice(0)) ws.send(frame);
     };
 
-    ws.onmessage = (ev) => this.onFrame(new Uint8Array(ev.data as ArrayBuffer));
+    ws.onmessage = (ev) => {
+      // Frame de texto significa que alguém serializou o binário no caminho
+      // (o wrapper de ws do Elysia faz isso com Uint8Array). Falha visível em
+      // vez de tela de "carregando" infinita.
+      if (!(ev.data instanceof ArrayBuffer)) { this.handlers.onError('protocolo_binario'); return; }
+      this.onFrame(new Uint8Array(ev.data));
+    };
 
     ws.onclose = () => {
       this.ws = null;
