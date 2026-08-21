@@ -3,7 +3,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
   colWidthToPx, coveredBy, defaultStyleFor, mergeAt, parseCols, parseFrozen,
-  parseLayout, parseMerges, parseRows, pointsToPx,
+  parseHyperlinks, parseLayout, parseMerges, parseRows, parseValidations, pointsToPx,
+  hyperlinkAt, inA1Range, optionsAt,
 } from './layout';
 
 /** Recorte fiel do "Controle de Conciliação Bancária". */
@@ -120,6 +121,84 @@ describe('parseLayout', () => {
 
   it('sem sheetFormatPr assume 15pt', () => {
     expect(parseLayout('<worksheet><sheetData/></worksheet>').defaultRowHeight).toBe(20);
+  });
+});
+
+describe('parseHyperlinks', () => {
+  const XML = `<worksheet><sheetData/><hyperlinks><hyperlink ref="A1" r:id="rId1" tooltip="abrir site"/><hyperlink ref="B2:B3" location="Plan2!A1" display="ir"/><hyperlink ref="C1" r:id="rId9"/></hyperlinks></worksheet>`;
+  const RELS = `<Relationships><Relationship Id="rId1" Target="https://exemplo.com/a?b=1&amp;c=2" TargetMode="External"/></Relationships>`;
+
+  it('resolve o destino externo pelo rels', () => {
+    const links = parseHyperlinks(XML, RELS);
+    expect(links[0]).toEqual({ ref: 'A1', target: 'https://exemplo.com/a?b=1&c=2', tooltip: 'abrir site' });
+  });
+
+  it('link interno vem como location', () => {
+    expect(parseHyperlinks(XML, RELS)[1]).toEqual({ ref: 'B2:B3', location: 'Plan2!A1' });
+  });
+
+  it('r:id sem correspondência no rels não inventa destino', () => {
+    expect(parseHyperlinks(XML, RELS)[2]).toEqual({ ref: 'C1' });
+  });
+
+  it('sem rels, ainda lê os links internos', () => {
+    expect(parseHyperlinks(XML)).toHaveLength(3);
+  });
+
+  it('hyperlinkAt acha pela célula, inclusive em faixa', () => {
+    const layout = parseLayout(XML, RELS);
+    expect(hyperlinkAt(layout, 0, 0)?.target).toContain('exemplo.com');
+    expect(hyperlinkAt(layout, 2, 1)?.location).toBe('Plan2!A1');
+    expect(hyperlinkAt(layout, 9, 9)).toBeUndefined();
+  });
+});
+
+describe('parseValidations', () => {
+  const XML = `<worksheet><sheetData/><dataValidations count="2"><dataValidation type="list" allowBlank="1" sqref="D2:D50"><formula1>"Conciliado,Pendente,Divergente"</formula1></dataValidation><dataValidation type="list" sqref="E2:E10"><formula1>$Z$1:$Z$5</formula1></dataValidation><dataValidation type="decimal" operator="between" sqref="F2"><formula1>0</formula1><formula2>100</formula2></dataValidation></dataValidations></worksheet>`;
+
+  it('lista literal vira opções', () => {
+    const [list] = parseValidations(XML);
+    expect(list!.type).toBe('list');
+    expect(list!.options).toEqual(['Conciliado', 'Pendente', 'Divergente']);
+    expect(list!.allowBlank).toBe(true);
+  });
+
+  it('lista que aponta para faixa guarda a origem, sem inventar opções', () => {
+    const fromRange = parseValidations(XML)[1]!;
+    expect(fromRange.options).toBeUndefined();
+    expect(fromRange.source).toBe('$Z$1:$Z$5');
+  });
+
+  it('validação que não é lista também é lida', () => {
+    expect(parseValidations(XML)[2]!.type).toBe('decimal');
+  });
+
+  it('optionsAt devolve as opções da célula', () => {
+    const layout = parseLayout(XML);
+    expect(optionsAt(layout, 1, 3)).toEqual(['Conciliado', 'Pendente', 'Divergente']);
+    expect(optionsAt(layout, 49, 3)).toHaveLength(3);
+    expect(optionsAt(layout, 50, 3)).toBeUndefined();
+    expect(optionsAt(layout, 1, 4)).toBeUndefined();
+  });
+});
+
+describe('autoFilter', () => {
+  it('faixa do autofiltro é registrada', () => {
+    const layout = parseLayout('<worksheet><sheetData/><autoFilter ref="A1:M51"/></worksheet>');
+    expect(layout.autoFilter).toBe('A1:M51');
+  });
+
+  it('sem autofiltro fica ausente', () => {
+    expect(parseLayout(SHEET).autoFilter).toBeUndefined();
+  });
+});
+
+describe('inA1Range', () => {
+  it('aceita $ e faixa invertida', () => {
+    expect(inA1Range('$B$2:$D$4', 2, 2)).toBe(true);
+    expect(inA1Range('D4:B2', 1, 1)).toBe(true);
+    expect(inA1Range('B2', 1, 1)).toBe(true);
+    expect(inA1Range('B2', 2, 1)).toBe(false);
   });
 });
 

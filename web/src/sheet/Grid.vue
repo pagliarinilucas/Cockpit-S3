@@ -17,7 +17,9 @@ import {
 import {
   conditionalVisual, contextFrom, todaySerial, type CfRule, type CfVisual,
 } from '@sheet/conditional';
-import { coveredBy, defaultStyleFor, mergeAt, type SheetLayout } from '@sheet/layout';
+import {
+  coveredBy, defaultStyleFor, hyperlinkAt, mergeAt, optionsAt, type SheetLayout,
+} from '@sheet/layout';
 
 // O modelo de seleção vive em selection.ts (testável sem DOM).
 export type { Range };
@@ -167,6 +169,38 @@ const iconAt = (row: number, col: number) => {
   const visual = visualFor(row, col);
   return visual?.kind === 'iconSet' ? visual.icon : null;
 };
+
+/** Link da célula (externo ou interno), quando o arquivo define um. */
+const linkAt = (row: number, col: number) =>
+  (props.layout ? hyperlinkAt(props.layout, row, col) : undefined);
+
+/** Opções de lista suspensa da célula, quando há validação do tipo lista. */
+const listAt = (row: number, col: number) =>
+  (props.layout ? optionsAt(props.layout, row, col) : undefined);
+
+function openLink(row: number, col: number, ev: MouseEvent): void {
+  const link = linkAt(row, col);
+  if (!link?.target) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  // noopener: a aba aberta não recebe referência para esta.
+  window.open(link.target, '_blank', 'noopener,noreferrer');
+}
+
+/** Escolher na lista grava direto, sem passar pela digitação. */
+function pickOption(row: number, col: number, option: string): void {
+  picking.value = null;
+  if (props.readonly) return;
+  emit('edit', row, col, coerce(option));
+}
+
+const picking = ref<{ row: number; col: number } | null>(null);
+
+function toggleList(row: number, col: number): void {
+  if (props.readonly) return;
+  const open = picking.value;
+  picking.value = open && open.row === row && open.col === col ? null : { row, col };
+}
 
 const textAt = (row: number, col: number) => display(cellAt(row, col), styleFor(row, col));
 const isNumeric = (row: number, col: number) => typeof cellAt(row, col)?.v === 'number';
@@ -527,7 +561,30 @@ defineExpose({ focusCell });
               :style="{ width: `${Math.round(barAt(r, c)!.ratio * 100)}%`, background: `#${barAt(r, c)!.color}` }"
             />
             <span v-if="iconAt(r, c)" class="sg-icon">{{ iconAt(r, c) }}</span>
-            <span v-if="!barAt(r, c)?.hideValue" class="sg-text">{{ textAt(r, c) }}</span>
+
+            <a
+              v-if="linkAt(r, c)?.target"
+              class="sg-link" :title="linkAt(r, c)!.tooltip ?? linkAt(r, c)!.target"
+              @mousedown.stop @click="openLink(r, c, $event)"
+            >{{ textAt(r, c) }}</a>
+            <span v-else-if="!barAt(r, c)?.hideValue" class="sg-text">{{ textAt(r, c) }}</span>
+
+            <button
+              v-if="listAt(r, c) && !readonly"
+              class="sg-drop" title="Escolher da lista"
+              @mousedown.stop @click.stop="toggleList(r, c)"
+            >▾</button>
+
+            <div
+              v-if="picking && picking.row === r && picking.col === c"
+              class="sg-options" @mousedown.stop
+            >
+              <button
+                v-for="opt in listAt(r, c)" :key="opt"
+                class="sg-option" @click.stop="pickOption(r, c, opt)"
+              >{{ opt }}</button>
+            </div>
+
             <span v-if="peerAt(r, c)" class="sg-peer">{{ peerAt(r, c)!.user }}</span>
           </template>
         </div>
@@ -605,6 +662,27 @@ defineExpose({ focusCell });
   border-radius: 2px; opacity: 0.55; pointer-events: none;
 }
 .sg-icon { margin-right: 5px; font-size: 11px; line-height: 1; }
+.sg-link { color: var(--neon); text-decoration: underline; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.sg-drop {
+  margin-left: auto; width: 16px; height: 16px; flex: none;
+  display: grid; place-items: center;
+  border: 1px solid var(--sg-line); border-radius: 3px;
+  background: var(--sg-head-bg); color: var(--sg-head-fg);
+  font-size: 9px; cursor: pointer; padding: 0;
+}
+.sg-drop:hover { color: var(--neon); }
+.sg-options {
+  position: absolute; top: 100%; left: 0; z-index: 20; min-width: 100%;
+  background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45); padding: 4px; max-height: 200px; overflow: auto;
+}
+.sg-option {
+  display: block; width: 100%; text-align: left; padding: 5px 8px;
+  border: none; background: transparent; color: var(--text);
+  font-family: var(--mono); font-size: 12px; cursor: pointer; border-radius: 5px;
+  white-space: nowrap;
+}
+.sg-option:hover { background: var(--bg-3); color: var(--neon); }
 .sg-peer {
   position: absolute; top: -1px; right: 2px;
   font-size: 9px; letter-spacing: 0.5px; color: var(--amber);

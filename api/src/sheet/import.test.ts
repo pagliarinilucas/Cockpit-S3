@@ -67,6 +67,36 @@ describe('parseWorkbook', () => {
   });
 });
 
+describe('fórmulas e erros na importação', () => {
+  it('lê a fórmula e o valor em cache da célula', () => {
+    const ws = XLSX.utils.aoa_to_sheet([[10, 20, null]]);
+    ws['C1'] = { t: 'n', f: 'A1+B1', v: 30 };
+    ws['!ref'] = 'A1:C1';
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'A');
+    const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+
+    const cell = parseWorkbook(bytes, 'x.xlsx').sheets[0]!.cells.get(cellKey(0, 2))!;
+    expect(cell.f).toBe('A1+B1');
+    expect(cell.v).toBe(30);
+  });
+
+  it('célula de erro volta como o texto do erro, não como código numérico', () => {
+    // O formato guarda #DIV/0! como t="e" com o código 7; sem traduzir, a
+    // célula seria lida como o número 7.
+    const ws = XLSX.utils.aoa_to_sheet([[1]]);
+    ws['B1'] = { t: 'e', f: 'A1/0', v: 7 };
+    ws['!ref'] = 'A1:B1';
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'A');
+    const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer);
+
+    const cell = parseWorkbook(bytes, 'x.xlsx').sheets[0]!.cells.get(cellKey(0, 1))!;
+    expect(cell.v).toBe('#DIV/0!');
+    expect(cell.f).toBe('A1/0');
+  });
+});
+
 describe('newWorkbookBytes', () => {
   it('gera xlsx válido e vazio', () => {
     const wb = XLSX.read(newWorkbookBytes(), { type: 'array' });

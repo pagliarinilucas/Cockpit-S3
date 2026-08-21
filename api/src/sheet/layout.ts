@@ -37,6 +37,28 @@ export interface RowLayout {
   style?: number;
 }
 
+/** Link de uma célula. `target` já resolvido pelo rels quando é externo. */
+export interface HyperlinkRef {
+  /** Faixa A1 a que o link se aplica (normalmente uma célula). */
+  ref: string;
+  target?: string;
+  /** Destino interno da planilha (ex.: "Plan2!A1"). */
+  location?: string;
+  tooltip?: string;
+}
+
+/** Validação de dados: o que o Excel oferece como lista suspensa. */
+export interface ValidationRef {
+  /** Faixas A1 onde vale. */
+  ranges: string[];
+  type: string;
+  /** Opções de uma lista literal ("a,b,c"); faixa como origem não é resolvida. */
+  options?: string[];
+  /** Fórmula da origem, quando a lista aponta para uma faixa. */
+  source?: string;
+  allowBlank?: boolean;
+}
+
 export interface SheetLayout {
   merges: MergeRange[];
   cols: ColLayout[];
@@ -45,6 +67,10 @@ export interface SheetLayout {
   /** Linhas/colunas congeladas (painel), 0 quando não há. */
   frozenRows: number;
   frozenCols: number;
+  hyperlinks: HyperlinkRef[];
+  validations: ValidationRef[];
+  /** Faixa do autofiltro, quando a aba tem um (só indicado, não filtra). */
+  autoFilter?: string;
 }
 
 /** Excel mede largura em caracteres; 7px por caractere + 5px de padding. */
@@ -130,16 +156,108 @@ export function parseFrozen(sheetXml: string): { frozenRows: number; frozenCols:
   };
 }
 
-export function parseLayout(sheetXml: string): SheetLayout {
+function unescapeXml(s: string): string {
+  return s.replace(/&(amp|lt|gt|quot|apos|#39);/g, (_, e) =>
+    e === 'amp' ? '&' : e === 'lt' ? '<' : e === 'gt' ? '>' : e === 'quot' ? '"' : "'");
+}
+
+/**
+ * Links da aba. O destino externo mora no rels da planilha (r:id aponta pra lá),
+ * então `rels` é opcional: sem ele sobra o destino interno e a dica.
+ */
+export function parseHyperlinks(sheetXml: string, rels?: string): HyperlinkRef[] {
+  const targets = new Map<string, string>();
+  if (rels) {
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = attr(m[0], 'Id');
+      const target = attr(m[0], 'Target');
+      if (id && target) targets.set(id, unescapeXml(target));
+    }
+  }
+
+  const out: HyperlinkRef[] = [];
+  for (const m of sheetXml.matchAll(/<hyperlink\b[^>]*\/?>/g)) {
+    const tag = m[0];
+    const ref = attr(tag, 'ref');
+    if (!ref) continue;
+    const rid = /\br:id="([^"]+)"/.exec(tag)?.[1];
+    const target = rid ? targets.get(rid) : undefined;
+    const location = attr(tag, 'location');
+    const tooltip = attr(tag, 'tooltip');
+    out.push({
+      ref,
+      ...(target ? { target } : {}),
+      ...(location ? { location: unescapeXml(location) } : {}),
+      ...(tooltip ? { tooltip: unescapeXml(tooltip) } : {}),
+    });
+  }
+  return out;
+}
+
+/** Validações de dados; a lista literal já vem quebrada em opções. */
+export function parseValidations(sheetXml: string): ValidationRef[] {
+  const out: ValidationRef[] = [];
+  for (const m of sheetXml.matchAll(/<dataValidation\b[^>]*?(?:\/>|>[\s\S]*?<\/dataValidation>)/g)) {
+    const block = m[0];
+    const tag = /<dataValidation\b[^>]*?\/?>/.exec(block)![0];
+    const sqref = attr(tag, 'sqref');
+    if (!sqref) continue;
+    const formula = /<formula1>([\s\S]*?)<\/formula1>/.exec(block)?.[1];
+    const source = formula ? unescapeXml(formula.trim()) : undefined;
+    // Lista literal vem como "a,b,c" entre aspas; faixa vem como $A$1:$A$9.
+    const literal = source && /^".*"$/.test(source)
+      ? source.slice(1, -1).split(',').map((o) => o.trim()).filter(Boolean)
+      : undefined;
+
+    out.push({
+      ranges: sqref.split(/\s+/).filter(Boolean),
+      type: attr(tag, 'type') ?? 'none',
+      ...(literal?.length ? { options: literal } : {}),
+      ...(source && !literal ? { source } : {}),
+      ...(attr(tag, 'allowBlank') === '1' ? { allowBlank: true } : {}),
+    });
+  }
+  return out;
+}
+
+export function parseLayout(sheetXml: string, rels?: string): SheetLayout {
   const fmt = /<sheetFormatPr\b[^>]*\/?>/.exec(sheetXml)?.[0];
   const defaultHeight = fmt ? numAttr(fmt, 'defaultRowHeight') : undefined;
+  const autoFilter = /<autoFilter\b[^>]*\bref="([^"]+)"/.exec(sheetXml)?.[1];
   return {
     merges: parseMerges(sheetXml),
     cols: parseCols(sheetXml),
     rows: parseRows(sheetXml),
     defaultRowHeight: pointsToPx(defaultHeight ?? 15),
     ...parseFrozen(sheetXml),
+    hyperlinks: parseHyperlinks(sheetXml, rels),
+    validations: parseValidations(sheetXml),
+    ...(autoFilter ? { autoFilter } : {}),
   };
+}
+
+/** Link que cobre a célula, se houver. */
+export function hyperlinkAt(layout: SheetLayout, row: number, col: number): HyperlinkRef | undefined {
+  return layout.hyperlinks.find((h) => inA1Range(h.ref, row, col));
+}
+
+/** Opções de lista para a célula, se houver validação do tipo lista. */
+export function optionsAt(layout: SheetLayout, row: number, col: number): string[] | undefined {
+  const found = layout.validations.find((v) => v.type === 'list'
+    && v.options?.length
+    && v.ranges.some((r) => inA1Range(r, row, col)));
+  return found?.options;
+}
+
+/** A célula está dentro da faixa A1 (aceita célula única e faixa invertida)? */
+export function inA1Range(range: string, row: number, col: number): boolean {
+  const [a, b] = range.replace(/\$/g, '').split(':');
+  const from = parseCellRef(a ?? '');
+  if (!from) return false;
+  const to = b ? parseCellRef(b) : from;
+  if (!to) return false;
+  return row >= Math.min(from.row, to.row) && row <= Math.max(from.row, to.row)
+    && col >= Math.min(from.col, to.col) && col <= Math.max(from.col, to.col);
 }
 
 /** Célula é o canto superior esquerdo de uma mesclagem? */

@@ -30,6 +30,22 @@ function normalize(raw: unknown): CellValue {
 
 const isBlankStyle = (s: CellStyle): boolean => styleKey(s) === styleKey({});
 
+/**
+ * Códigos de erro do formato (BIFF), que é como o valor chega numa célula
+ * `t="e"`. Sem traduzir, uma célula com #DIV/0! seria lida como o número 7.
+ */
+const ERROR_BY_CODE: Record<number, string> = {
+  0: '#NULL!', 7: '#DIV/0!', 15: '#VALUE!', 23: '#REF!', 29: '#NAME?', 36: '#NUM!', 42: '#N/A',
+};
+
+/** Texto do erro de uma célula de erro do SheetJS. */
+function errorText(raw: XLSX.CellObject): string {
+  if (typeof raw.v === 'string' && raw.v.startsWith('#')) return raw.v;
+  if (typeof raw.v === 'number') return ERROR_BY_CODE[raw.v] ?? '#VALUE!';
+  if (typeof raw.w === 'string' && raw.w.startsWith('#')) return raw.w;
+  return '#VALUE!';
+}
+
 /** Índice de estilo (`s`) de cada célula da aba, por referência A1. */
 function readStyleRefs(sheetXml: string): Map<string, number> {
   const out = new Map<string, number>();
@@ -73,7 +89,11 @@ function readFileFacts(bytes: Uint8Array): FileFacts {
     if (!raw) continue;
     const xml = dec.decode(raw);
     byRef.set(name, readStyleRefs(xml));
-    layouts.set(name, parseLayout(xml));
+    // O destino dos links mora no rels da própria aba, ao lado dela.
+    const slash = part.lastIndexOf('/');
+    const relsPart = `${part.slice(0, slash)}/_rels${part.slice(slash)}.rels`;
+    const relsRaw = files[relsPart];
+    layouts.set(name, parseLayout(xml, relsRaw ? dec.decode(relsRaw) : undefined));
     cf.set(name, parseConditionalFormatting(xml, palette));
   }
 
@@ -82,6 +102,7 @@ function readFileFacts(bytes: Uint8Array): FileFacts {
 
 export const EMPTY_LAYOUT: SheetLayout = {
   merges: [], cols: [], rows: [], defaultRowHeight: 20, frozenRows: 0, frozenCols: 0,
+  hyperlinks: [], validations: [],
 };
 
 function readSheet(
@@ -113,7 +134,7 @@ function readSheet(
         const addr = XLSX.utils.encode_cell({ r, c });
         const raw = ws[addr] as XLSX.CellObject | undefined;
         const styleId = noteStyle(addr);
-        const v = normalize(raw?.v);
+        const v = raw?.t === 'e' ? errorText(raw) : normalize(raw?.v);
         if (v === null && !styleId) continue;
 
         const w = raw && typeof raw.w === 'string' && raw.w !== String(v) ? raw.w : undefined;
