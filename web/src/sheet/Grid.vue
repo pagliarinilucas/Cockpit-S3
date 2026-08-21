@@ -3,9 +3,9 @@
   Copyright (C) 2026 Lucas Pagliarini
 -->
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
-  colName, coerce, display, editText, formulaOf, isFormulaInput,
+  clampColWidth, clampRowHeight, colName, coerce, display, editText, formulaOf, isFormulaInput,
   type Cell, type CellStyle, type CellValue,
 } from './model';
 import { Axis, colAxis, rowAxis } from './geometry';
@@ -35,6 +35,8 @@ const props = defineProps<{
   readonly?: boolean;
   light?: boolean;
   peers?: { clientId: number; user: string; row: number; col: number }[];
+  colWidths?: Map<number, number>;
+  rowHeights?: Map<number, number>;
 }>();
 
 const emit = defineEmits<{
@@ -45,6 +47,8 @@ const emit = defineEmits<{
   cursor: [row: number, col: number];
   /** Todas as faixas selecionadas — com Ctrl dá para juntar faixas soltas. */
   selection: [Range[]];
+  resizeCol: [col: number, px: number];
+  resizeRow: [row: number, px: number];
 }>();
 
 const DEFAULT_COL_W = 112;
@@ -71,19 +75,44 @@ const merges = computed(() => props.layout?.merges ?? []);
 const totalRows = computed(() => Math.max(props.rows + 20, 40, cursor.value.row + 12));
 const totalCols = computed(() => Math.max(props.cols + 5, 16, cursor.value.col + 4));
 
+const localCols = ref(new Map<number, number>());
+const localRows = ref(new Map<number, number>());
+const drag = ref<{ axis: 'col' | 'row'; index: number; from: number; start: number; size: number } | null>(null);
+
+function overrides(shared: Map<number, number> | undefined, local: Map<number, number>, axis: 'col' | 'row') {
+  const out = new Map<number, number>(shared ?? []);
+  for (const [index, px] of local) out.set(index, px);
+  const live = drag.value;
+  if (live && live.axis === axis) out.set(live.index, live.size);
+  return out;
+}
+
+const colOverrides = computed(() => overrides(props.colWidths, localCols.value, 'col'));
+const rowOverrides = computed(() => overrides(props.rowHeights, localRows.value, 'row'));
+
 const rowAx = computed<Axis>(() => rowAxis(
   totalRows.value,
   props.layout?.defaultRowHeight ?? DEFAULT_ROW_H,
   props.layout?.rows ?? [],
+  rowOverrides.value,
 ));
 
 const colAx = computed<Axis>(() => colAxis(
   totalCols.value,
   DEFAULT_COL_W,
   props.layout?.cols ?? [],
+  colOverrides.value,
 ));
 
-const firstRow = computed(() => Math.max(0, rowAx.value.indexAt(scrollTop.value) - OVERSCAN));
+/**
+ * O cabeçalho de colunas é sobreposto (acompanha a rolagem), então a primeira
+ * linha começa DEPOIS dele — senão ela nasce debaixo do cabeçalho e não há
+ * rolagem que a revele. É o mesmo deslocamento que a coluna já tinha no eixo x.
+ */
+const rowTop = (row: number) => HEAD_H + rowAx.value.offset(row);
+const colLeft = (col: number) => HEAD_W + colAx.value.offset(col);
+
+const firstRow = computed(() => Math.max(0, rowAx.value.indexAt(Math.max(0, scrollTop.value - HEAD_H)) - OVERSCAN));
 const lastRow = computed(() => Math.min(totalRows.value, rowAx.value.indexAt(scrollTop.value + height.value) + OVERSCAN));
 const firstCol = computed(() => Math.max(0, colAx.value.indexAt(scrollLeft.value) - 2));
 const lastCol = computed(() => Math.min(totalCols.value, colAx.value.indexAt(scrollLeft.value + width.value) + 2));
@@ -137,15 +166,43 @@ const cfContext = computed(() => contextFrom(props.cells, todaySerial()));
  * Estilo efetivo: o do arquivo (célula, senão o padrão da linha/coluna) com a
  * formatação condicional aplicada por cima — é essa a ordem no Excel.
  */
+/**
+ * Cada célula é consultada várias vezes por render (fundo, texto, barra, ícone,
+ * alinhamento) e avaliar as regras condicionais não é barato: numa planilha com
+ * uma dúzia de regras isso multiplicava o trabalho do primeiro desenho. O
+ * resultado por célula é memorizado e jogado fora quando o conteúdo, os estilos
+ * ou as regras mudam de identidade.
+ */
+let visualCache = new Map<string, CfVisual | null>();
+let styleCache = new Map<string, CellStyle | undefined>();
+
+watch(
+  () => [props.cells, props.styles, props.cf, props.dxfs, props.layout, colAx.value, rowAx.value],
+  () => { visualCache = new Map(); styleCache = new Map(); cssCache = new Map(); textCache = new Map(); },
+);
+
 /** Visual condicional da célula (estilo, barra, escala ou ícone). */
 function visualFor(row: number, col: number): CfVisual | null {
   const rules = props.cf ?? [];
   if (!rules.length) return null;
+  const memoKey = `${row}:${col}`;
+  const hit = visualCache.get(memoKey);
+  if (hit !== undefined) return hit;
   const value = cellAt(row, col)?.v ?? null;
-  return conditionalVisual(rules, props.dxfs ?? [], row, col, value, cfContext.value);
+  const visual = conditionalVisual(rules, props.dxfs ?? [], row, col, value, cfContext.value);
+  visualCache.set(memoKey, visual);
+  return visual;
 }
 
 function styleFor(row: number, col: number): CellStyle | undefined {
+  const memoKey = `${row}:${col}`;
+  if (styleCache.has(memoKey)) return styleCache.get(memoKey);
+  const style = computeStyle(row, col);
+  styleCache.set(memoKey, style);
+  return style;
+}
+
+function computeStyle(row: number, col: number): CellStyle | undefined {
   const cell = cellAt(row, col);
   const own = cell?.s !== undefined ? props.styles.get(cell.s) : undefined;
   const fallbackId = own || !props.layout ? undefined : defaultStyleFor(props.layout, row, col);
@@ -202,21 +259,48 @@ function toggleList(row: number, col: number): void {
   picking.value = open && open.row === row && open.col === col ? null : { row, col };
 }
 
-const textAt = (row: number, col: number) => display(cellAt(row, col), styleFor(row, col));
+let textCache = new Map<string, string>();
+
+function textAt(row: number, col: number): string {
+  const memoKey = `${row}:${col}`;
+  const hit = textCache.get(memoKey);
+  if (hit !== undefined) return hit;
+  const text = display(cellAt(row, col), styleFor(row, col));
+  textCache.set(memoKey, text);
+  return text;
+}
+
 const isNumeric = (row: number, col: number) => typeof cellAt(row, col)?.v === 'number';
 
 /** Posição e tamanho da célula, já considerando mesclagem. */
 function boxOf(row: number, col: number) {
   const merge = mergeAt(merges.value, row, col);
   return {
-    top: rowAx.value.offset(row),
-    left: HEAD_W + colAx.value.offset(col),
+    top: rowTop(row),
+    left: colLeft(col),
     width: merge ? colAx.value.span(merge.left, merge.right) : colAx.value.size(col),
     height: merge ? rowAx.value.span(merge.top, merge.bottom) : rowAx.value.size(row),
   };
 }
 
+let cssCache = new Map<string, Record<string, string>>();
+
+/**
+ * Só a célula congelada depende da rolagem (ela se move com ela); as outras têm
+ * CSS estável, então o objeto é reaproveitado — o que também poupa o Vue de
+ * remendar atributos idênticos a cada rolagem.
+ */
 function cellCss(row: number, col: number): Record<string, string> {
+  if (isFrozen(row, col)) return computeCellCss(row, col);
+  const memoKey = `${row}:${col}`;
+  const hit = cssCache.get(memoKey);
+  if (hit) return hit;
+  const css = computeCellCss(row, col);
+  cssCache.set(memoKey, css);
+  return css;
+}
+
+function computeCellCss(row: number, col: number): Record<string, string> {
   const box = boxOf(row, col);
   const s = styleFor(row, col);
   const css: Record<string, string> = {
@@ -327,13 +411,42 @@ const colSelected = (col: number) => colTouched(selection.value, col);
 
 const peerAt = (row: number, col: number) => (props.peers ?? []).find((p) => p.row === row && p.col === col);
 
+/**
+ * Quantas linhas e colunas desenhar depende do tamanho da área visível, que só
+ * o navegador sabe. Medir apenas no primeiro scroll deixava a abertura com o
+ * tamanho chutado aqui: numa janela maior, faltava metade da planilha até a
+ * pessoa rolar. Zero é ignorado — é o que o elemento reporta quando ainda não
+ * foi disposto na tela, e aceitá-lo não desenharia nada.
+ */
+function measure(): void {
+  const el = viewport.value;
+  if (!el) return;
+  if (el.clientHeight) height.value = el.clientHeight;
+  if (el.clientWidth) width.value = el.clientWidth;
+}
+
+let sizeWatcher: ResizeObserver | null = null;
+
+onMounted(() => {
+  measure();
+  if (typeof ResizeObserver === 'undefined' || !viewport.value) return;
+  sizeWatcher = new ResizeObserver(measure);
+  sizeWatcher.observe(viewport.value);
+});
+
+onBeforeUnmount(() => {
+  sizeWatcher?.disconnect();
+  sizeWatcher = null;
+  window.removeEventListener('mousemove', onResizeMove);
+  window.removeEventListener('mouseup', endResize);
+});
+
 function onScroll(): void {
   const el = viewport.value;
   if (!el) return;
   scrollTop.value = el.scrollTop;
   scrollLeft.value = el.scrollLeft;
-  height.value = el.clientHeight;
-  width.value = el.clientWidth;
+  measure();
 }
 
 function focusCell(row: number, col: number, extend = false): void {
@@ -348,14 +461,15 @@ function focusCell(row: number, col: number, extend = false): void {
 function scrollIntoView(): void {
   const el = viewport.value;
   if (!el) return;
-  const top = rowAx.value.offset(cursor.value.row);
+  const top = rowTop(cursor.value.row);
   const h = rowAx.value.size(cursor.value.row);
-  const left = colAx.value.offset(cursor.value.col);
+  const left = colLeft(cursor.value.col);
   const w = colAx.value.size(cursor.value.col);
-  if (top < el.scrollTop) el.scrollTop = top;
-  else if (top + h > el.scrollTop + el.clientHeight - HEAD_H) el.scrollTop = top + h - el.clientHeight + HEAD_H;
-  if (left < el.scrollLeft) el.scrollLeft = left;
-  else if (left + w > el.scrollLeft + el.clientWidth - HEAD_W) el.scrollLeft = left + w - el.clientWidth + HEAD_W;
+  // A célula precisa caber abaixo do cabeçalho, não sob ele.
+  if (top - HEAD_H < el.scrollTop) el.scrollTop = Math.max(0, top - HEAD_H);
+  else if (top + h > el.scrollTop + el.clientHeight) el.scrollTop = top + h - el.clientHeight;
+  if (left - HEAD_W < el.scrollLeft) el.scrollLeft = Math.max(0, left - HEAD_W);
+  else if (left + w > el.scrollLeft + el.clientWidth) el.scrollLeft = left + w - el.clientWidth;
 }
 
 const additive = (ev: MouseEvent | KeyboardEvent) => ev.ctrlKey || ev.metaKey;
@@ -492,6 +606,88 @@ function onCopy(ev: ClipboardEvent): void {
   ev.clipboardData?.setData('text/plain', lines.join('\n'));
 }
 
+const GRIP = 5;
+const CELL_PADDING = 18;
+const AUTOFIT_SCAN = 2000;
+
+let measurer: CanvasRenderingContext2D | null = null;
+
+function textWidth(text: string, style: CellStyle | undefined): number {
+  if (!text) return 0;
+  measurer ??= document.createElement('canvas').getContext('2d');
+  if (!measurer) return text.length * 7;
+  const size = style?.fontSize ? Math.round(style.fontSize * (4 / 3)) : 12.5;
+  const family = style?.fontName ? `"${style.fontName}", monospace` : 'monospace';
+  measurer.font = `${style?.bold ? '700 ' : ''}${size}px ${family}`;
+  return measurer.measureText(text).width;
+}
+
+function startResize(axis: 'col' | 'row', index: number, ev: MouseEvent): void {
+  ev.preventDefault();
+  const size = axis === 'col' ? colAx.value.size(index) : rowAx.value.size(index);
+  drag.value = { axis, index, from: axis === 'col' ? ev.clientX : ev.clientY, start: size, size };
+  window.addEventListener('mousemove', onResizeMove);
+  window.addEventListener('mouseup', endResize);
+}
+
+function onResizeMove(ev: MouseEvent): void {
+  const live = drag.value;
+  if (!live) return;
+  const delta = (live.axis === 'col' ? ev.clientX : ev.clientY) - live.from;
+  const raw = live.start + delta;
+  drag.value = {
+    ...live,
+    size: live.axis === 'col' ? clampColWidth(raw) : clampRowHeight(raw),
+  };
+}
+
+function endResize(): void {
+  window.removeEventListener('mousemove', onResizeMove);
+  window.removeEventListener('mouseup', endResize);
+  const live = drag.value;
+  drag.value = null;
+  if (!live || live.size === live.start) return;
+  commitSize(live.axis, live.index, live.size);
+}
+
+/**
+ * O tamanho vale na hora, mesmo sem permissão de escrita: quem só lê também
+ * precisa alargar a coluna para conseguir ler. O que muda é que, sem permissão,
+ * o tamanho fica só nesta tela em vez de ir para o arquivo.
+ */
+function commitSize(axis: 'col' | 'row', index: number, px: number): void {
+  if (axis === 'col') {
+    localCols.value = new Map(localCols.value).set(index, px);
+    if (!props.readonly) emit('resizeCol', index, px);
+    return;
+  }
+  localRows.value = new Map(localRows.value).set(index, px);
+  if (!props.readonly) emit('resizeRow', index, px);
+}
+
+function autofitCol(col: number): void {
+  const limit = Math.min(Math.max(props.rows, 1), AUTOFIT_SCAN);
+  let widest = 0;
+  for (let row = 0; row < limit; row++) {
+    if (isCovered(row, col) || mergeAt(merges.value, row, col)) continue;
+    const text = textAt(row, col);
+    if (!text) continue;
+    widest = Math.max(widest, textWidth(text, styleFor(row, col)));
+  }
+  const header = textWidth(colName(col), { bold: true });
+  commitSize('col', col, clampColWidth(Math.max(widest, header) + CELL_PADDING));
+}
+
+function autofitRow(row: number): void {
+  const limit = Math.min(Math.max(props.cols, 1), AUTOFIT_SCAN);
+  let tallest = DEFAULT_ROW_H;
+  for (let col = 0; col < limit; col++) {
+    const size = styleFor(row, col)?.fontSize;
+    if (size) tallest = Math.max(tallest, Math.round(size * (4 / 3) * 1.6));
+  }
+  commitSize('row', row, clampRowHeight(tallest));
+}
+
 defineExpose({ focusCell });
 </script>
 
@@ -508,27 +704,48 @@ defineExpose({ focusCell });
     @mouseup="endDrag"
     @mouseleave="endDrag"
   >
-    <div class="sg-canvas" :style="{ height: rowAx.total + 'px', width: HEAD_W + colAx.total + 'px' }">
+    <div class="sg-canvas" :style="{ height: HEAD_H + rowAx.total + 'px', width: HEAD_W + colAx.total + 'px' }">
       <!-- cabeçalho de colunas -->
       <div class="sg-colhead" :style="{ transform: `translateY(${scrollTop}px)`, width: HEAD_W + colAx.total + 'px' }">
         <div class="sg-corner" :style="{ width: HEAD_W + 'px', height: HEAD_H + 'px', transform: `translateX(${scrollLeft}px)` }" />
         <div
           v-for="c in visibleCols" :key="'h' + c"
           class="sg-ch" :class="{ 'is-cur': colSelected(c) }"
-          :style="{ left: HEAD_W + colAx.offset(c) + 'px', width: colAx.size(c) + 'px', height: HEAD_H + 'px' }"
+          :style="{ left: colLeft(c) + 'px', width: colAx.size(c) + 'px', height: HEAD_H + 'px' }"
           title="Clique para selecionar a coluna"
           @mousedown="selectCol(c, $event)"
-        >{{ colName(c) }}</div>
+        >
+          {{ colName(c) }}
+          <span
+            class="sg-grip sg-grip-col"
+            :class="{ 'is-live': drag?.axis === 'col' && drag.index === c }"
+            :style="{ width: GRIP * 2 + 'px' }"
+            title="Arraste para mudar a largura · duplo clique ajusta ao conteúdo"
+            @mousedown.stop="startResize('col', c, $event)"
+            @dblclick.stop="autofitCol(c)"
+          />
+        </div>
       </div>
 
       <!-- cabeçalho de linhas -->
       <div
         v-for="r in visibleRows" :key="'r' + r"
         class="sg-rh" :class="{ 'is-cur': rowSelected(r) }"
-        :style="{ top: rowAx.offset(r) + 'px', height: rowAx.size(r) + 'px', width: HEAD_W + 'px', transform: `translateX(${scrollLeft}px)` }"
+        :data-rowhead="r"
+        :style="{ top: rowTop(r) + 'px', height: rowAx.size(r) + 'px', width: HEAD_W + 'px', transform: `translateX(${scrollLeft}px)` }"
         title="Clique para selecionar a linha"
         @mousedown="selectRow(r, $event)"
-      >{{ r + 1 }}</div>
+      >
+        {{ r + 1 }}
+        <span
+          class="sg-grip sg-grip-row"
+          :class="{ 'is-live': drag?.axis === 'row' && drag.index === r }"
+          :style="{ height: GRIP * 2 + 'px' }"
+          title="Arraste para mudar a altura · duplo clique ajusta ao conteúdo"
+          @mousedown.stop="startResize('row', r, $event)"
+          @dblclick.stop="autofitRow(r)"
+        />
+      </div>
 
       <!-- células -->
       <template v-for="r in visibleRows" :key="'row' + r">
@@ -536,6 +753,7 @@ defineExpose({ focusCell });
           v-for="c in visibleCols" :key="r + ':' + c"
           v-show="!isCovered(r, c)"
           class="sg-cell"
+          :data-cell="r + ':' + c"
           :class="{
             'is-cur': r === cursor.row && c === cursor.col,
             'in-sel': multi && inSelection(r, c),
@@ -642,6 +860,11 @@ defineExpose({ focusCell });
 .sg-ch { top: 0; }
 .sg-rh { left: 0; z-index: 2; }
 .sg-ch:hover, .sg-rh:hover { color: var(--neon); }
+
+.sg-grip { position: absolute; z-index: 6; background: transparent; }
+.sg-grip-col { top: 0; bottom: 0; right: -5px; cursor: col-resize; }
+.sg-grip-row { left: 0; right: 0; bottom: -5px; cursor: row-resize; }
+.sg-grip:hover, .sg-grip.is-live { background: color-mix(in srgb, var(--neon) 55%, transparent); }
 .sg-ch.is-cur, .sg-rh.is-cur { color: var(--neon); font-weight: 700; }
 
 .sg-cell {
