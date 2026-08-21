@@ -47,6 +47,7 @@ const merging = ref(false);
 const zipping = ref(false);
 const ctx = ref<{ x: number; y: number; item: ObjectItem } | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
+const folderInput = ref<HTMLInputElement | null>(null);
 const shareItem = ref<ObjectItem | null>(null);   // arquivo a compartilhar (abre ShareCreate)
 const showLinks = ref(false);                       // modal de gerenciamento de links
 
@@ -340,32 +341,95 @@ function onPick(e: Event) {
   if (files.length) startUploads(files);
   input.value = '';
 }
-function startUploads(files: File[]) {
+function enqueue(file: File, rel: string, onDone: () => void, onErr: () => void) {
+  const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+  const uploadPath = prefix.value + dir;
+  const id = Math.random().toString(36).slice(2);
+  uploads.value = [{ id, name: rel || file.name, size: file.size, type: typeFromName(file.name), progress: 0 }, ...uploads.value];
+  api.upload(props.bucket.id, uploadPath, file, (p) => {
+    uploads.value = uploads.value.map((x) => x.id === id ? { ...x, progress: Math.min(0.99, p) } : x);
+  }, !!props.bucket.encrypted).then(() => {
+    uploads.value = uploads.value.map((x) => x.id === id ? { ...x, progress: 1 } : x);
+    onDone();
+  }).catch(() => {
+    uploads.value = uploads.value.map((x) => x.id === id ? { ...x, error: true } : x);
+    onErr();
+  });
+}
+function runBatch(items: { file: File; rel: string }[]) {
   if (!canWrite.value) { toast.error('Sem permissão de escrita neste bucket'); return; }
-  for (const file of files) {
-    const id = Math.random().toString(36).slice(2);
-    uploads.value = [{ id, name: file.name, size: file.size, type: typeFromName(file.name), progress: 0 }, ...uploads.value];
-    api.upload(props.bucket.id, prefix.value, file, (p) => {
-      uploads.value = uploads.value.map((x) => x.id === id ? { ...x, progress: Math.min(0.99, p) } : x);
-    }).then(() => {
-      uploads.value = uploads.value.map((x) => x.id === id ? { ...x, progress: 1 } : x);
-      toast.success(`${file.name} enviado`);
-      reload();
-    }).catch(() => {
-      uploads.value = uploads.value.map((x) => x.id === id ? { ...x, error: true } : x);
-      toast.error(`Falha ao enviar ${file.name}`);
-    });
-  }
+  if (!items.length) return;
+  const total = items.length;
+  const label = items[0]!.rel || items[0]!.file.name;
+  let done = 0, ok = 0, fail = 0;
+  const finish = () => {
+    if (++done < total) return;
+    if (fail === 0) toast.success(total === 1 ? `${label} enviado` : `${ok} arquivos enviados`);
+    else if (ok === 0) toast.error(total === 1 ? `Falha ao enviar ${label}` : `Falha ao enviar ${fail} arquivos`);
+    else toast.error(`${ok} enviados, ${fail} com falha`);
+    reload();
+  };
+  let next = 0;
+  const startNext = () => {
+    if (next >= items.length) return;
+    const it = items[next++]!;
+    enqueue(it.file, it.rel,
+      () => { ok++; finish(); startNext(); },
+      () => { fail++; finish(); startNext(); });
+  };
+  for (let i = 0; i < Math.min(4, items.length); i++) startNext();
+}
+const pendingUpload = ref<{ items: { file: File; rel: string }[]; collisions: string[] } | null>(null);
+function requestUpload(batch: { file: File; rel: string }[]) {
+  if (!canWrite.value) { toast.error('Sem permissão de escrita neste bucket'); return; }
+  if (!batch.length) return;
+  const existing = new Set(items.value.filter((i) => i.kind === 'file').map((i) => i.key));
+  const collisions = batch.filter((b) => existing.has(prefix.value + b.rel)).map((b) => b.rel);
+  if (collisions.length) pendingUpload.value = { items: batch, collisions };
+  else runBatch(batch);
+}
+function confirmUpload() {
+  const p = pendingUpload.value; pendingUpload.value = null;
+  if (p) runBatch(p.items);
+}
+function startUploads(files: File[]) {
+  requestUpload(files.map((file) => ({ file, rel: file.webkitRelativePath || file.name })));
 }
 
-// drag & drop
+function walkEntry(entry: FileSystemEntry, base: string, out: { file: File; rel: string }[]): Promise<void> {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      (entry as FileSystemFileEntry).file((f) => { out.push({ file: f, rel: base + entry.name }); resolve(); }, () => resolve());
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const all: FileSystemEntry[] = [];
+      const readBatch = () => reader.readEntries((batch) => {
+        if (!batch.length) { Promise.all(all.map((c) => walkEntry(c, base + entry.name + '/', out))).then(() => resolve()); }
+        else { all.push(...batch); readBatch(); }
+      }, () => resolve());
+      readBatch();
+    } else resolve();
+  });
+}
+
 function onDragOver(e: DragEvent) { if (canWrite.value) { e.preventDefault(); drag.value = true; } }
 function onDragLeave(e: DragEvent) { if (e.currentTarget === e.target) drag.value = false; }
-function onDrop(e: DragEvent) {
+async function onDrop(e: DragEvent) {
   e.preventDefault(); drag.value = false;
   if (!canWrite.value) return;
-  const files = Array.from(e.dataTransfer?.files || []);
-  if (files.length) startUploads(files);
+  const items = Array.from(e.dataTransfer?.items ?? []);
+  const entries = items
+    .map((it) => it.webkitGetAsEntry?.() ?? null)
+    .filter((x): x is FileSystemEntry => !!x);
+  if (entries.length) {
+    const collected: { file: File; rel: string }[] = [];
+    await Promise.all(entries.map((en) => walkEntry(en, '', collected)));
+    if (!collected.length) { toast.error('Nada para enviar'); return; }
+    requestUpload(collected);
+  } else {
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) startUploads(files);
+  }
 }
 
 // helpers
@@ -414,9 +478,11 @@ defineExpose({ reload });
         </button>
         <button v-if="canShare" class="btn" @click="showLinks = true"><Icon name="link" :size="16" />Links</button>
         <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />Pasta</button>
+        <button v-if="canWrite" class="btn" @click="folderInput?.click()"><Icon name="upload" :size="16" />Enviar pasta</button>
         <button v-if="canWrite" class="btn" @click="showNewSheet = true"><Icon name="sheet" :size="16" />Planilha</button>
         <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Upload</button>
         <input ref="fileInput" type="file" multiple hidden @change="onPick" />
+        <input ref="folderInput" type="file" webkitdirectory multiple hidden @change="onPick" />
         <div class="seg">
           <button class="seg-btn" :class="{ 'seg-on': viewMode === 'list' }" @click="viewMode = 'list'" title="Lista"><Icon name="list" :size="16" /></button>
           <button class="seg-btn" :class="{ 'seg-on': viewMode === 'grid' }" @click="viewMode = 'grid'" title="Grade"><Icon name="grid" :size="16" /></button>
@@ -570,6 +636,23 @@ defineExpose({ reload });
               :initial="bucket.alias ?? ''" placeholder="apelido do bucket"
               hint="Deixe vazio para voltar ao nome do bucket." confirm-label="Salvar"
               @confirm="saveBucketAlias" @close="renamingBucket = false" />
+
+  <Modal v-if="pendingUpload" title="Substituir arquivos?" icon="upload" @close="pendingUpload = null">
+    <p class="modal-text">
+      {{ pendingUpload.collisions.length === 1
+        ? 'Já existe um arquivo com este nome nesta pasta:'
+        : `Já existem ${pendingUpload.collisions.length} arquivos com o mesmo nome nesta pasta:` }}
+    </p>
+    <ul style="margin:8px 0 0;padding:0;list-style:none;max-height:180px;overflow:auto;font-family:var(--mono);font-size:12.5px;color:var(--text-2)">
+      <li v-for="c in pendingUpload.collisions.slice(0, 10)" :key="c" style="padding:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c }}</li>
+      <li v-if="pendingUpload.collisions.length > 10" style="padding:3px 0;color:var(--text-3)">… e mais {{ pendingUpload.collisions.length - 10 }}</li>
+    </ul>
+    <p class="modal-warn"><Icon name="shield" :size="14" /> Substituir apaga o conteúdo atual — não há como desfazer.</p>
+    <template #foot>
+      <button class="btn" @click="pendingUpload = null">Cancelar</button>
+      <button class="btn btn-danger" @click="confirmUpload"><Icon name="upload" :size="16" />Substituir</button>
+    </template>
+  </Modal>
 
   <Modal v-if="toDelete" title="Confirmar exclusão" icon="trash" @close="toDelete = null">
     <p class="modal-text">Excluir <strong>{{ toDelete.label }}</strong> do bucket <strong>{{ bucket.id }}</strong>?</p>

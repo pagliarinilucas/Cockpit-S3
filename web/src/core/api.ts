@@ -206,19 +206,30 @@ export const api = {
     req<{ ok: boolean; failed?: string[] }>('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 
   /** Upload one file with progress via XHR (fetch can't report upload progress). */
-  upload(bucketId: string, path: string, file: File, onProgress: (p: number) => void): Promise<void> {
+  upload(bucketId: string, path: string, file: File, onProgress: (p: number) => void, encrypted = false): Promise<void> {
     return new Promise((resolve, reject) => {
-      const form = new FormData();
-      form.append('path', path);
-      form.append('file', file, file.name);
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${BASE}/buckets/${encodeURIComponent(bucketId)}/objects`);
+      const bid = encodeURIComponent(bucketId);
+      if (encrypted) {
+        const qs = `path=${encodeURIComponent(path)}&name=${encodeURIComponent(file.name)}`;
+        xhr.open('POST', `${BASE}/buckets/${bid}/objects-encrypted?${qs}`);
+      } else {
+        xhr.open('POST', `${BASE}/buckets/${bid}/objects`);
+      }
       xhr.withCredentials = true;
       if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+      if (encrypted) xhr.setRequestHeader('x-content-type', file.type || 'application/octet-stream');
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
       xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new ApiError(xhr.status));
       xhr.onerror = () => reject(new ApiError(0));
-      xhr.send(form);
+      if (encrypted) {
+        xhr.send(file);
+      } else {
+        const form = new FormData();
+        form.append('path', path);
+        form.append('file', file, file.name);
+        xhr.send(form);
+      }
     });
   },
 
