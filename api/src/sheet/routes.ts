@@ -8,7 +8,6 @@ import { Elysia, t } from 'elysia';
 import { authDerive, requireUser } from '../auth/guard';
 import { perms } from '../auth/permissions';
 import { audit } from '../audit/store';
-import { getKekProvider } from '../crypto/kek';
 import { objectsStore } from '../objects/store';
 import { usersStore } from '../users/store';
 import { s3 } from '../storage/s3';
@@ -16,6 +15,7 @@ import type { Role } from '../types';
 import { MAX_BYTES, isSheetKey, isZipWorkbook } from '@cockpit/sheet/model';
 import { newWorkbookBytes, parseWorkbook } from './import';
 import { contentTypeFor, makeSheetIo, parseBucketId } from './io';
+import { canOpen } from './guard';
 import { sheetTickets } from './tickets';
 import { binarySend, controlFrame, decodeFrame } from './protocol';
 import {
@@ -63,7 +63,7 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
       if (!parseBucketId(params.id)) { set.status = 400; return { error: 'bad_bucket_id' }; }
       if (!isSheetKey(key)) { set.status = 415; return { error: 'nao_e_planilha' }; }
       if (!mayEdit(user, params.id, key)) { set.status = 403; return { error: 'forbidden' }; }
-      if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+      if (!canOpen(params.id, key)) { set.status = 503; return { error: 'sealed' }; }
       return { ticket: sheetTickets.create({ bucketId: params.id, key, user: user!.username }) };
     }, { body: t.Object({ key: t.String() }) })
 
@@ -114,7 +114,7 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
       if (!name) { set.status = 400; return { error: 'nome_invalido' }; }
       const key = path + (isZipWorkbook(name) ? name : `${name}.xlsx`);
       if (!mayEdit(user, params.id, key)) { set.status = 403; return { error: 'forbidden' }; }
-      if (!getKekProvider()) { set.status = 503; return { error: 'sealed' }; }
+      if (!canOpen(params.id, key)) { set.status = 503; return { error: 'sealed' }; }
 
       const exists = objectsStore.get(params.id, key) !== null
         || await s3.headExists(ref.cid, ref.bucket, key).catch(() => false);
