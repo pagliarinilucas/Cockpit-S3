@@ -43,6 +43,10 @@ const sheetStyles = shallowRef(new Map<string, CellStyle>());
 const sheetBounds = ref({ rows: 0, cols: 0 });
 const sheetLight = ref(localStorage.getItem('cs3.sheet.light') === '1');
 
+const full = ref(false);
+
+function toggleFull() { full.value = !full.value; }
+
 function toggleSheetLight() {
   sheetLight.value = !sheetLight.value;
   localStorage.setItem('cs3.sheet.light', sheetLight.value ? '1' : '0');
@@ -124,6 +128,9 @@ watch(() => [props.startKey, props.items], () => {
 }, { immediate: true });
 
 const onKey = (e: KeyboardEvent) => {
+  // Em tela inteira, Esc volta ao tamanho normal em vez de fechar a prévia:
+  // fechar tudo de uma vez perderia a planilha que a pessoa estava lendo.
+  if (e.key === 'Escape' && full.value) { full.value = false; return; }
   if (e.key === 'Escape') emit('close');
   else if (e.key === 'ArrowRight') go(1);
   else if (e.key === 'ArrowLeft') go(-1);
@@ -136,10 +143,10 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
 </script>
 
 <template>
-  <div class="pv-back" @click="emit('close')">
-    <button v-if="items.length > 1" class="pv-nav pv-prev" @click.stop="go(-1)"><Icon name="chevL" :size="26" /></button>
+  <div class="pv-back" :class="{ 'pv-back-full': full }" @click="emit('close')">
+    <button v-if="items.length > 1 && !full" class="pv-nav pv-prev" @click.stop="go(-1)"><Icon name="chevL" :size="26" /></button>
 
-    <div class="pv-shell" @click.stop>
+    <div class="pv-shell" :class="{ 'pv-shell-full': full }" @click.stop>
       <template v-if="item">
         <div class="pv-head">
           <div class="pv-head-l">
@@ -168,6 +175,13 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
                   <button v-for="s in sheetNames" :key="s" class="pv-sheet-tab" :class="{ 'pv-sheet-tab-on': s === activeSheet }" @click="selectSheet(s)">{{ s }}</button>
                 </div>
                 <div class="pv-sheet-spacer" />
+                <button
+                  class="iconbtn"
+                  :title="full ? 'Sair da tela inteira (Esc)' : 'Ver em tela inteira'"
+                  @click="toggleFull"
+                >
+                  <Icon :name="full ? 'shrink' : 'expand'" :size="16" />
+                </button>
                 <button class="iconbtn" :title="sheetLight ? 'Tema escuro' : 'Tema claro'" @click="toggleSheetLight">
                   <Icon name="palette" :size="16" />
                 </button>
@@ -222,6 +236,6 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
       </template>
     </div>
 
-    <button v-if="items.length > 1" class="pv-nav pv-next" @click.stop="go(1)"><Icon name="chevR" :size="26" /></button>
+    <button v-if="items.length > 1 && !full" class="pv-nav pv-next" @click.stop="go(1)"><Icon name="chevR" :size="26" /></button>
   </div>
 </template>
