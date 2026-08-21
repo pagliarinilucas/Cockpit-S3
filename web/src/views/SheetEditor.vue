@@ -196,7 +196,7 @@ onBeforeUnmount(() => {
 });
 
 function msgFor(code: string): string {
-  if (code === 'sealed') return 'Criptografia indisponível (KEK não configurada)';
+  if (code === 'sealed') return 'Arquivo cifrado: o servidor está sem a chave para abri-lo';
   if (code === 'planilha_grande') return 'Planilha grande demais para o editor';
   if (code === 'sem_permissao') return 'Você não tem mais permissão de escrita aqui';
   if (code === 'ticket_invalido') return 'Sessão expirada — feche e abra de novo';

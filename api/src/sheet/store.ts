@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 /**
- * Persistência do documento vivo. Todo blob de estado (snapshot e updates) vai
- * cifrado no banco com uma DEK por documento, envelopada com a KEK — o mesmo
- * envelope dos objetos. Sempre cifra, inclusive em bucket sem criptografia:
- * enquanto a sessão está aberta o conteúdo da planilha existe no banco, e ele
- * não pode ficar em claro só porque o bucket não pediu criptografia.
+ * Persistência do documento vivo. Com KEK configurada, todo blob de estado
+ * (snapshot e updates) vai cifrado no banco com uma DEK por documento,
+ * envelopada com a KEK — o mesmo envelope dos objetos.
+ *
+ * Sem KEK configurada, o rascunho é gravado em claro. A alternativa era exigir
+ * criptografia para editar qualquer planilha, e isso deixava o editor
+ * indisponível numa instalação sem criptografia — inclusive para um arquivo que
+ * já está em texto claro no S3. Cifrar o rascunho de um arquivo que qualquer um
+ * baixa em claro protegia nada e custava a funcionalidade inteira.
+ *
+ * Sem KEK nenhum bucket pode estar cifrado (envelopar DEK exige a KEK), então
+ * este caminho nunca grava em claro o conteúdo de um arquivo cifrado. Quem
+ * confere isso é `assertCanOpen`, chamado antes de abrir a sessão.
+ *
+ * `kekVersion = 0` marca a linha como não cifrada; versão de KEK real começa
+ * em 1.
  */
 import { and, asc, eq, gt, sql } from 'drizzle-orm';
 import sodium from 'sodium-native';
@@ -41,10 +52,43 @@ function open(blob: Buffer, dek: Buffer, docId: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-function requireKek() {
+export const PLAINTEXT_KEK_VERSION = 0;
+
+const EMPTY_DEK = Buffer.alloc(0);
+
+/**
+ * Como ler e escrever os blobs deste documento. Com DEK, cifra; sem DEK (linha
+ * gravada sem KEK), passa direto. Quem usa chama `dispose` para zerar a chave.
+ */
+interface Cipher {
+  seal(plain: Uint8Array): Buffer;
+  open(blob: Buffer): Uint8Array;
+  dispose(): void;
+}
+
+function cipherOf(docId: string, kekVersion: number, dekWrapped: Buffer): Cipher {
+  if (kekVersion === PLAINTEXT_KEK_VERSION) {
+    return {
+      seal: (plain) => Buffer.from(plain),
+      open: (blob) => new Uint8Array(blob),
+      dispose: () => { /* não há chave para zerar */ },
+    };
+  }
   const kek = getKekProvider();
   if (!kek) throw new Error('sealed');
-  return kek;
+  const dek = kek.unwrapDek(DEFAULT_ORG, kekVersion, dekWrapped);
+  return {
+    seal: (plain) => seal(plain, dek, docId),
+    open: (blob) => open(blob, dek, docId),
+    dispose: () => sodium.sodium_memzero(dek),
+  };
+}
+
+function cipherFor(docId: string): Cipher {
+  const row = db.select({ dekWrapped: sheetDocs.dekWrapped, kekVersion: sheetDocs.kekVersion })
+    .from(sheetDocs).where(eq(sheetDocs.docId, docId)).get();
+  if (!row) throw new Error('doc_inexistente');
+  return cipherOf(docId, row.kekVersion, row.dekWrapped as Buffer);
 }
 
 export const sheetStore = {
@@ -56,26 +100,30 @@ export const sheetStore = {
     return r ?? null;
   },
 
-  /** Cria o doc com o snapshot inicial. Falha se a KEK não estiver disponível. */
+  /** Cria o doc com o snapshot inicial. Sem KEK, o rascunho fica em claro. */
   create(a: { docId: string; bucketId: string; key: string; fingerprint: string | null; snapshot: Uint8Array }): void {
-    const kek = requireKek();
-    const dek = generateDek();
-    const { wrapped, version } = kek.wrapWithCurrent(DEFAULT_ORG, dek);
+    const kek = getKekProvider();
+    const dek = kek ? generateDek() : EMPTY_DEK;
+    const envelope = kek
+      ? kek.wrapWithCurrent(DEFAULT_ORG, dek)
+      : { wrapped: EMPTY_DEK, version: PLAINTEXT_KEK_VERSION };
+
     db.insert(sheetDocs).values({
       docId: a.docId, bucketId: a.bucketId, key: a.key, fingerprint: a.fingerprint,
-      dekWrapped: wrapped, kekVersion: version,
-      snapshot: seal(a.snapshot, dek, a.docId), snapshotSeq: 0, dirty: 0,
+      dekWrapped: envelope.wrapped, kekVersion: envelope.version,
+      snapshot: kek ? seal(a.snapshot, dek, a.docId) : Buffer.from(a.snapshot),
+      snapshotSeq: 0, dirty: 0,
       updatedAt: new Date().toISOString(),
     }).onConflictDoNothing().run();
-    sodium.sodium_memzero(dek);
+
+    if (kek) sodium.sodium_memzero(dek);
   },
 
-  /** DEK desenvelopada do doc. O chamador é responsável por zerá-la. */
-  dekOf(docId: string): Buffer {
-    const row = db.select({ dekWrapped: sheetDocs.dekWrapped, kekVersion: sheetDocs.kekVersion })
+  /** O rascunho deste documento está cifrado no banco? */
+  isSealed(docId: string): boolean {
+    const row = db.select({ kekVersion: sheetDocs.kekVersion })
       .from(sheetDocs).where(eq(sheetDocs.docId, docId)).get();
-    if (!row) throw new Error('doc_inexistente');
-    return requireKek().unwrapDek(DEFAULT_ORG, row.kekVersion, row.dekWrapped as Buffer);
+    return row ? row.kekVersion !== PLAINTEXT_KEK_VERSION : false;
   },
 
   /** Snapshot + updates posteriores, em ordem, já decifrados. */
@@ -86,26 +134,26 @@ export const sheetStore = {
     }).from(sheetDocs).where(eq(sheetDocs.docId, docId)).get();
     if (!row) return null;
 
-    const dek = requireKek().unwrapDek(DEFAULT_ORG, row.kekVersion, row.dekWrapped as Buffer);
+    const cipher = cipherOf(docId, row.kekVersion, row.dekWrapped as Buffer);
     try {
-      const updates = [open(row.snapshot as Buffer, dek, docId)];
+      const updates = [cipher.open(row.snapshot as Buffer)];
       const rows = db.select({ seq: sheetUpdates.seq, blob: sheetUpdates.blob })
         .from(sheetUpdates)
         .where(and(eq(sheetUpdates.docId, docId), gt(sheetUpdates.seq, row.snapshotSeq)))
         .orderBy(asc(sheetUpdates.seq)).all();
-      for (const u of rows) updates.push(open(u.blob as Buffer, dek, docId));
+      for (const u of rows) updates.push(cipher.open(u.blob as Buffer));
       const seq = rows.length ? rows[rows.length - 1]!.seq : row.snapshotSeq;
       return { updates, seq };
     } finally {
-      sodium.sodium_memzero(dek);
+      cipher.dispose();
     }
   },
 
   /** Grava um update e devolve o seq atribuído. Marca o doc como sujo. */
   append(docId: string, update: Uint8Array, authorUser: string): number {
-    const dek = this.dekOf(docId);
+    const cipher = cipherFor(docId);
     try {
-      const blob = seal(update, dek, docId);
+      const blob = cipher.seal(update);
       const tx = sqlite.transaction(() => {
         const max = db.select({ seq: sql<number>`coalesce(max(${sheetUpdates.seq}), 0)` })
           .from(sheetUpdates).where(eq(sheetUpdates.docId, docId)).get();
@@ -119,15 +167,15 @@ export const sheetStore = {
       });
       return tx();
     } finally {
-      sodium.sodium_memzero(dek);
+      cipher.dispose();
     }
   },
 
   /** Compacta: grava snapshot novo e descarta os updates já incorporados. */
   compact(docId: string, snapshot: Uint8Array, seq: number): void {
-    const dek = this.dekOf(docId);
+    const cipher = cipherFor(docId);
     try {
-      const blob = seal(snapshot, dek, docId);
+      const blob = cipher.seal(snapshot);
       const tx = sqlite.transaction(() => {
         db.update(sheetDocs).set({ snapshot: blob, snapshotSeq: seq, updatedAt: new Date().toISOString() })
           .where(eq(sheetDocs.docId, docId)).run();
@@ -136,7 +184,7 @@ export const sheetStore = {
       });
       tx();
     } finally {
-      sodium.sodium_memzero(dek);
+      cipher.dispose();
     }
   },
 

@@ -19,7 +19,7 @@ import { clustersStore } from './clusters/store';
 import { shareRoutes } from './shares/routes';
 import { publicShareRoutes } from './shares/public';
 import { staticRoutes } from './web/static';
-import { bootKekProvider } from './crypto/kek';
+import { bootKekProvider, getKekProvider } from './crypto/kek';
 import { escrowRoutes } from './escrow/routes';
 import { sheetRoutes } from './sheet/routes';
 import { startEscrowScheduler } from './escrow/backup';
@@ -49,6 +49,13 @@ for (const c of clustersStore.listFull()) configureClusterS3(c);
 
 // Inicializa o provedor de KEK (criptografia em repouso), se configurado; no-op se não houver COCKPIT_KEK/COCKPIT_KEK_FILE.
 bootKekProvider();
+if (!getKekProvider()) {
+  console.warn(
+    '[crypto] sem KEK: o editor de planilhas guarda o rascunho da edição em texto '
+    + 'claro no banco. Arquivo cifrado não abre no editor. Configure COCKPIT_KEK_FILE '
+    + 'ou COCKPIT_KEK para cifrar o rascunho.',
+  );
+}
 startEscrowScheduler();
 
 const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })

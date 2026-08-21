@@ -78,6 +78,13 @@ export function initFileKekProvider(): KekProvider {
 /** Provider corrente, ou null se a KEK não estiver configurada. */
 export function getKekProvider(): KekProvider | null { return provider; }
 
+/**
+ * Desliga o provider em memória. Existe para o teste poder exercitar o caminho
+ * "instalação sem criptografia" — que é o caso de quem sobe o cockpit sem
+ * configurar KEK, e onde o editor precisa continuar funcionando.
+ */
+export function forgetKekProvider(): void { provider = null; }
+
 /** Chamado no boot: liga o provider se houver KEK; silencioso se não houver. */
 export function bootKekProvider(): void {
   try {
