@@ -11,6 +11,11 @@ WORKDIR /web
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY web/ ./
+# O SPA importa os módulos que interpretam o formato xlsx direto da API, via
+# alias @sheet (ver vite.config.ts). São puros e são os MESMOS nos dois lados —
+# duplicá-los faria servidor e navegador divergirem no significado do arquivo.
+# Por isso a pasta precisa existir aqui no caminho relativo que o alias aponta.
+COPY api/src/sheet/ /api/src/sheet/
 RUN bun run build            # → /web/dist
 
 # 2) Runtime: API + static SPA
