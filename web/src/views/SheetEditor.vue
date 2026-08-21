@@ -8,7 +8,7 @@ import Icon from '../components/Icon.vue';
 import Grid from '../sheet/Grid.vue';
 import { countCells, type Range } from '../sheet/selection';
 import FormatBar from '../sheet/FormatBar.vue';
-import { SheetSession, type Peer, type Presence, type Status } from '../sheet/session';
+import { SheetSession, type Peer, type Presence, type SheetRender, type Status } from '../sheet/session';
 import { cellRef, parseCellKey, type Cell, type CellStyle, type CellValue } from '../sheet/model';
 import { useToast } from '../core/toast';
 
