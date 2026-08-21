@@ -11,9 +11,9 @@ import type * as Y from 'yjs';
 import { extOf, parseWorkbook, serializeDelimited } from './import';
 import { patchXlsx, type CellPatch, type SheetPatch } from './patch';
 import { geometryOf, sheetMap, sheetNames, stylesMap } from './ydoc';
-import type { SheetLayout } from './layout';
-import { cellRef, isZipWorkbook, parseCellKey, type Cell, type CellStyle, type CellValue } from './model';
-import { styleKey } from './styles';
+import type { SheetLayout } from '@cockpit/sheet/layout';
+import { cellRef, isZipWorkbook, parseCellKey, type Cell, type CellStyle, type CellValue } from '@cockpit/sheet/model';
+import { styleKey } from '@cockpit/sheet/styles';
 
 export interface SheetIo {
   /** Bytes atuais do objeto (decifrados, se for bucket cifrado). */

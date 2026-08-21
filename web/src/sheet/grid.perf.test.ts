@@ -8,14 +8,14 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { mount } from '@vue/test-utils';
 import { cellKey, type Cell, type CellStyle } from './model';
-import type { CfRule } from '@sheet/conditional';
+import type { CfRule } from '@cockpit/sheet/conditional';
 
-const real = await import('@sheet/conditional');
+const real = await import('@cockpit/sheet/conditional');
 
 const original = real.conditionalVisual;
 
 let calls = 0;
-mock.module('@sheet/conditional', () => ({
+mock.module('@cockpit/sheet/conditional', () => ({
   ...real,
   conditionalVisual: (...args: Parameters<typeof original>) => {
     calls++;

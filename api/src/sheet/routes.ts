@@ -13,7 +13,7 @@ import { objectsStore } from '../objects/store';
 import { usersStore } from '../users/store';
 import { s3 } from '../storage/s3';
 import type { Role } from '../types';
-import { MAX_BYTES, isSheetKey, isZipWorkbook } from './model';
+import { MAX_BYTES, isSheetKey, isZipWorkbook } from '@cockpit/sheet/model';
 import { newWorkbookBytes, parseWorkbook } from './import';
 import { contentTypeFor, makeSheetIo, parseBucketId } from './io';
 import { sheetTickets } from './tickets';

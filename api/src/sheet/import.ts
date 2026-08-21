@@ -10,12 +10,12 @@
 import { unzipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 import { stylesOf, resolveSheetParts } from './patch';
-import { parseTheme } from './theme';
-import { parseConditionalFormatting, type CfRule } from './conditional';
-import { parseLayout, type SheetLayout } from './layout';
-import { resolveAll, styleKey, type CellStyle } from './styles';
-import { MAX_CELLS, cellKey, type Cell, type CellValue, type SheetData, type WorkbookData } from './model';
-import { isZipWorkbook } from './model';
+import { parseTheme } from '@cockpit/sheet/theme';
+import { parseConditionalFormatting, type CfRule } from '@cockpit/sheet/conditional';
+import { parseLayout, type SheetLayout } from '@cockpit/sheet/layout';
+import { resolveAll, styleKey, type CellStyle } from '@cockpit/sheet/styles';
+import { MAX_CELLS, cellKey, type Cell, type CellValue, type SheetData, type WorkbookData } from '@cockpit/sheet/model';
+import { isZipWorkbook } from '@cockpit/sheet/model';
 
 const CSV_EXTS = new Set(['csv', 'tsv']);
 

@@ -8,10 +8,10 @@
  */
 import * as Y from 'yjs';
 import { api, ApiError } from '../core/api';
-import type { SheetLayout } from '@sheet/layout';
-import type { CfRule } from '@sheet/conditional';
-import { recalc } from '@sheet/recalc';
-import { todaySerial } from '@sheet/conditional';
+import type { SheetLayout } from '@cockpit/sheet/layout';
+import type { CfRule } from '@cockpit/sheet/conditional';
+import { recalc } from '@cockpit/sheet/recalc';
+import { todaySerial } from '@cockpit/sheet/conditional';
 import {
   GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey, clampColWidth, clampRowHeight,
   colWidthKey, isBlankStyle, mergeStyle, parseGeometryKey, rowHeightKey, styleKey,

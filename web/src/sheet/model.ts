@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Lucas Pagliarini
 /**
  * Modelo do cliente. Os tipos e o endereçamento vêm dos módulos compartilhados
- * com o servidor (`@sheet/*` = api/src/sheet), então não existe uma segunda
+ * com o servidor (o pacote @cockpit/sheet), então não existe uma segunda
  * definição do que é uma célula ou de como se lê uma referência A1. Aqui ficam
  * só as decisões de interface: como interpretar o que o usuário digita e o que
  * mostrar na tela.
@@ -13,8 +13,8 @@ import {
   clampColWidth, clampRowHeight, colWidthKey, parseGeometryKey, rowHeightKey,
   GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES,
   type Cell, type CellStyle, type CellValue,
-} from '@sheet/model';
-import { styleKey } from '@sheet/styles';
+} from '@cockpit/sheet/model';
+import { styleKey } from '@cockpit/sheet/styles';
 
 export {
   cellKey, cellRef, colIndex, colName, parseCellKey, parseCellRef,

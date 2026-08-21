@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'bun:test';
 import * as XLSX from 'xlsx';
 import { newWorkbookBytes, parseWorkbook, serializeDelimited } from './import';
-import { cellKey, type SheetData } from './model';
+import { cellKey, type SheetData } from '@cockpit/sheet/model';
 
 function xlsxOf(sheets: Record<string, unknown[][]>): Uint8Array {
   const wb = XLSX.utils.book_new();

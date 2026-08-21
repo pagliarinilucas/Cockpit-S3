@@ -11,10 +11,10 @@
  * inconsistência, lança.
  */
 import { unzipSync, zipSync } from 'fflate';
-import { cellRef, parseCellRef, type CellValue } from './model';
-import { StyleWriter, parseStyles, type CellStyle, type StyleTable } from './styles';
-import { pxToColWidth, pxToPoints } from './layout';
-import type { ThemePalette } from './theme';
+import { cellRef, parseCellRef, type CellValue } from '@cockpit/sheet/model';
+import { StyleWriter, parseStyles, type CellStyle, type StyleTable } from '@cockpit/sheet/styles';
+import { pxToColWidth, pxToPoints } from '@cockpit/sheet/layout';
+import type { ThemePalette } from '@cockpit/sheet/theme';
 
 // Data fixa p/ saída determinística; longe das bordas de 1980/2099 do formato zip,
 // que são avaliadas no fuso LOCAL (1980-01-01T00:00Z cai em 1979 em fuso negativo).
