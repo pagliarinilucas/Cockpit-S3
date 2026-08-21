@@ -7,7 +7,8 @@
  */
 import * as Y from 'yjs';
 import {
-  SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey,
+  GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey,
+  clampColWidth, clampRowHeight, colWidthKey, parseGeometryKey, rowHeightKey,
   type Cell, type CellStyle, type CellValue, type WorkbookData,
 } from './model';
 import { styleKey } from './styles';
@@ -19,6 +20,33 @@ import { styleKey } from './styles';
 export const sheetMap = (doc: Y.Doc, name: string) => doc.getMap<Cell>(SHEET_PREFIX + name);
 
 export const stylesMap = (doc: Y.Doc) => doc.getMap<CellStyle>(STYLES);
+
+export const geometryMap = (doc: Y.Doc, name: string) => doc.getMap<number>(GEOMETRY_PREFIX + name);
+
+export interface SheetGeometry {
+  cols: Map<number, number>;
+  rows: Map<number, number>;
+}
+
+export function geometryOf(doc: Y.Doc, name: string): SheetGeometry {
+  const cols = new Map<number, number>();
+  const rows = new Map<number, number>();
+  for (const [k, px] of geometryMap(doc, name).entries()) {
+    const parsed = parseGeometryKey(k);
+    if (!parsed || typeof px !== 'number' || !Number.isFinite(px)) continue;
+    if (parsed.axis === 'col') cols.set(parsed.index, px);
+    else rows.set(parsed.index, px);
+  }
+  return { cols, rows };
+}
+
+export function setColWidth(doc: Y.Doc, name: string, col: number, px: number): void {
+  geometryMap(doc, name).set(colWidthKey(col), clampColWidth(px));
+}
+
+export function setRowHeight(doc: Y.Doc, name: string, row: number, px: number): void {
+  geometryMap(doc, name).set(rowHeightKey(row), clampRowHeight(px));
+}
 
 export const sheetNames = (doc: Y.Doc): string[] => doc.getArray<string>(SHEET_ORDER).toArray();
 

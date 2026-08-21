@@ -74,6 +74,7 @@ export function colAxis(
   count: number,
   defaultWidth: number,
   cols: { from: number; to: number; width?: number; hidden?: boolean }[],
+  overrides?: Map<number, number>,
 ): Axis {
   const sizes = new Map<number, number>();
   const hidden = new Set<number>();
@@ -83,6 +84,11 @@ export function colAxis(
       if (col.hidden) hidden.add(i);
     }
   }
+  for (const [i, width] of overrides ?? []) {
+    if (i >= count) continue;
+    sizes.set(i, width);
+    hidden.delete(i);
+  }
   return new Axis(count, defaultWidth, sizes, hidden);
 }
 
@@ -90,6 +96,7 @@ export function rowAxis(
   count: number,
   defaultHeight: number,
   rows: { row: number; height?: number; hidden?: boolean }[],
+  overrides?: Map<number, number>,
 ): Axis {
   const sizes = new Map<number, number>();
   const hidden = new Set<number>();
@@ -97,6 +104,11 @@ export function rowAxis(
     if (row.row >= count) continue;
     if (row.height !== undefined) sizes.set(row.row, row.height);
     if (row.hidden) hidden.add(row.row);
+  }
+  for (const [i, height] of overrides ?? []) {
+    if (i >= count) continue;
+    sizes.set(i, height);
+    hidden.delete(i);
   }
   return new Axis(count, defaultHeight, sizes, hidden);
 }

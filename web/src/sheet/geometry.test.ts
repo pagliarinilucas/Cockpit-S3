@@ -119,6 +119,31 @@ describe('rowAxis', () => {
   });
 });
 
+describe('tamanho arrastado sobrepõe o do arquivo', () => {
+  it('largura do doc vivo ganha da do arquivo', () => {
+    const axis = colAxis(3, 100, [{ from: 0, to: 2, width: 60 }], new Map([[1, 240]]));
+    expect(axis.size(0)).toBe(60);
+    expect(axis.size(1)).toBe(240);
+    expect(axis.size(2)).toBe(60);
+  });
+
+  it('altura do doc vivo ganha da do arquivo', () => {
+    const axis = rowAxis(3, 20, [{ row: 1, height: 40 }], new Map([[1, 90]]));
+    expect(axis.size(1)).toBe(90);
+    expect(axis.total).toBe(20 + 90 + 20);
+  });
+
+  it('arrastar uma linha oculta do arquivo volta a mostrá-la', () => {
+    const axis = rowAxis(2, 20, [{ row: 0, hidden: true }], new Map([[0, 30]]));
+    expect(axis.size(0)).toBe(30);
+  });
+
+  it('índice fora da contagem é ignorado', () => {
+    const axis = colAxis(2, 100, [], new Map([[9, 500]]));
+    expect(axis.total).toBe(200);
+  });
+});
+
 describe('Axis — planilha grande', () => {
   it('busca binária responde em planilha de 50 mil linhas', () => {
     const sizes = new Map<number, number>();

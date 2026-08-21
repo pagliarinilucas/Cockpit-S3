@@ -10,14 +10,16 @@
 import { formatValue } from './format';
 import {
   cellKey, cellRef, colIndex, colName, parseCellKey, parseCellRef,
-  SHEET_ORDER, SHEET_PREFIX, STYLES,
+  clampColWidth, clampRowHeight, colWidthKey, parseGeometryKey, rowHeightKey,
+  GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES,
   type Cell, type CellStyle, type CellValue,
 } from '@sheet/model';
 import { styleKey } from '@sheet/styles';
 
 export {
   cellKey, cellRef, colIndex, colName, parseCellKey, parseCellRef,
-  SHEET_ORDER, SHEET_PREFIX, STYLES, styleKey,
+  clampColWidth, clampRowHeight, colWidthKey, parseGeometryKey, rowHeightKey,
+  GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES, styleKey,
 };
 export type { Cell, CellStyle, CellValue };
 

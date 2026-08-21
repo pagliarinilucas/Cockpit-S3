@@ -13,6 +13,7 @@
 import { unzipSync, zipSync } from 'fflate';
 import { cellRef, parseCellRef, type CellValue } from './model';
 import { StyleWriter, parseStyles, type CellStyle, type StyleTable } from './styles';
+import { pxToColWidth, pxToPoints } from './layout';
 import type { ThemePalette } from './theme';
 
 // Data fixa p/ saída determinística; longe das bordas de 1980/2099 do formato zip,
@@ -49,6 +50,8 @@ export interface CellPatch {
 export interface SheetPatch {
   name: string;
   cells: Map<string, CellPatch>;
+  colWidths?: Map<number, number>;
+  rowHeights?: Map<number, number>;
 }
 
 interface RawCell {
@@ -185,10 +188,80 @@ const isEmptyCell = (xml: string) => /^<c\b[^>]*\/>$/.test(xml) && !/\bs="\d+"/.
  * Reemite a região sheetData combinando as células originais (verbatim) com as
  * alteradas. `resolveStyle` traduz o estilo pedido em índice de cellXfs.
  */
+function withoutAttrs(attrs: string, names: string[]): string {
+  let out = attrs;
+  for (const name of names) out = out.replace(new RegExp(`\\s*\\b${name}="[^"]*"`, 'g'), '');
+  return out.trim();
+}
+
+function withHeight(attrs: string, px: number): string {
+  const base = withoutAttrs(attrs, ['ht', 'customHeight']);
+  return `${base} ht="${pxToPoints(px)}" customHeight="1"`.trim();
+}
+
+/**
+ * Reemite o bloco <cols> com as larguras alteradas. Cada coluna citada pelo
+ * arquivo é expandida por índice para manter seus outros atributos (estilo
+ * padrão, oculta, bestFit) e depois reagrupada em faixas iguais.
+ */
+export function rewriteCols(sheetXml: string, widths: Map<number, number>): string {
+  if (!widths.size) return sheetXml;
+
+  const block = /<cols\b[^>]*>[\s\S]*?<\/cols>|<cols\b[^>]*\/>/.exec(sheetXml);
+  const rest = new Map<number, string>();
+  const width = new Map<number, number>();
+
+  if (block) {
+    for (const m of block[0].matchAll(/<col\b([^>]*?)\/?>/g)) {
+      const attrs = m[1] ?? '';
+      const min = /\bmin="(\d+)"/.exec(attrs)?.[1];
+      if (!min) continue;
+      const max = /\bmax="(\d+)"/.exec(attrs)?.[1] ?? min;
+      const raw = /\bwidth="([\d.]+)"/.exec(attrs)?.[1];
+      const keep = withoutAttrs(attrs, ['min', 'max', 'width', 'customWidth']);
+      for (let i = Number(min) - 1; i <= Number(max) - 1; i++) {
+        rest.set(i, keep);
+        if (raw !== undefined) width.set(i, Number(raw));
+      }
+    }
+  }
+
+  for (const [col, px] of widths) width.set(col, pxToColWidth(px));
+
+  const indices = [...new Set([...rest.keys(), ...width.keys()])].sort((a, b) => a - b);
+  const tags: string[] = [];
+  let run: { from: number; to: number; signature: string } | null = null;
+
+  const signatureOf = (i: number) => `${width.get(i) ?? ''}|${rest.get(i) ?? ''}`;
+  const emit = (r: { from: number; to: number }) => {
+    const w = width.get(r.from);
+    const keep = rest.get(r.from) ?? '';
+    if (w === undefined && !keep) return;
+    const size = w === undefined ? '' : ` width="${w}" customWidth="1"`;
+    tags.push(`<col min="${r.from + 1}" max="${r.to + 1}"${size}${keep ? ` ${keep}` : ''}/>`);
+  };
+
+  for (const i of indices) {
+    const signature = signatureOf(i);
+    if (run && run.to === i - 1 && run.signature === signature) { run.to = i; continue; }
+    if (run) emit(run);
+    run = { from: i, to: i, signature };
+  }
+  if (run) emit(run);
+
+  const rebuilt = tags.length ? `<cols>${tags.join('')}</cols>` : '';
+  if (block) return sheetXml.slice(0, block.index) + rebuilt + sheetXml.slice(block.index + block[0].length);
+
+  const anchor = /<sheetData\s*\/>|<sheetData\b[^>]*>/.exec(sheetXml);
+  if (!anchor) throw new Error('sheet_sem_sheetData');
+  return sheetXml.slice(0, anchor.index) + rebuilt + sheetXml.slice(anchor.index);
+}
+
 export function rewriteSheetData(
   sheetXml: string,
   changed: Map<string, CellPatch>,
   resolveStyle: (style: CellStyle) => number = () => 0,
+  rowHeights: Map<number, number> = new Map(),
 ): string {
   const open = /<sheetData\s*\/>|<sheetData\b[^>]*>/.exec(sheetXml);
   if (!open) throw new Error('sheet_sem_sheetData');
@@ -234,12 +307,20 @@ export function rewriteSheetData(
   }
 
   const rows: string[] = [];
-  for (const rowIdx of [...byRow.keys()].sort((a, b) => a - b)) {
-    const list = byRow.get(rowIdx)!.sort((a, b) => a.col - b.col);
+  const rowIndices = [...new Set([...byRow.keys(), ...rowHeights.keys()])].sort((a, b) => a - b);
+  for (const rowIdx of rowIndices) {
+    const original = rowAttrs.get(rowIdx);
+    let attrs = original && original.length ? original : `r="${rowIdx + 1}"`;
+    const height = rowHeights.get(rowIdx);
+    if (height !== undefined) attrs = withHeight(attrs, height);
+
+    const list = (byRow.get(rowIdx) ?? []).sort((a, b) => a.col - b.col);
+    if (!list.length) {
+      if (height !== undefined) rows.push(`<row ${attrs}/>`);
+      continue;
+    }
     const first = list[0]!.col;
     const last = list[list.length - 1]!.col;
-    const original = rowAttrs.get(rowIdx);
-    const attrs = original && original.length ? original : `r="${rowIdx + 1}"`;
     const spans = `spans="${first + 1}:${last + 1}"`;
     rows.push(`<row ${attrs} ${spans}>${list.map((c) => c.xml).join('')}</row>`);
   }
@@ -277,12 +358,15 @@ export function patchXlsx(original: Uint8Array, patches: SheetPatch[]): Uint8Arr
   const resolveStyle = (style: CellStyle) => writer.ensureXf(style);
 
   for (const patch of patches) {
-    if (!patch.cells.size) continue;
+    const colWidths = patch.colWidths ?? new Map<number, number>();
+    const rowHeights = patch.rowHeights ?? new Map<number, number>();
+    if (!patch.cells.size && !colWidths.size && !rowHeights.size) continue;
     const part = parts.get(patch.name);
     if (!part) throw new Error(`aba_desconhecida:${patch.name}`);
     const raw = files[part];
     if (!raw) throw new Error(`parte_ausente:${part}`);
-    const next = rewriteDimension(rewriteSheetData(dec.decode(raw), patch.cells, resolveStyle));
+    const withCells = rewriteSheetData(dec.decode(raw), patch.cells, resolveStyle, rowHeights);
+    const next = rewriteCols(rewriteDimension(withCells), colWidths);
     files[part] = enc.encode(next);
   }
 

@@ -51,6 +51,28 @@ export const SHEET_PREFIX = 'sheet:';
 export const SHEET_ORDER = 'sheetNames';
 export const STYLES = 'styles';
 
+export const GEOMETRY_PREFIX = 'geom:';
+
+export const colWidthKey = (col: number) => `C${col}`;
+export const rowHeightKey = (row: number) => `R${row}`;
+
+export function parseGeometryKey(k: string): { axis: 'col' | 'row'; index: number } | null {
+  const m = /^([CR])(\d+)$/.exec(k);
+  if (!m) return null;
+  return { axis: m[1] === 'C' ? 'col' : 'row', index: Number(m[2]) };
+}
+
+export const MIN_COL_WIDTH_PX = 24;
+export const MAX_COL_WIDTH_PX = 1200;
+export const MIN_ROW_HEIGHT_PX = 14;
+export const MAX_ROW_HEIGHT_PX = 600;
+
+export const clampColWidth = (px: number) =>
+  Math.round(Math.min(MAX_COL_WIDTH_PX, Math.max(MIN_COL_WIDTH_PX, px)));
+
+export const clampRowHeight = (px: number) =>
+  Math.round(Math.min(MAX_ROW_HEIGHT_PX, Math.max(MIN_ROW_HEIGHT_PX, px)));
+
 export const MAX_CELLS = 300_000;
 export const MAX_BYTES = 25 * 1024 * 1024;
 

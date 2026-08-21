@@ -79,6 +79,10 @@ export const colWidthToPx = (chars: number): number => Math.round(chars * 7 + 5)
 /** Altura vem em pontos; 96dpi / 72pt. */
 export const pointsToPx = (points: number): number => Math.round(points * (4 / 3));
 
+export const pxToColWidth = (px: number): number => Math.round(((px - 5) / 7) * 100) / 100;
+
+export const pxToPoints = (px: number): number => Math.round(px * (3 / 4) * 100) / 100;
+
 const attr = (tag: string, name: string): string | undefined =>
   new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
 

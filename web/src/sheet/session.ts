@@ -13,7 +13,8 @@ import type { CfRule } from '@sheet/conditional';
 import { recalc } from '@sheet/recalc';
 import { todaySerial } from '@sheet/conditional';
 import {
-  SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey, isBlankStyle, mergeStyle, styleKey,
+  GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey, clampColWidth, clampRowHeight,
+  colWidthKey, isBlankStyle, mergeStyle, parseGeometryKey, rowHeightKey, styleKey,
   type Cell, type CellStyle, type CellValue,
 } from './model';
 
@@ -149,6 +150,32 @@ export class SheetSession {
       if (cell.s !== undefined) next.s = cell.s;
       map.set(key, next);
     }
+  }
+
+  geometryMap(sheet: string) { return this.doc.getMap<number>(GEOMETRY_PREFIX + sheet); }
+
+  geometryOf(sheet: string): { cols: Map<number, number>; rows: Map<number, number> } {
+    const cols = new Map<number, number>();
+    const rows = new Map<number, number>();
+    for (const [k, px] of this.geometryMap(sheet).entries()) {
+      const parsed = parseGeometryKey(k);
+      if (!parsed || typeof px !== 'number' || !Number.isFinite(px)) continue;
+      if (parsed.axis === 'col') cols.set(parsed.index, px);
+      else rows.set(parsed.index, px);
+    }
+    return { cols, rows };
+  }
+
+  setColWidth(sheet: string, col: number, px: number): void {
+    this.doc.transact(() => {
+      this.geometryMap(sheet).set(colWidthKey(col), clampColWidth(px));
+    }, 'local');
+  }
+
+  setRowHeight(sheet: string, row: number, px: number): void {
+    this.doc.transact(() => {
+      this.geometryMap(sheet).set(rowHeightKey(row), clampRowHeight(px));
+    }, 'local');
   }
 
   stylesMap() { return this.doc.getMap<CellStyle>(STYLES); }

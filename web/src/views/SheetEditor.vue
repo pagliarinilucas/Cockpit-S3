@@ -26,6 +26,10 @@ const styles = shallowRef(new Map<string, CellStyle>());
 const bounds = ref({ rows: 0, cols: 0 });
 const ranges = ref<Range[]>([{ top: 0, left: 0, bottom: 0, right: 0 }]);
 const render = shallowRef<Record<string, SheetRender>>({});
+const geometry = shallowRef<{ cols: Map<number, number>; rows: Map<number, number> }>({
+  cols: new Map(),
+  rows: new Map(),
+});
 const dxfs = shallowRef<CellStyle[]>([]);
 // Preferência de tema do grid, lembrada entre sessões.
 const light = ref(localStorage.getItem('cs3.sheet.light') === '1');
@@ -68,6 +72,19 @@ function refresh(): void {
   cells.value = next;
   styles.value = new Map(session.stylesMap().entries());
   bounds.value = { rows, cols };
+  geometry.value = session.geometryOf(active.value);
+}
+
+function onResizeCol(col: number, px: number): void {
+  if (readonly.value) return;
+  session?.setColWidth(active.value, col, px);
+  dirty.value = true;
+}
+
+function onResizeRow(row: number, px: number): void {
+  if (readonly.value) return;
+  session?.setRowHeight(active.value, row, px);
+  dirty.value = true;
 }
 
 /** Formatação mostrada na barra: a da célula sob o cursor. */
@@ -227,6 +244,10 @@ const STATUS_LABEL: Record<Status, string> = {
       :readonly="readonly"
       :light="light"
       :peers="peerCursors"
+      :col-widths="geometry.cols"
+      :row-heights="geometry.rows"
+      @resize-col="onResizeCol"
+      @resize-row="onResizeRow"
       @edit="onEdit"
       @formula="onFormula"
       @paste="onPasteBlock"

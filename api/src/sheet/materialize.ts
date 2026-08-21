@@ -10,7 +10,8 @@
 import type * as Y from 'yjs';
 import { extOf, parseWorkbook, serializeDelimited } from './import';
 import { patchXlsx, type CellPatch, type SheetPatch } from './patch';
-import { sheetMap, sheetNames, stylesMap } from './ydoc';
+import { geometryOf, sheetMap, sheetNames, stylesMap } from './ydoc';
+import type { SheetLayout } from './layout';
 import { cellRef, isZipWorkbook, parseCellKey, type Cell, type CellStyle, type CellValue } from './model';
 import { styleKey } from './styles';
 
@@ -40,6 +41,37 @@ function refOfKey(k: string): string | null {
  * estilo são comparados separadamente: mudar só a cor gera patch só de estilo,
  * que preserva a fórmula da célula no arquivo.
  */
+function baseColWidths(layout: SheetLayout | undefined): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const col of layout?.cols ?? []) {
+    if (col.width === undefined) continue;
+    for (let i = col.from; i <= col.to; i++) out.set(i, col.width);
+  }
+  return out;
+}
+
+function baseRowHeights(layout: SheetLayout | undefined): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const row of layout?.rows ?? []) {
+    if (row.height !== undefined) out.set(row.row, row.height);
+  }
+  return out;
+}
+
+/**
+ * Só o que o usuário realmente arrastou. Comparar contra a geometria do arquivo
+ * evita reescrever <cols> e as alturas de linha a cada gravação, o que faria o
+ * patch mexer em partes que ninguém pediu para mudar.
+ */
+function changedSizes(live: Map<number, number>, base: Map<number, number>): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const [index, px] of live) {
+    if (base.get(index) === px) continue;
+    out.set(index, px);
+  }
+  return out;
+}
+
 export function diffAgainstBase(doc: Y.Doc, base: Uint8Array, key: string): SheetPatch[] {
   const parsed = parseWorkbook(base, key);
   const styles = stylesMap(doc);
@@ -85,7 +117,13 @@ export function diffAgainstBase(doc: Y.Doc, base: Uint8Array, key: string): Shee
       if (ref) cells.set(ref, { v: null, style: null });
     }
 
-    if (cells.size) patches.push({ name, cells });
+    const geometry = geometryOf(doc, name);
+    const colWidths = changedSizes(geometry.cols, baseColWidths(baseSheet?.layout));
+    const rowHeights = changedSizes(geometry.rows, baseRowHeights(baseSheet?.layout));
+
+    if (cells.size || colWidths.size || rowHeights.size) {
+      patches.push({ name, cells, colWidths, rowHeights });
+    }
   }
   return patches;
 }
@@ -116,7 +154,10 @@ export async function materialize(a: {
 
   const base = await a.io.fetchBytes(a.bucketId, a.key);
   const patches = diffAgainstBase(a.doc, base, a.key);
-  const changed = patches.reduce((acc, p) => acc + p.cells.size, 0);
+  const changed = patches.reduce(
+    (acc, p) => acc + p.cells.size + (p.colWidths?.size ?? 0) + (p.rowHeights?.size ?? 0),
+    0,
+  );
   if (!changed) return { status: 'unchanged' };
 
   const first = sheetNames(a.doc)[0] ?? patches[0]!.name;
