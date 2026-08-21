@@ -9,7 +9,9 @@
     "dev:web": "cd web && bun run dev",
     "dev:api": "cd api && bun run dev",
     "build:web": "cd web && bun run build",
-    "typecheck": "cd api && bun run typecheck && cd ../web && bun run typecheck",
+    "typecheck": "cd packages/sheet && bun run typecheck && cd ../../api && bun run typecheck && cd ../web && bun run typecheck",
+    "test": "cd packages/sheet && bun test && cd ../../api && bun test && cd ../web && bun test",
+    "install:all": "cd packages/sheet && bun install && cd ../../api && bun install && cd ../web && bun install",
     "docker:build": "docker build -t cockpit-s3 .",
     "docker:up": "docker compose up -d --build",
     "docker:logs": "docker compose logs -f"

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
 import { unzipSync, zipSync } from 'fflate';
 import * as XLSX from 'xlsx';
 import { patchXlsx, resolveSheetParts, rewriteSheetData, type CellPatch } from './patch';
-import type { CellValue } from './model';
+import type { CellValue } from '@cockpit/sheet/model';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

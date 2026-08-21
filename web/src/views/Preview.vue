@@ -11,6 +11,8 @@ import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
 import { isSheetName, type Cell, type CellStyle } from '../sheet/model';
 import Grid from '../sheet/Grid.vue';
+import Shortcuts from '../sheet/Shortcuts.vue';
+import { isShortcutPanelKey } from '../sheet/shortcuts';
 import { cellsOf, stylesOf, type SheetView } from '../sheet/view';
 
 const props = defineProps<{
@@ -44,6 +46,7 @@ const sheetBounds = ref({ rows: 0, cols: 0 });
 const sheetLight = ref(localStorage.getItem('cs3.sheet.light') === '1');
 
 const full = ref(false);
+const showShortcuts = ref(false);
 
 function toggleFull() { full.value = !full.value; }
 
@@ -128,6 +131,8 @@ watch(() => [props.startKey, props.items], () => {
 }, { immediate: true });
 
 const onKey = (e: KeyboardEvent) => {
+  if (isShortcutPanelKey(e)) { e.preventDefault(); showShortcuts.value = !showShortcuts.value; return; }
+  if (e.key === 'Escape' && showShortcuts.value) { showShortcuts.value = false; return; }
   // Em tela inteira, Esc volta ao tamanho normal em vez de fechar a prévia:
   // fechar tudo de uma vez perderia a planilha que a pessoa estava lendo.
   if (e.key === 'Escape' && full.value) { full.value = false; return; }
@@ -175,6 +180,9 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
                   <button v-for="s in sheetNames" :key="s" class="pv-sheet-tab" :class="{ 'pv-sheet-tab-on': s === activeSheet }" @click="selectSheet(s)">{{ s }}</button>
                 </div>
                 <div class="pv-sheet-spacer" />
+                <button class="iconbtn" title="Atalhos (Ctrl + /)" @click="showShortcuts = true">
+                  <Icon name="help" :size="16" />
+                </button>
                 <button
                   class="iconbtn"
                   :title="full ? 'Sair da tela inteira (Esc)' : 'Ver em tela inteira'"
@@ -237,5 +245,7 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
     </div>
 
     <button v-if="items.length > 1 && !full" class="pv-nav pv-next" @click.stop="go(1)"><Icon name="chevR" :size="26" /></button>
+
+    <Shortcuts v-if="showShortcuts" readonly @close="showShortcuts = false" />
   </div>
 </template>

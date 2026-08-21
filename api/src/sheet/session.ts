@@ -8,10 +8,10 @@
  * não perde edição.
  */
 import * as Y from 'yjs';
-import { MAX_BYTES, MAX_CELLS, type CellStyle, type WorkbookData } from './model';
+import { MAX_BYTES, MAX_CELLS, type CellStyle, type WorkbookData } from '@cockpit/sheet/model';
 import { docIdFor } from './docid';
-import type { SheetLayout } from './layout';
-import type { CfRule } from './conditional';
+import type { SheetLayout } from '@cockpit/sheet/layout';
+import type { CfRule } from '@cockpit/sheet/conditional';
 import { EMPTY_LAYOUT, parseWorkbook } from './import';
 import { applyWorkbook, cellCount, sheetNames } from './ydoc';
 import { sheetStore } from './store';

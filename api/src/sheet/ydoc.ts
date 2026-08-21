@@ -10,8 +10,8 @@ import {
   GEOMETRY_PREFIX, SHEET_ORDER, SHEET_PREFIX, STYLES, cellKey,
   clampColWidth, clampRowHeight, colWidthKey, parseGeometryKey, rowHeightKey,
   type Cell, type CellStyle, type CellValue, type WorkbookData,
-} from './model';
-import { styleKey } from './styles';
+} from '@cockpit/sheet/model';
+import { styleKey } from '@cockpit/sheet/styles';
 
 
 

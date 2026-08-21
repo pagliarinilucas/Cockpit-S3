@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { unzipSync } from 'fflate';
 import { patchXlsx, rewriteCols, rewriteSheetData } from './patch';
 import { diffAgainstBase } from './materialize';
-import { parseCols, parseRows, colWidthToPx, pointsToPx, pxToColWidth, pxToPoints } from './layout';
+import { parseCols, parseRows, colWidthToPx, pointsToPx, pxToColWidth, pxToPoints } from '@cockpit/sheet/layout';
 import { applyWorkbook, setColWidth, setRowHeight } from './ydoc';
 import { parseWorkbook } from './import';
 import type { CellPatch } from './patch';

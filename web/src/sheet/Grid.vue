@@ -16,10 +16,10 @@ import {
 } from './selection';
 import {
   conditionalVisual, contextFrom, todaySerial, type CfRule, type CfVisual,
-} from '@sheet/conditional';
+} from '@cockpit/sheet/conditional';
 import {
   coveredBy, defaultStyleFor, hyperlinkAt, mergeAt, optionsAt, type SheetLayout,
-} from '@sheet/layout';
+} from '@cockpit/sheet/layout';
 
 // O modelo de seleção vive em selection.ts (testável sem DOM).
 export type { Range };

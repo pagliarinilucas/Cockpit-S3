@@ -7,8 +7,8 @@
  * que faz isso valer também para view-only (que não pode baixar).
  */
 import type { Cell, CellStyle } from './model';
-import type { SheetLayout } from '@sheet/layout';
-import type { CfRule } from '@sheet/conditional';
+import type { SheetLayout } from '@cockpit/sheet/layout';
+import type { CfRule } from '@cockpit/sheet/conditional';
 
 export interface SheetViewSheet {
   name: string;

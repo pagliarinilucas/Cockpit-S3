@@ -622,7 +622,7 @@ defineExpose({ reload });
     @close="preview = null" @download="downloadItem" @copy-link="copyLink" @delete="askDelete"
     @edit="(it) => openEditor(it.key)" />
 
-  <SheetEditor v-if="editing" :bucket-id="bucket.id" :object-key="editing" :user="user ?? &quot;&quot;"
+  <SheetEditor v-if="editing" :bucket-id="bucket.id" :object-key="editing" :user="user ?? ''"
     @close="editing = null; reload()" />
 
   <InputModal v-if="showFolder" title="Nova pasta" icon="folderPlus" placeholder="nome-da-pasta"

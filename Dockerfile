@@ -8,6 +8,11 @@
 # 1) Build the frontend
 FROM oven/bun:1 AS web
 WORKDIR /web
+# @cockpit/sheet é o pacote que interpreta o formato xlsx, usado igual pelo
+# servidor e pelo navegador. É dependência declarada (file:../packages/sheet),
+# então precisa estar presente ANTES do install — sem ele o install falha na
+# hora, em vez de o erro aparecer no fim, disfarçado de módulo não encontrado.
+COPY packages/sheet/ /packages/sheet/
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY web/ ./
@@ -26,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # API deps (production only — Bun runs the TS sources directly)
+COPY packages/sheet/ /packages/sheet/
 COPY api/package.json api/bun.lock ./
 RUN bun install --frozen-lockfile --production
 

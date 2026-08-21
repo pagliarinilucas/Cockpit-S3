@@ -6,9 +6,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import Icon from '../components/Icon.vue';
 import Grid from '../sheet/Grid.vue';
+import Shortcuts from '../sheet/Shortcuts.vue';
+import { isShortcutPanelKey } from '../sheet/shortcuts';
 import { countCells, type Range } from '../sheet/selection';
 import FormatBar from '../sheet/FormatBar.vue';
-import { SheetSession, type Peer, type Presence, type Status } from '../sheet/session';
+import { SheetSession, type Peer, type Presence, type SheetRender, type Status } from '../sheet/session';
 import { cellRef, parseCellKey, type Cell, type CellStyle, type CellValue } from '../sheet/model';
 import { useToast } from '../core/toast';
 
@@ -171,7 +173,27 @@ onMounted(() => {
   void session.connect();
 });
 
-onBeforeUnmount(() => { session?.close(); session = null; });
+const showShortcuts = ref(false);
+
+function onWindowKey(ev: KeyboardEvent): void {
+  if (isShortcutPanelKey(ev)) {
+    ev.preventDefault();
+    showShortcuts.value = !showShortcuts.value;
+    return;
+  }
+  if (ev.key === 'Escape' && showShortcuts.value) {
+    ev.preventDefault();
+    showShortcuts.value = false;
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onWindowKey));
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKey);
+  session?.close();
+  session = null;
+});
 
 function msgFor(code: string): string {
   if (code === 'sealed') return 'Criptografia indisponível (KEK não configurada)';
@@ -219,6 +241,13 @@ const STATUS_LABEL: Record<Status, string> = {
       <span v-else-if="savedAt" class="se-hint">salvo às {{ savedAt }}</span>
 
       <button
+        class="iconbtn iconbtn-lg" title="Atalhos (Ctrl + /)"
+        @click="showShortcuts = true"
+      >
+        <Icon name="help" :size="17" />
+      </button>
+
+      <button
         class="iconbtn iconbtn-lg" :title="light ? 'Tema escuro na planilha' : 'Tema claro na planilha'"
         @click="toggleLight"
       >
@@ -262,7 +291,15 @@ const STATUS_LABEL: Record<Status, string> = {
         class="se-tab" :class="{ 'is-active': s === active }"
         @click="selectSheet(s)"
       >{{ s }}</button>
+
+      <div class="se-tabs-spacer" />
+      <button class="se-hintbtn" title="Atalhos (Ctrl + /)" @click="showShortcuts = true">
+        <Icon name="help" :size="13" />atalhos
+        <kbd>Ctrl</kbd><kbd>/</kbd>
+      </button>
     </footer>
+
+    <Shortcuts v-if="showShortcuts" :readonly="readonly" @close="showShortcuts = false" />
   </div>
 </template>
 
@@ -311,6 +348,20 @@ const STATUS_LABEL: Record<Status, string> = {
 }
 
 .se-loading { display: grid; place-items: center; color: var(--text-3); font-family: var(--mono); font-size: 12px; }
+
+.se-tabs-spacer { flex: 1; min-width: 12px; }
+
+.se-hintbtn {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  padding: 4px 9px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--text-3);
+  font-family: var(--mono); font-size: 11px; cursor: pointer;
+}
+.se-hintbtn:hover { color: var(--neon); border-color: var(--line-2); background: var(--bg-2); }
+.se-hintbtn kbd {
+  padding: 1px 5px; border: 1px solid var(--line-2); border-radius: 4px;
+  background: var(--bg-2); font-family: var(--mono); font-size: 10px;
+}
 
 .se-tabs {
   display: flex; gap: 2px; align-items: center;
