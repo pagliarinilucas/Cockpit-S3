@@ -91,6 +91,20 @@ export const clusterRoutes = new Elysia({ prefix: '/api/clusters' })
         return infos.map((i) => ({ id: i.accessKeyId, name: i.name, created: i.created, expired: i.expired, buckets: i.buckets.map((b) => ({ id: b.id, aliases: b.globalAliases, permissions: b.permissions })) })); }
       catch (e) { set.status = 502; return { error: String((e as Error).message) }; }
     })
+    /**
+     * Secret de uma key, sob demanda. Fica em rota própria (e não na listagem)
+     * porque é credencial de longa duração: só sai quando alguém pede, e cada
+     * pedido vira registro de auditoria com o autor.
+     */
+    .get('/:id/keys/:keyId/secret', async ({ params, set, user }) => {
+      const c = clustersStore.getFull(params.id); if (!c) { set.status = 404; return { error: 'not_found' }; }
+      try {
+        const r = await garageAdmin(creds(c)).keySecret(params.keyId);
+        audit.log('key', user!.username, '—', `cluster ${c.name}: revelou secret da key ${r.name || params.keyId}`);
+        return { accessKeyId: r.accessKeyId, name: r.name, secretAccessKey: r.secretAccessKey };
+      } catch (e) { set.status = 502; return { error: String((e as Error).message) }; }
+    })
+
     .post('/:id/keys', async ({ params, body, set, user }) => {
       const c = clustersStore.getFull(params.id); if (!c) { set.status = 404; return { error: 'not_found' }; }
       try { const r = await garageAdmin(creds(c)).createKey(body.name); audit.log('key', user!.username, '—', `cluster ${c.name}: key ${body.name}`); set.status = 201; return r; }

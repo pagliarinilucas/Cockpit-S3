@@ -9,18 +9,20 @@ import type { UploadItem } from '../core/ui';
 import { api, apiErrMsg } from '../core/api';
 import { useToast } from '../core/toast';
 import { fmtBytes, timeAgo, typeFromName, isPreviewable, ICON_FOR, bucketLabel } from '../core/util';
+import { isSheetName } from '../sheet/model';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
 import Modal from '../components/Modal.vue';
 import InputModal from '../components/InputModal.vue';
 import Preview from './Preview.vue';
+import SheetEditor from './SheetEditor.vue';
 import UploadDock from './UploadDock.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import Thumb from '../components/Thumb.vue';
 import ShareCreate from '../components/ShareCreate.vue';
 import ShareLinks from '../components/ShareLinks.vue';
 
-const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean; canShare?: boolean }>();
+const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean; canShare?: boolean; user?: string }>();
 const emit = defineEmits<{ back: []; openFolder: [name: string]; crumb: [index: number] }>();
 const toast = useToast();
 
@@ -36,6 +38,8 @@ const uploads = ref<UploadItem[]>([]);
 const drag = ref(false);
 const preview = ref<string | null>(null);
 const showFolder = ref(false);
+const showNewSheet = ref(false);
+const editing = ref<string | null>(null);   // key da planilha aberta no editor
 const renamingBucket = ref(false);
 const toDelete = ref<{ keys: string[]; label: string } | null>(null);
 const merge = ref<{ items: ObjectItem[]; name: string } | null>(null);
@@ -175,6 +179,7 @@ const ctxItems = computed<MenuItem[]>(() => {
   ];
   return [
     ...(previewable(it) ? [{ key: 'preview', label: 'Visualizar', icon: 'eye' } as MenuItem] : []),
+    ...(editable(it) ? [{ key: 'edit', label: 'Editar planilha', icon: 'edit' } as MenuItem] : []),
     ...(canDownload.value ? [{ key: 'download', label: 'Baixar', icon: 'download' } as MenuItem] : []),
     ...(canDownload.value ? [{ key: 'copy', label: 'Copiar link', icon: 'copy' } as MenuItem] : []),
     ...(props.canShare && canDownload.value ? [{ key: 'share', label: 'Compartilhar', icon: 'share' } as MenuItem] : []),
@@ -186,6 +191,7 @@ function onCtxSelect(key: string) {
   if (key === 'open') openFolder(it);
   else if (key === 'zip') downloadFolderZip(it);
   else if (key === 'preview') openPreview(it);
+  else if (key === 'edit') openEditor(it.key);
   else if (key === 'download') downloadItem(it);
   else if (key === 'copy') copyLink(it);
   else if (key === 'share') openShare(it);
@@ -196,6 +202,21 @@ function openShare(it: ObjectItem) { if (it.kind === 'file') shareItem.value = i
 // preview
 function openPreview(it: ObjectItem) { preview.value = it.key; }
 const previewable = (it: ObjectItem) => it.kind === 'file' && isPreviewable(it.type || 'file');
+
+// editor de planilha
+const editable = (it: ObjectItem) => it.kind === 'file' && canWrite.value && isSheetName(it.name);
+function openEditor(key: string) { preview.value = null; editing.value = key; }
+
+async function createSheet(name: string) {
+  showNewSheet.value = false;
+  try {
+    const { key } = await api.createSheet(props.bucket.id, prefix.value, name);
+    await reload();
+    openEditor(key);
+  } catch (e) {
+    toast.error(apiErrMsg(e, 'criar planilha'));
+  }
+}
 
 // download / link
 async function downloadItem(it: ObjectItem) {
@@ -458,6 +479,7 @@ defineExpose({ reload });
         <button v-if="canShare" class="btn" @click="showLinks = true"><Icon name="link" :size="16" />Links</button>
         <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />Pasta</button>
         <button v-if="canWrite" class="btn" @click="folderInput?.click()"><Icon name="upload" :size="16" />Enviar pasta</button>
+        <button v-if="canWrite" class="btn" @click="showNewSheet = true"><Icon name="sheet" :size="16" />Planilha</button>
         <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Upload</button>
         <input ref="fileInput" type="file" multiple hidden @change="onPick" />
         <input ref="folderInput" type="file" webkitdirectory multiple hidden @change="onPick" />
@@ -525,6 +547,7 @@ defineExpose({ reload });
           <div class="frow-date">{{ timeAgo(it.modified) }}</div>
           <div class="frow-actions" @click.stop>
             <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
+            <button v-if="editable(it)" class="iconbtn" title="Editar planilha" @click="openEditor(it.key)"><Icon name="edit" :size="16" /></button>
             <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
             <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
             <button v-if="canDownload" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
@@ -596,10 +619,18 @@ defineExpose({ reload });
 
   <Preview v-if="preview" :bucket-id="bucket.id" :bucket-perm="bucket.perm" :path="prefix"
     :items="previewItems" :start-key="preview" :can-write="canWrite" :can-download="canDownload"
-    @close="preview = null" @download="downloadItem" @copy-link="copyLink" @delete="askDelete" />
+    @close="preview = null" @download="downloadItem" @copy-link="copyLink" @delete="askDelete"
+    @edit="(it) => openEditor(it.key)" />
+
+  <SheetEditor v-if="editing" :bucket-id="bucket.id" :object-key="editing" :user="user ?? &quot;&quot;"
+    @close="editing = null; reload()" />
 
   <InputModal v-if="showFolder" title="Nova pasta" icon="folderPlus" placeholder="nome-da-pasta"
     confirmLabel="Criar pasta" @close="showFolder = false" @confirm="createFolder" />
+
+  <InputModal v-if="showNewSheet" title="Nova planilha" icon="sheet" placeholder="minha-planilha"
+    hint="Cria um .xlsx vazio nesta pasta e abre no editor." confirm-label="Criar planilha"
+    @close="showNewSheet = false" @confirm="createSheet" />
 
   <InputModal v-if="renamingBucket" title="Renomear apelido" icon="edit"
               :initial="bucket.alias ?? ''" placeholder="apelido do bucket"

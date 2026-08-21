@@ -19,6 +19,7 @@ import { mayDeleteBucket } from '../buckets/guard';
 import { objectsStore, bucketCryptoStore } from '../objects/store';
 import { getKekProvider } from '../crypto/kek';
 import { downloadEncrypted, uploadEncryptedFromRequest } from './crypto-pipeline';
+import { hasSessionUnder } from '../sheet/session';
 import { config, readKekBytes } from '../config';
 import { createHash } from 'node:crypto';
 
@@ -666,6 +667,10 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
       const access = perms.access(user!, params.id);
       if (!access) { set.status = 403; return { error: 'forbidden' }; }
       for (const k of body.keys) if (!perms.canWrite(access, k)) { set.status = 403; return { error: 'forbidden' }; }
+      // Apagar arquivo com editor de planilha aberto órfãria o documento vivo (o docId
+      // deriva de bucket+key) e faria a materialização recriar o objeto depois.
+      const busy = body.keys.filter((k) => hasSessionUnder(params.id, k));
+      if (busy.length) { set.status = 409; return { error: 'em_edicao', keys: busy }; }
       await ensureSource(ref);
       // Uma passada: resolve cada key lógica para {key, s3Key, enc} — cifradas (linha em
       // `objects`) mapeiam pro blob opaco s3_key; legadas usam a própria key como s3Key.

@@ -536,7 +536,9 @@ select.modal-input { appearance: none; cursor: pointer; }
 
 /* ============ PREVIEW / LIGHTBOX ============ */
 .pv-back { position: fixed; inset: 0; z-index: 9600; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 20px; background: rgba(2,4,8,0.85); backdrop-filter: blur(7px); animation: fade .16s ease; }
+.pv-back-full { padding: 0; }
 .pv-shell { width: min(1500px, 100%); height: min(960px, 95vh); display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: 0 30px 70px rgba(0,0,0,0.55); overflow: hidden; animation: pop .2s cubic-bezier(.2,.9,.3,1.2); }
+.pv-shell-full { width: 100%; height: 100%; max-height: none; border-radius: 0; border: none; }
 .pv-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--line); flex: none; }
 .pv-head-l { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .pv-head-ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--bg-3); border: 1px solid var(--line); flex: none; }
@@ -551,15 +553,12 @@ select.modal-input { appearance: none; cursor: pointer; }
 .pv-body video { max-width: 100%; max-height: 100%; border-radius: 12px; border: 1px solid var(--line-2); background: #04070d; }
 .pv-body iframe { width: 100%; height: 100%; border: 0; border-radius: 8px; background: #fff; }
 .pv-sheet { align-self: stretch; width: 100%; height: 100%; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.pv-sheet-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; flex: none; }
+.pv-sheet-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex: none; }
+.pv-sheet-spacer { flex: 1; }
+.pv-sheet-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .pv-sheet-tab { padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-2); cursor: pointer; font-family: var(--mono); font-size: 12px; }
 .pv-sheet-tab-on { color: var(--text); border-color: color-mix(in srgb, var(--neon) 40%, var(--line)); background: color-mix(in srgb, var(--neon) 10%, var(--bg-2)); }
-.pv-sheet-scroll { flex: 1; overflow: auto; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-1); min-height: 0; }
-.pv-table { border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
-.pv-table td { border: 1px solid var(--line); padding: 4px 10px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
-.pv-table tr:first-child td { background: var(--bg-2); font-weight: 600; position: sticky; top: 0; z-index: 1; }
-.pv-table-rownum { position: sticky; left: 0; background: var(--bg-2); color: var(--text-3); text-align: right; user-select: none; }
-.pv-sheet-note { flex: none; margin-top: 8px; display: flex; align-items: center; gap: 6px; color: var(--amber); font-family: var(--mono); font-size: 11px; }
+.pv-sheet-grid { flex: 1; overflow: hidden; border: 1px solid var(--line-2); border-radius: 8px; min-height: 0; }
 .pv-audio-stage { width: min(560px, 100%); display: flex; flex-direction: column; gap: 18px; }
 .pv-wave { height: 150px; display: flex; align-items: center; gap: 3px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--bg-2); }
 .pv-wave span { flex: 1; min-width: 2px; background: linear-gradient(180deg, var(--green), color-mix(in srgb, var(--green) 35%, transparent)); border-radius: 2px; opacity: 0.85; }

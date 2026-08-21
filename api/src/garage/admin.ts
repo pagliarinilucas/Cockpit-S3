@@ -97,6 +97,14 @@ export function garageAdmin(creds: AdminCreds) {
     listKeys: () => call<{ id: string; name: string; created: string; expiration: string | null; expired: boolean }[]>(creds, 'GET', '/v2/ListKeys'),
     keyInfo: (id: string) => call<{ accessKeyId: string; name: string; created: string; expiration: string | null; expired: boolean; permissions: { createBucket: boolean }; buckets: { id: string; globalAliases: string[]; permissions: Perm }[] }>(creds, 'GET', `/v2/GetKeyInfo?id=${encodeURIComponent(id)}`),
     createKey: (name: string) => call<{ accessKeyId: string; name: string; secretAccessKey: string; created: string }>(creds, 'POST', '/v2/CreateKey', { name }),
+    /**
+     * Secret de uma key. O Garage só devolve com showSecretKey=true (esconde por
+     * padrão), então esta é uma chamada separada e deliberada — nunca embutida
+     * na listagem, que carrega sozinha ao abrir a tela.
+     */
+    keySecret: (id: string) => call<{ accessKeyId: string; name: string; secretAccessKey: string }>(
+      creds, 'GET', `/v2/GetKeyInfo?id=${encodeURIComponent(id)}&showSecretKey=true`,
+    ),
     deleteKey: (id: string) => call(creds, 'POST', `/v2/DeleteKey?id=${encodeURIComponent(id)}`),
     async setBucketKeyPerm(bucketId: string, accessKeyId: string, want: Perm): Promise<void> {
       const { allow, deny } = desiredPermCalls(want);

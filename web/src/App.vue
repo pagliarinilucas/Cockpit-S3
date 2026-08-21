@@ -265,7 +265,8 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
           <Buckets v-if="view === 'buckets'" ref="bucketsRef" :query="query" :is-admin="me?.role === 'admin'"
                    @open="openBucket" @go-settings="view = 'settings'" @loaded="onBucketsLoaded" />
           <Files v-else-if="view === 'files' && activeBucket" ref="filesRef" :bucket="activeBucket" :path="filePath"
-                 :can-back="canBrowseBuckets" :can-share="canShare" @back="backToBuckets" @open-folder="openFolder" @crumb="gotoCrumb" />
+                 :can-back="canBrowseBuckets" :can-share="canShare" :user="me?.username"
+                 @back="backToBuckets" @open-folder="openFolder" @crumb="gotoCrumb" />
           <Activity v-else-if="view === 'activity'" ref="activityRef" :query="query" />
           <Users v-else-if="view === 'users'" ref="usersRef" />
           <Cluster v-else-if="view === 'cluster'" ref="clusterRef" />

@@ -6,6 +6,7 @@ import type {
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
   Cluster, ClusterInput, Share, SharePublicMeta,
 } from './models';
+import type { SheetView } from '../sheet/view';
 
 export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
@@ -191,6 +192,16 @@ export const api = {
   /** Miniatura (imagem/1ª página de PDF) como Blob; rejeita (415) quando não há thumb. */
   thumbBlob: (bucketId: string, key: string) => fetchBlob(`/buckets/${encodeURIComponent(bucketId)}/thumb`, { key }),
   createFolder: (bucketId: string, path: string, name: string) => req('POST', `/buckets/${encodeURIComponent(bucketId)}/folders`, { body: { path, name } }),
+
+  /** Planilha já interpretada (valores, estilos, mesclagens, condicional) para exibição. */
+  sheetView: (bucketId: string, key: string) =>
+    req<SheetView>('GET', `/buckets/${encodeURIComponent(bucketId)}/sheet-view`, { params: { key } }),
+  /** Ticket de uso único para abrir o WebSocket do editor (a permissão é conferida aqui). */
+  sheetTicket: (bucketId: string, key: string) =>
+    req<{ ticket: string }>('POST', `/buckets/${encodeURIComponent(bucketId)}/sheet-ticket`, { body: { key } }),
+  /** Cria uma planilha nova e vazia no diretório atual. */
+  createSheet: (bucketId: string, path: string, name: string) =>
+    req<{ key: string }>('POST', `/buckets/${encodeURIComponent(bucketId)}/sheets`, { body: { path, name } }),
   deleteObjects: (bucketId: string, keys: string[]) =>
     req<{ ok: boolean; failed?: string[] }>('DELETE', `/buckets/${encodeURIComponent(bucketId)}/objects`, { body: { keys } }),
 
@@ -289,6 +300,10 @@ export const api = {
   deleteGarageBucket: (id: string, bucketId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}`),
   setGarageQuotas: (id: string, bucketId: string, maxSize: number | null, maxObjects: number | null) => req('PUT', `/clusters/${encodeURIComponent(id)}/buckets/${encodeURIComponent(bucketId)}/quotas`, { body: { maxSize, maxObjects } }),
   garageKeys: (id: string) => req<GarageKey[]>('GET', `/clusters/${encodeURIComponent(id)}/keys`),
+  /** Secret de uma access key, sob demanda (fica auditado no servidor). */
+  garageKeySecret: (id: string, keyId: string) =>
+    req<{ accessKeyId: string; name: string; secretAccessKey: string }>(
+      'GET', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/secret`),
   createGarageKey: (id: string, name: string) => req<NewGarageKey>('POST', `/clusters/${encodeURIComponent(id)}/keys`, { body: { name } }),
   deleteGarageKey: (id: string, keyId: string) => req('DELETE', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`),
   setGarageKeyPerm: (id: string, keyId: string, bucketId: string, perm: GaragePerm) => req('PUT', `/clusters/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}/buckets/${encodeURIComponent(bucketId)}`, { body: perm }),

@@ -245,9 +245,12 @@ export const s3 = {
     return new Response(stream, { headers });
   },
 
-  async head(cid: string, bucket: string, key: string): Promise<{ size: number; contentType: string | null; modified?: string }> {
+  async head(cid: string, bucket: string, key: string): Promise<{ size: number; contentType: string | null; modified?: string; etag?: string }> {
     const out = await client(cid).send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    return { size: out.ContentLength ?? 0, contentType: out.ContentType ?? null, modified: out.LastModified?.toISOString() };
+    return {
+      size: out.ContentLength ?? 0, contentType: out.ContentType ?? null,
+      modified: out.LastModified?.toISOString(), etag: out.ETag ?? undefined,
+    };
   },
 
   async stream(cid: string, bucket: string, key: string): Promise<ReadableStream<Uint8Array>> {

@@ -3,20 +3,25 @@
   Copyright (C) 2026 Lucas Pagliarini
 -->
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue';
 import type { ObjectItem, Perm } from '../core/models';
 import { api } from '../core/api';
 import { fmtBytes, timeAgo, ICON_FOR } from '../core/util';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
+import { isSheetName, type Cell, type CellStyle } from '../sheet/model';
+import Grid from '../sheet/Grid.vue';
+import { cellsOf, stylesOf, type SheetView } from '../sheet/view';
 
 const props = defineProps<{
   bucketId: string; bucketPerm: Perm; path: string;
   items: ObjectItem[]; startKey: string; canWrite: boolean; canDownload: boolean;
 }>();
-const emit = defineEmits<{ close: []; download: [ObjectItem]; copyLink: [ObjectItem]; delete: [ObjectItem] }>();
+const emit = defineEmits<{ close: []; download: [ObjectItem]; copyLink: [ObjectItem]; delete: [ObjectItem]; edit: [ObjectItem] }>();
 
-const MAX_ROWS = 5000;   // cap rendered rows so huge sheets don't freeze the tab
+/** Planilha editável abre o editor colaborativo; quem só lê não vê o botão. */
+const editable = (it: ObjectItem) => it.kind === 'file' && props.canWrite && isSheetName(it.name);
+
 
 const idx = ref(0);
 const url = ref<string | null>(null);
@@ -30,33 +35,51 @@ const fileKind = ref<'image' | 'pdf' | 'none' | null>(null);
 
 const sheetNames = ref<string[]>([]);
 const activeSheet = ref('');
-const sheetRows = ref<string[][]>([]);
-const sheetTruncated = ref(false);
-let workbook: import('xlsx').WorkBook | null = null;
-let xlsxMod: typeof import('xlsx') | null = null;   // lazily imported; kept for sync sheet switching
+// Planilha renderizada igual ao editor: valores, estilo, mesclagem e condicional
+// vêm interpretados do servidor, então quem só tem leitura vê o mesmo desenho.
+const view = shallowRef<SheetView | null>(null);
+const sheetCells = shallowRef(new Map<string, Cell>());
+const sheetStyles = shallowRef(new Map<string, CellStyle>());
+const sheetBounds = ref({ rows: 0, cols: 0 });
+const sheetLight = ref(localStorage.getItem('cs3.sheet.light') === '1');
+
+const full = ref(false);
+
+function toggleFull() { full.value = !full.value; }
+
+function toggleSheetLight() {
+  sheetLight.value = !sheetLight.value;
+  localStorage.setItem('cs3.sheet.light', sheetLight.value ? '1' : '0');
+}
+
+const activeView = computed(() => view.value?.sheets.find((s) => s.name === activeSheet.value) ?? null);
 
 const item = computed<ObjectItem | null>(() => props.items[idx.value] ?? null);
 
 function revoke() { if (url.value) { URL.revokeObjectURL(url.value); url.value = null; } }
-function resetSheet() { workbook = null; sheetNames.value = []; activeSheet.value = ''; sheetRows.value = []; sheetTruncated.value = false; }
+function resetSheet() {
+  view.value = null;
+  sheetNames.value = [];
+  activeSheet.value = '';
+  sheetCells.value = new Map();
+  sheetStyles.value = new Map();
+  sheetBounds.value = { rows: 0, cols: 0 };
+}
 
 async function loadSheet(it: ObjectItem) {
-  if (!xlsxMod) xlsxMod = await import('xlsx');
-  const blob = await api.objectBlob(props.bucketId, it.key, 'preview');
-  const ext = (it.name.split('.').pop() || '').toLowerCase();
-  workbook = (ext === 'csv' || ext === 'tsv')
-    ? xlsxMod.read(await blob.text(), { type: 'string' })
-    : xlsxMod.read(new Uint8Array(await blob.arrayBuffer()), { type: 'array' });
-  sheetNames.value = workbook.SheetNames;
-  selectSheet(workbook.SheetNames[0] ?? '');
+  const data = await api.sheetView(props.bucketId, it.key);
+  view.value = data;
+  sheetStyles.value = stylesOf(data);
+  sheetNames.value = data.sheets.map((s) => s.name);
+  selectSheet(data.sheets[0]?.name ?? '');
 }
 
 function selectSheet(name: string) {
-  if (!workbook || !xlsxMod || !name) return;
+  const sheet = view.value?.sheets.find((s) => s.name === name);
+  if (!sheet) return;
   activeSheet.value = name;
-  const aoa = xlsxMod.utils.sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '' }) as unknown[][];
-  sheetTruncated.value = aoa.length > MAX_ROWS;
-  sheetRows.value = aoa.slice(0, MAX_ROWS).map((r) => (r ?? []).map((c) => c == null ? '' : String(c)));
+  sheetCells.value = cellsOf(sheet);
+  sheetBounds.value = { rows: sheet.rows, cols: sheet.cols };
 }
 
 /** Detect kind + MIME from the first bytes — for files saved without an extension.
@@ -105,6 +128,9 @@ watch(() => [props.startKey, props.items], () => {
 }, { immediate: true });
 
 const onKey = (e: KeyboardEvent) => {
+  // Em tela inteira, Esc volta ao tamanho normal em vez de fechar a prévia:
+  // fechar tudo de uma vez perderia a planilha que a pessoa estava lendo.
+  if (e.key === 'Escape' && full.value) { full.value = false; return; }
   if (e.key === 'Escape') emit('close');
   else if (e.key === 'ArrowRight') go(1);
   else if (e.key === 'ArrowLeft') go(-1);
@@ -117,10 +143,10 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
 </script>
 
 <template>
-  <div class="pv-back" @click="emit('close')">
-    <button v-if="items.length > 1" class="pv-nav pv-prev" @click.stop="go(-1)"><Icon name="chevL" :size="26" /></button>
+  <div class="pv-back" :class="{ 'pv-back-full': full }" @click="emit('close')">
+    <button v-if="items.length > 1 && !full" class="pv-nav pv-prev" @click.stop="go(-1)"><Icon name="chevL" :size="26" /></button>
 
-    <div class="pv-shell" @click.stop>
+    <div class="pv-shell" :class="{ 'pv-shell-full': full }" @click.stop>
       <template v-if="item">
         <div class="pv-head">
           <div class="pv-head-l">
@@ -131,6 +157,7 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
             </div>
           </div>
           <div class="pv-head-r">
+            <button v-if="editable(item)" class="btn btn-primary" @click="emit('edit', item)"><Icon name="edit" :size="16" />Editar</button>
             <button v-if="canDownload" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
             <button v-if="canDownload" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
             <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>
@@ -143,20 +170,36 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
             <div v-if="loading" class="pv-loading"><div class="spinner"></div>ABRINDO…</div>
             <div v-else-if="failed" class="pv-loading"><Icon name="alert" :size="34" />Não foi possível abrir a prévia.</div>
             <div v-else-if="item.type === 'sheet'" class="pv-sheet">
-              <div v-if="sheetNames.length > 1" class="pv-sheet-tabs">
-                <button v-for="s in sheetNames" :key="s" class="pv-sheet-tab" :class="{ 'pv-sheet-tab-on': s === activeSheet }" @click="selectSheet(s)">{{ s }}</button>
+              <div class="pv-sheet-bar">
+                <div v-if="sheetNames.length > 1" class="pv-sheet-tabs">
+                  <button v-for="s in sheetNames" :key="s" class="pv-sheet-tab" :class="{ 'pv-sheet-tab-on': s === activeSheet }" @click="selectSheet(s)">{{ s }}</button>
+                </div>
+                <div class="pv-sheet-spacer" />
+                <button
+                  class="iconbtn"
+                  :title="full ? 'Sair da tela inteira (Esc)' : 'Ver em tela inteira'"
+                  @click="toggleFull"
+                >
+                  <Icon :name="full ? 'shrink' : 'expand'" :size="16" />
+                </button>
+                <button class="iconbtn" :title="sheetLight ? 'Tema escuro' : 'Tema claro'" @click="toggleSheetLight">
+                  <Icon name="palette" :size="16" />
+                </button>
               </div>
-              <div class="pv-sheet-scroll">
-                <table class="pv-table">
-                  <tbody>
-                    <tr v-for="(row, r) in sheetRows" :key="r">
-                      <td class="pv-table-rownum">{{ r + 1 }}</td>
-                      <td v-for="(cell, c) in row" :key="c">{{ cell }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div class="pv-sheet-grid">
+                <Grid
+                  v-if="activeView"
+                  :cells="sheetCells"
+                  :styles="sheetStyles"
+                  :rows="sheetBounds.rows"
+                  :cols="sheetBounds.cols"
+                  :layout="activeView.layout"
+                  :cf="activeView.cf"
+                  :dxfs="view?.dxfs ?? []"
+                  :light="sheetLight"
+                  readonly
+                />
               </div>
-              <div v-if="sheetTruncated" class="pv-sheet-note"><Icon name="alert" :size="13" /> mostrando as primeiras 5000 linhas</div>
             </div>
             <template v-else-if="item.type === 'file'">
               <iframe v-if="fileKind === 'pdf'" :src="url || ''"></iframe>
@@ -193,6 +236,6 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
       </template>
     </div>
 
-    <button v-if="items.length > 1" class="pv-nav pv-next" @click.stop="go(1)"><Icon name="chevR" :size="26" /></button>
+    <button v-if="items.length > 1 && !full" class="pv-nav pv-next" @click.stop="go(1)"><Icon name="chevR" :size="26" /></button>
   </div>
 </template>

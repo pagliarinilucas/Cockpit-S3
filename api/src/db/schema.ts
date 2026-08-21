@@ -186,6 +186,33 @@ export const bucketCrypto = sqliteTable('bucket_crypto', {
   updatedAt: text('updated_at').notNull(),
 });
 
+export const sheetDocs = sqliteTable('sheet_docs', {
+  docId: text('doc_id').primaryKey(), // sha256(bucketId \0 key)
+  bucketId: text('bucket_id').notNull(),
+  key: text('key').notNull(),
+  fingerprint: text('fingerprint'), // estado do objeto no S3 quando o doc foi aberto
+  dekWrapped: blob('dek_wrapped', { mode: 'buffer' }).notNull(),
+  kekVersion: integer('kek_version').notNull(),
+  snapshot: blob('snapshot', { mode: 'buffer' }).notNull(), // update Yjs cifrado
+  snapshotSeq: integer('snapshot_seq').notNull().default(0),
+  dirty: integer('dirty').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const sheetUpdates = sqliteTable(
+  'sheet_updates',
+  {
+    docId: text('doc_id')
+      .notNull()
+      .references(() => sheetDocs.docId, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    blob: blob('blob', { mode: 'buffer' }).notNull(), // update Yjs cifrado
+    authorUser: text('author_user').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.docId, t.seq] })],
+);
+
 export const escrowConfig = sqliteTable('escrow_config', {
   id: text('id').primaryKey(),
   enabled: integer('enabled').notNull().default(0),

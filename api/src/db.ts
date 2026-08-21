@@ -195,6 +195,32 @@ sqlite.run(`
 `);
 
 sqlite.run(`
+  CREATE TABLE IF NOT EXISTS sheet_docs (
+    doc_id       TEXT PRIMARY KEY,   -- sha256(bucket_id \\0 key)
+    bucket_id    TEXT NOT NULL,
+    key          TEXT NOT NULL,
+    fingerprint  TEXT,               -- estado do objeto no S3 na abertura do doc
+    dek_wrapped  BLOB NOT NULL,
+    kek_version  INTEGER NOT NULL,
+    snapshot     BLOB NOT NULL,      -- update Yjs cifrado
+    snapshot_seq INTEGER NOT NULL DEFAULT 0,
+    dirty        INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL
+  );
+`);
+
+sqlite.run(`
+  CREATE TABLE IF NOT EXISTS sheet_updates (
+    doc_id      TEXT NOT NULL REFERENCES sheet_docs(doc_id) ON DELETE CASCADE,
+    seq         INTEGER NOT NULL,
+    blob        BLOB NOT NULL,       -- update Yjs cifrado
+    author_user TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (doc_id, seq)
+  );
+`);
+
+sqlite.run(`
   CREATE TABLE IF NOT EXISTS escrow_config (
     id              TEXT PRIMARY KEY,
     enabled         INTEGER NOT NULL DEFAULT 0,
