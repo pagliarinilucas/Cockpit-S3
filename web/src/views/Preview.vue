@@ -14,15 +14,18 @@ import Grid from '../sheet/Grid.vue';
 import Shortcuts from '../sheet/Shortcuts.vue';
 import { isShortcutPanelKey } from '../sheet/shortcuts';
 import { cellsOf, stylesOf, type SheetView } from '../sheet/view';
+import { canDownloadPerm, canWritePerm, effectivePerm } from '../core/perm';
 
 const props = defineProps<{
   bucketId: string; bucketPerm: Perm; path: string;
-  items: ObjectItem[]; startKey: string; canWrite: boolean; canDownload: boolean;
+  items: ObjectItem[]; startKey: string; pathPerm: Perm | null;
 }>();
 const emit = defineEmits<{ close: []; download: [ObjectItem]; copyLink: [ObjectItem]; delete: [ObjectItem]; edit: [ObjectItem] }>();
 
 /** Planilha editável abre o editor colaborativo; quem só lê não vê o botão. */
-const editable = (it: ObjectItem) => it.kind === 'file' && props.canWrite && isSheetName(it.name);
+const editable = (it: ObjectItem) => it.kind === 'file' && canWriteOf(it) && isSheetName(it.name);
+const canDownloadOf = (it: ObjectItem) => canDownloadPerm(effectivePerm(it, props.pathPerm));
+const canWriteOf = (it: ObjectItem) => canWritePerm(effectivePerm(it, props.pathPerm));
 
 
 const idx = ref(0);
@@ -163,9 +166,9 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
           </div>
           <div class="pv-head-r">
             <button v-if="editable(item)" class="btn btn-primary" @click="emit('edit', item)"><Icon name="edit" :size="16" />Editar</button>
-            <button v-if="canDownload" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
-            <button v-if="canDownload" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
-            <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>
+            <button v-if="canDownloadOf(item)" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
+            <button v-if="canDownloadOf(item)" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
+            <button v-if="canWriteOf(item)" class="iconbtn iconbtn-danger" title="Excluir" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>
             <button class="iconbtn iconbtn-lg" @click="emit('close')"><Icon name="x" :size="18" /></button>
           </div>
         </div>
@@ -216,7 +219,7 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
                 <Icon name="file" :size="46" />
                 <div class="pv-noprev-name">{{ item.name }}</div>
                 <div class="pv-noprev-sub">Sem prévia para este arquivo</div>
-                <button v-if="canDownload" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Baixar</button>
+                <button v-if="canDownloadOf(item)" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Baixar</button>
               </div>
             </template>
             <template v-else-if="url">

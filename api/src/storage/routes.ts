@@ -323,8 +323,8 @@ export const storageRoutes = new Elysia({ prefix: '/api' })
         }
         // re-ordena após a mescla: pastas primeiro, depois por nome (mesmo critério do s3.list).
         visible.sort((a, b) => a.kind !== b.kind ? (a.kind === 'folder' ? -1 : 1) : a.name.localeCompare(b.name));
-        if (visible.length > limit) visible = visible.slice(0, limit);
-        return { bucket: params.id, path, items: visible };
+        const withPerm = visible.slice(0, limit).map((it) => ({ ...it, perm: perms.permForKey(access, it.key) }));
+        return { bucket: params.id, path, items: withPerm };
       } catch (e) {
         if (String(e).includes('connection_not_found')) { set.status = 503; return { error: 's3_not_configured' }; }
         set.status = 502; return { error: 's3_error' };

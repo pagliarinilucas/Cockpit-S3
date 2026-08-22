@@ -89,6 +89,7 @@ export interface ObjectItem {
   size?: number;
   modified?: string;
   by?: string;
+  perm?: Perm | null;
 }
 
 export interface ObjectListing {

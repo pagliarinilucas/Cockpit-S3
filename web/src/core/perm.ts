@@ -17,3 +17,17 @@ export const PERM_OPTIONS: { value: Perm; label: string; can: string }[] = [
   { value: 'read-write', label: 'Ver, baixar e enviar', can: 'Visualiza, baixa, envia e apaga.' },
   { value: 'owner', label: 'Dono (controle total)', can: 'Controle total sobre a pasta.' },
 ];
+
+const DOWNLOAD_PERMS: Perm[] = ['read-only', 'read-write', 'owner'];
+
+export function canDownloadPerm(perm: Perm | null | undefined): boolean {
+  return !!perm && DOWNLOAD_PERMS.includes(perm);
+}
+
+export function canWritePerm(perm: Perm | null | undefined): boolean {
+  return perm === 'read-write' || perm === 'owner';
+}
+
+export function effectivePerm(item: { perm?: Perm | null }, pathPerm: Perm | null): Perm | null {
+  return item.perm !== undefined && item.perm !== null ? item.perm : pathPerm;
+}

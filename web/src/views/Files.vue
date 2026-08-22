@@ -10,6 +10,7 @@ import { api, apiErrMsg } from '../core/api';
 import { useToast } from '../core/toast';
 import { fmtBytes, timeAgo, typeFromName, isPreviewable, ICON_FOR, bucketLabel } from '../core/util';
 import { isSheetName } from '../sheet/model';
+import { canDownloadPerm, canWritePerm, effectivePerm } from '../core/perm';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
 import Modal from '../components/Modal.vue';
@@ -52,10 +53,12 @@ const shareItem = ref<ObjectItem | null>(null);   // arquivo a compartilhar (abr
 const showLinks = ref(false);                       // modal de gerenciamento de links
 
 const pathPerm = ref<Perm | null>(props.bucket.perm);
-const canWrite = computed(() => pathPerm.value === 'owner' || pathPerm.value === 'read-write');
-// view-only vê e pré-visualiza mas não baixa; canDownload cobre read-only e acima.
-const canDownload = computed(() => pathPerm.value === 'read-only' || pathPerm.value === 'read-write' || pathPerm.value === 'owner');
+const canWrite = computed(() => canWritePerm(pathPerm.value));
+const permOf = (it: ObjectItem) => effectivePerm(it, pathPerm.value);
+const canDownloadItem = (it: ObjectItem) => canDownloadPerm(permOf(it));
+const canWriteItem = (it: ObjectItem) => canWritePerm(permOf(it));
 const prefix = computed(() => props.path.length ? props.path.join('/') + '/' : '');
+const notePerm = computed(() => pathPerm.value ?? props.bucket.perm ?? null);
 
 // path is owned by App (so the browser Back button can drive it); reload whenever
 // the bucket or the folder prefix changes.
@@ -143,6 +146,9 @@ const mergeables = computed(() => ordered.value.filter((i) => i.kind === 'file' 
 const selectedFiles = computed(() => ordered.value.filter((i) => i.kind === 'file' && selection.value.has(i.key)));
 const onlyFilesSelected = computed(() => selection.value.size > 0 && selectedFiles.value.length === selection.value.size);
 const allSel = computed(() => ordered.value.length > 0 && ordered.value.every((i) => selection.value.has(i.key)));
+const selected = computed(() => ordered.value.filter((i) => selection.value.has(i.key)));
+const selCanDownload = computed(() => selected.value.length > 0 && selected.value.every(canDownloadItem));
+const selCanWrite = computed(() => selected.value.length > 0 && selected.value.every(canWriteItem));
 const folderCount = computed(() => ordered.value.filter((i) => i.kind === 'folder').length);
 const fileCount = computed(() => ordered.value.filter((i) => i.kind === 'file').length);
 const totalSize = computed(() => ordered.value.filter((i) => i.kind === 'file').reduce((s, i) => s + (i.size || 0), 0));
@@ -175,15 +181,15 @@ const ctxItems = computed<MenuItem[]>(() => {
   if (it.kind === 'folder') return [
     { key: 'open', label: 'Abrir', icon: 'folder' },
     { key: 'zip', label: 'Baixar como ZIP', icon: 'download' },
-    ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
+    ...(canWriteItem(it) ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
   ];
   return [
     ...(previewable(it) ? [{ key: 'preview', label: 'Visualizar', icon: 'eye' } as MenuItem] : []),
     ...(editable(it) ? [{ key: 'edit', label: 'Editar planilha', icon: 'edit' } as MenuItem] : []),
-    ...(canDownload.value ? [{ key: 'download', label: 'Baixar', icon: 'download' } as MenuItem] : []),
-    ...(canDownload.value ? [{ key: 'copy', label: 'Copiar link', icon: 'copy' } as MenuItem] : []),
-    ...(props.canShare && canDownload.value ? [{ key: 'share', label: 'Compartilhar', icon: 'share' } as MenuItem] : []),
-    ...(canWrite.value ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
+    ...(canDownloadItem(it) ? [{ key: 'download', label: 'Baixar', icon: 'download' } as MenuItem] : []),
+    ...(canDownloadItem(it) ? [{ key: 'copy', label: 'Copiar link', icon: 'copy' } as MenuItem] : []),
+    ...(props.canShare && canDownloadItem(it) ? [{ key: 'share', label: 'Compartilhar', icon: 'share' } as MenuItem] : []),
+    ...(canWriteItem(it) ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
   ];
 });
 function onCtxSelect(key: string) {
@@ -204,7 +210,7 @@ function openPreview(it: ObjectItem) { preview.value = it.key; }
 const previewable = (it: ObjectItem) => it.kind === 'file' && isPreviewable(it.type || 'file');
 
 // editor de planilha
-const editable = (it: ObjectItem) => it.kind === 'file' && canWrite.value && isSheetName(it.name);
+const editable = (it: ObjectItem) => it.kind === 'file' && canWriteItem(it) && isSheetName(it.name);
 function openEditor(key: string) { preview.value = null; editing.value = key; }
 
 async function createSheet(name: string) {
@@ -494,10 +500,10 @@ defineExpose({ reload });
     <div v-if="selection.size > 0" class="selbar">
       <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
       <div class="selbar-actions">
-        <button v-if="canDownload && onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
-        <button v-if="canDownload" class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
-        <button v-if="canDownload && mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
-        <button v-if="canWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
+        <button v-if="selCanDownload && onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
+        <button v-if="selCanDownload" class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
+        <button v-if="selCanDownload && mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
+        <button v-if="selCanWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
         <button class="btn" @click="clearSel"><Icon name="x" :size="16" />Limpar</button>
       </div>
     </div>
@@ -548,11 +554,11 @@ defineExpose({ reload });
           <div class="frow-actions" @click.stop>
             <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
             <button v-if="editable(it)" class="iconbtn" title="Editar planilha" @click="openEditor(it.key)"><Icon name="edit" :size="16" /></button>
-            <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
-            <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
-            <button v-if="canDownload" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
-            <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="16" /></button>
-            <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
+            <button v-if="canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownloadItem(it) && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownloadItem(it)" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
+            <button v-if="canShare && canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="16" /></button>
+            <button v-if="canWriteItem(it)" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
           </div>
         </div>
       </div>
@@ -575,10 +581,10 @@ defineExpose({ reload });
         <div class="fcard-meta">{{ it.kind === 'folder' ? 'pasta' : fmtBytes(it.size) }}<span class="dot-sep">·</span>{{ timeAgo(it.modified) }}</div>
         <div class="fcard-actions" @click.stop>
           <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
-          <button v-if="canDownload && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
-          <button v-if="canDownload && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
-          <button v-if="canShare && canDownload && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="15" /></button>
-          <button v-if="canWrite" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
+          <button v-if="canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canDownloadItem(it) && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canShare && canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="15" /></button>
+          <button v-if="canWriteItem(it)" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
         </div>
       </div>
     </div>
@@ -594,8 +600,8 @@ defineExpose({ reload });
     <div v-if="!loading && !error" class="fstatus">
       <span v-if="isSearch">{{ ordered.length }} resultado{{ ordered.length !== 1 ? 's' : '' }}{{ ordered.length >= 300 ? '+' : '' }} para “{{ query.trim() }}” · busca recursiva</span>
       <span v-else>{{ folderCount }} {{ folderCount !== 1 ? 'pastas' : 'pasta' }} · {{ fileCount }} {{ fileCount !== 1 ? 'arquivos' : 'arquivo' }}{{ nextToken ? '+' : '' }} · {{ fmtBytes(totalSize) }}{{ nextToken ? ' carregados' : ' nesta pasta' }}</span>
-      <span v-if="!canDownload" class="ro-note"><Icon name="eye" :size="13" /> somente visualização (sem download)</span>
-      <span v-else-if="!canWrite" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
+      <span v-if="!canDownloadPerm(notePerm)" class="ro-note"><Icon name="eye" :size="13" /> somente visualização (sem download)</span>
+      <span v-else-if="!canWritePerm(notePerm)" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
     </div>
 
     <!-- dropzone -->
@@ -618,7 +624,7 @@ defineExpose({ reload });
   <ShareLinks v-if="showLinks" @close="showLinks = false" />
 
   <Preview v-if="preview" :bucket-id="bucket.id" :bucket-perm="bucket.perm" :path="prefix"
-    :items="previewItems" :start-key="preview" :can-write="canWrite" :can-download="canDownload"
+    :items="previewItems" :start-key="preview" :path-perm="pathPerm"
     @close="preview = null" @download="downloadItem" @copy-link="copyLink" @delete="askDelete"
     @edit="(it) => openEditor(it.key)" />
 
