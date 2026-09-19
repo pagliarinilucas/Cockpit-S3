@@ -6,7 +6,7 @@
 import { ref, computed, watch } from 'vue';
 import type { Bucket, ObjectItem, FileType, Perm } from '../core/models';
 import type { UploadItem } from '../core/ui';
-import { api, apiErrMsg } from '../core/api';
+import { api, apiErrMsg, ApiError } from '../core/api';
 import { useToast } from '../core/toast';
 import { fmtBytes, timeAgo, typeFromName, isPreviewable, ICON_FOR, bucketLabel } from '../core/util';
 import { isSheetName } from '../sheet/model';
@@ -329,7 +329,13 @@ async function confirmDelete() {
       toast.success(d.keys.length > 1 ? `${d.keys.length} itens excluídos` : `${d.label} excluído`);
     }
     reload();
-  } catch { toast.error('Falha ao excluir'); }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      toast.error(d.keys.length > 1
+        ? 'Algum item está aberto no editor de planilhas. Feche o editor e tente de novo.'
+        : `"${d.label}" está aberto no editor de planilhas. Feche o editor e tente de novo.`);
+    } else toast.error('Falha ao excluir');
+  }
 }
 
 // new folder

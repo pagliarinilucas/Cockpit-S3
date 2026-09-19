@@ -20,6 +20,15 @@ import { FRAME_CONTROL, FRAME_PRESENCE, FRAME_UPDATE, controlFrame, frame } from
 
 export const IDLE_SAVE_MS = 30_000;
 export const COMPACT_AFTER_UPDATES = 200;
+/**
+ * Rede de segurança: sessão que ficou sem nenhum cliente por tanto tempo é
+ * descartada mesmo que a materialização não tenha terminado. Enquanto ela vive,
+ * `hasSessionUnder` recusa apagar o arquivo — sem este teto, um upload pendurado
+ * deixaria a key ineliminável até reiniciar a API. O prazo é folgado de
+ * propósito: qualquer gravação sadia termina muito antes.
+ */
+export const CLIENTLESS_TTL_MS = 300_000;
+export const REAP_INTERVAL_MS = 60_000;
 
 export interface SessionClient {
   id: number;
@@ -44,6 +53,8 @@ export interface LiveSession {
   onEvent: (session: LiveSession, event: SessionEvent) => void;
   /** Último a editar: é em nome dele que a materialização automática grava. */
   lastAuthor: string | null;
+  /** Desde quando está sem nenhum cliente; null enquanto houver algum. */
+  clientlessSince: number | null;
   /** Geometria e regras condicionais por aba (não editáveis, vêm do arquivo). */
   layout: Record<string, SheetRender>;
   /** Formatos das regras condicionais, indexados por dxfId. */
@@ -143,6 +154,7 @@ async function buildSession(docId: string, a: {
     fingerprint, diverged, saving: false,
     io: a.io, authorize: a.authorize, idleTimer: null, onEvent: a.onEvent,
     lastAuthor: null,
+    clientlessSince: Date.now(),
     layout: layoutOf(parsed),
     dxfs: parsed.dxfs,
   };
@@ -159,15 +171,62 @@ export const findSession = (bucketId: string, key: string): LiveSession | null =
  * a materialização recriar o objeto logo depois.
  */
 export function hasSessionUnder(bucketId: string, prefix: string): boolean {
+  const asFolder = prefix.endsWith('/');
   for (const s of sessions.values()) {
-    if (s.bucketId === bucketId && s.key.startsWith(prefix)) return true;
+    if (s.bucketId !== bucketId) continue;
+    if (asFolder ? s.key.startsWith(prefix) : s.key === prefix) return true;
   }
   return false;
+}
+
+/**
+ * Descarta uma sessão que ficou sem nenhum cliente — o mesmo encerramento do
+ * `detach`, exposto para quem abriu a sessão e descobriu depois que o socket já
+ * tinha morrido. Sem isso a sessão fica viva para sempre no mapa e o arquivo
+ * vira ineliminável (409 em_edicao) até reiniciar a API.
+ */
+export async function retireIfIdle(session: LiveSession): Promise<void> {
+  if (session.clients.size) return;
+  await flush(session, session.lastAuthor ?? '');
+  if (session.clients.size) return;
+  drop(session);
+}
+
+function drop(session: LiveSession): void {
+  clearIdle(session);
+  session.doc.destroy();
+  sessions.delete(session.docId);
+}
+
+/**
+ * Varre sessões sem cliente estouradas. Não espera materialização: se a
+ * gravação está pendurada há CLIENTLESS_TTL_MS, esperar mais só prolonga o
+ * bloqueio do delete. As edições não se perdem — o documento colaborativo mora
+ * no banco e volta inteiro na próxima abertura.
+ */
+export function reapStaleSessions(now = Date.now()): number {
+  let reaped = 0;
+  for (const s of [...sessions.values()]) {
+    if (s.clients.size || s.clientlessSince === null) continue;
+    if (now - s.clientlessSince < CLIENTLESS_TTL_MS) continue;
+    drop(s);
+    reaped++;
+  }
+  return reaped;
+}
+
+let reaper: ReturnType<typeof setInterval> | null = null;
+
+export function startSessionReaper(): void {
+  if (reaper) return;
+  reaper = setInterval(() => { reapStaleSessions(); }, REAP_INTERVAL_MS);
+  reaper.unref?.();
 }
 
 
 export function attach(session: LiveSession, client: SessionClient): void {
   session.clients.set(client.id, client);
+  session.clientlessSince = null;
   client.send(frame(FRAME_UPDATE, Y.encodeStateAsUpdate(session.doc)));
   client.send(controlFrame({
     t: 'ready',
@@ -184,15 +243,11 @@ export function detach(session: LiveSession, clientId: number): void {
   session.clients.delete(clientId);
   session.presence.delete(clientId);
   if (session.clients.size) { broadcastPeers(session); return; }
+  session.clientlessSince = Date.now();
   clearIdle(session);
   // Materializa em nome de quem editou por último: `authorize` precisa de um
   // usuário real, e um nome fictício faria o flush final ser sempre recusado.
-  void flush(session, session.lastAuthor ?? '').finally(() => {
-    if (!session.clients.size) {
-      session.doc.destroy();
-      sessions.delete(session.docId);
-    }
-  });
+  void retireIfIdle(session);
 }
 
 function broadcastPeers(session: LiveSession): void {

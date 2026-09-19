@@ -343,6 +343,78 @@ describe('ciclo de vida', () => {
     expect(S.hasSessionUnder('c:outro', 'planilhas/')).toBe(false);
   });
 
+  it('hasSessionUnder não casa com key vizinha de mesmo começo', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const session = await S.openSession({
+      bucketId: 'c:b', key: 'relatorio.xlsx', io, authorize: () => true, onEvent: () => {},
+    });
+    S.attach(session, fakeClient(1).client);
+
+    expect(S.hasSessionUnder('c:b', 'relatorio.xlsx')).toBe(true);
+    expect(S.hasSessionUnder('c:b', 'relatorio')).toBe(false);
+  });
+
+  it('retireIfIdle some com a sessão que nunca recebeu cliente', async () => {
+    const { io, state } = fakeIo(xlsxOf([['a']]));
+    const { session, key } = await open(io);
+    expect(S.hasSessionUnder('c:b', key)).toBe(true);
+
+    await S.retireIfIdle(session);
+
+    expect(S.findSession('c:b', key)).toBeNull();
+    expect(S.hasSessionUnder('c:b', key)).toBe(false);
+    expect(state.writes).toBe(0);
+  });
+
+  it('o reaper derruba sessão sem cliente passada do TTL', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const { session, key } = await open(io);
+
+    S.reapStaleSessions(Date.now() + S.CLIENTLESS_TTL_MS - 1);
+    expect(S.findSession('c:b', key)).toBe(session);
+
+    S.reapStaleSessions(Date.now() + S.CLIENTLESS_TTL_MS + 1);
+    expect(S.findSession('c:b', key)).toBeNull();
+    expect(S.hasSessionUnder('c:b', key)).toBe(false);
+  });
+
+  it('o reaper não derruba sessão com cliente, por mais velha que seja', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const { session, key } = await open(io);
+    S.attach(session, fakeClient(1).client);
+
+    S.reapStaleSessions(Date.now() + S.CLIENTLESS_TTL_MS * 100);
+
+    expect(S.findSession('c:b', key)).toBe(session);
+  });
+
+  it('cliente que entra depois zera o relógio do reaper', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const { session, key } = await open(io);
+    S.attach(session, fakeClient(1).client);
+    S.detach(session, 1);
+    await Bun.sleep(20);
+    expect(S.findSession('c:b', key)).toBeNull();
+
+    const again = await S.openSession({
+      bucketId: 'c:b', key, io, authorize: () => true, onEvent: () => {},
+    });
+    S.attach(again, fakeClient(2).client);
+    S.reapStaleSessions(Date.now() + S.CLIENTLESS_TTL_MS + 1);
+
+    expect(S.findSession('c:b', key)).toBe(again);
+  });
+
+  it('retireIfIdle não mexe na sessão que tem cliente', async () => {
+    const { io } = fakeIo(xlsxOf([['a']]));
+    const { session, key } = await open(io);
+    S.attach(session, fakeClient(1).client);
+
+    await S.retireIfIdle(session);
+
+    expect(S.findSession('c:b', key)).toBe(session);
+  });
+
   it('compacta o log de updates ao passar do limite', async () => {
     const { io } = fakeIo(xlsxOf([['a']]));
     const { session } = await open(io);

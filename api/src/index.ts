@@ -23,6 +23,7 @@ import { bootKekProvider, getKekProvider } from './crypto/kek';
 import { escrowRoutes } from './escrow/routes';
 import { sheetRoutes } from './sheet/routes';
 import { startEscrowScheduler } from './escrow/backup';
+import { startSessionReaper } from './sheet/session';
 
 await bootstrap();
 sessions.prune();
@@ -57,6 +58,7 @@ if (!getKekProvider()) {
   );
 }
 startEscrowScheduler();
+startSessionReaper();
 
 const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(cors({

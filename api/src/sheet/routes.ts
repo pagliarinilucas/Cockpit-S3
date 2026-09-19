@@ -19,7 +19,7 @@ import { canOpen } from './guard';
 import { sheetTickets } from './tickets';
 import { binarySend, controlFrame, decodeFrame } from './protocol';
 import {
-  applyClientUpdate, attach, broadcast, detach, flush,
+  applyClientUpdate, attach, broadcast, detach, flush, retireIfIdle,
   openSession, relayPresence, type LiveSession,
 } from './session';
 
@@ -52,6 +52,10 @@ interface SocketData {
 }
 
 const sockets = new Map<string, SocketData>();
+// Sockets que ainda estão abrindo a sessão. Se o socket morrer durante o await
+// do openSession, o `close` não acha nada em `sockets` e sairia sem limpar —
+// deixando uma sessão sem cliente presa no mapa para sempre.
+const opening = new Set<string>();
 
 export const sheetRoutes = new Elysia({ prefix: '/api' })
   .use(authDerive)
@@ -132,6 +136,7 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
       if (!claim) { ws.close(1008, 'ticket_invalido'); return; }
 
       const clientId = nextClientId++;
+      opening.add(ws.id);
       try {
         const session = await openSession({
           bucketId: claim.bucketId,
@@ -140,6 +145,7 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
           authorize: (username) => mayEditNow(username, claim.bucketId, claim.key),
           onEvent: (s, event) => broadcast(s, controlFrame(event), null),
         });
+        if (!opening.delete(ws.id)) { await retireIfIdle(session); return; }
         sockets.set(ws.id, { session, clientId, user: claim.user });
         attach(session, {
           id: clientId,
@@ -149,6 +155,7 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
         });
         audit.log('download', claim.user, claim.bucketId, `editor:${claim.key}`);
       } catch (e) {
+        opening.delete(ws.id);
         const reason = String((e as Error).message ?? e);
         binarySend(ws)(controlFrame({ t: 'error', message: reason }));
         ws.close(1011, reason.slice(0, 120));
@@ -165,6 +172,7 @@ export const sheetRoutes = new Elysia({ prefix: '/api' })
     },
 
     close(ws) {
+      opening.delete(ws.id);
       const data = sockets.get(ws.id);
       if (!data) return;
       sockets.delete(ws.id);
