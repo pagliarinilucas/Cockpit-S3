@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import type { ZipEntry } from './zip';
 
 export const TICKET_TTL_MS = 60_000;

@@ -22,3 +22,9 @@ api/data
 .vscode/
 .DS_Store
 Thumbs.db
+
+# agent planning docs
+docs/superpowers/
+
+# deploy secrets
+deploy/compose/secrets/
