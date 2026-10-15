@@ -1,0 +1,90 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security issues must not be reported here** — see SECURITY.md.
+        Remove secrets (access keys, tokens, recovery codes, license keys) from logs and screenshots.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See error ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Cockpit S3 version or commit
+      placeholder: e.g. 1.0.0 or a1b2c3d
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options:
+        - Community
+        - Pro
+        - Enterprise
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker (docker run)
+        - Docker Compose
+        - Dokploy
+        - Coolify
+        - Railway
+        - From source (bun)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: S3 provider
+      multiple: true
+      options:
+        - Garage
+        - MinIO
+        - AWS S3
+        - Hetzner Object Storage
+        - Backblaze B2
+        - Wasabi
+        - Oracle OCI
+        - Other
+  - type: checkboxes
+    id: context
+    attributes:
+      label: Context
+      options:
+        - label: Encryption at rest is enabled on the affected bucket
+        - label: The issue involves a public share link
+        - label: Running behind a reverse proxy (Traefik, Caddy, nginx, ...)
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: e.g. Firefox 131 on Ubuntu 24.04
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `docker logs <container>` around the time of the error.
+      render: text

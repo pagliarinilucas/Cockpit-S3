@@ -1,0 +1,10 @@
+services:
+  cockpit-s3:
+    environment:
+      COCKPIT_KEK_FILE: /run/secrets/cockpit_kek
+    secrets:
+      - cockpit_kek
+
+secrets:
+  cockpit_kek:
+    file: ./secrets/cockpit_kek

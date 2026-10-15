@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/pagliarinilucas/Cockpit-S3/blob/main/SECURITY.md
+    about: Do not open a public issue. Follow the private disclosure process.
+  - name: Sales, Pro and Enterprise licenses, Cloud waitlist
+    url: mailto:cockpits3@pm.me
+    about: Pricing, invoices, license keys, Enterprise terms.
+  - name: Questions and ideas
+    url: https://github.com/pagliarinilucas/Cockpit-S3/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions.
