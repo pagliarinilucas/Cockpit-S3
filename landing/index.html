@@ -1,666 +1,1099 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cockpit S3 — console de arquivos self-hosted</title>
-  <meta name="description" content="Compartilhe arquivos sensíveis sem entregar suas chaves. Console S3 self-hosted com permissões validadas no servidor, criptografia em repouso, backup de recuperação, links que expiram e auditoria. R$ 20/mês, usuários ilimitados.">
+  <title>Cockpit S3 — self-hosted S3 web console with users, permissions and share links</title>
+  <meta name="description" content="Self-hosted web console for any S3 bucket: users, per-bucket and folder permissions, expiring IP-locked share links and an audit log. Unlimited users. A MinIO Console replacement that also works with Garage, Hetzner, Backblaze B2, Wasabi, AWS and OCI.">
+  <link rel="canonical" href="/">
+  <link rel="alternate" hreflang="en" href="/">
+  <link rel="alternate" hreflang="pt-BR" href="/pt/">
+  <link rel="alternate" hreflang="x-default" href="/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Cockpit S3">
+  <meta property="og:title" content="Cockpit S3 — self-hosted S3 web console with users, permissions and share links">
+  <meta property="og:description" content="Users, permissions, expiring share links and audit log for any S3 bucket. Unlimited users, AGPL, one container.">
+  <meta property="og:url" content="/">
+  <meta property="og:image" content="/assets/files.webp">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="pt_BR">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#06090c">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z' stroke='%2322e0ff' stroke-width='1.6' fill='rgba(34,224,255,0.05)'/%3E%3Ccircle cx='20' cy='20' r='7.4' stroke='%2322e0ff' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='20' cy='20' r='2.4' fill='%2322e0ff'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700;800&family=Saira:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
+  :root{--bg:#06090c;--bg2:#080c10;--panel:#0c1218;--panel2:#101921;--line:rgba(120,165,185,.12);--line2:rgba(120,165,185,.22);--text:#e4eef2;--bright:#f2fbff;--muted:#8ba0aa;--dim:#5b6e77;--cyan:#22e0ff;--cyan-ink:#04222a;--amber:#ffb340;--ok:#37e0a0;--danger:#ff5d6c;--display:'Oxanium',sans-serif;--body:'Saira',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace}
   *{box-sizing:border-box}
-  html{scroll-behavior:smooth;scroll-padding-top:88px}
-  body{margin:0;background:#06090c}
+  html{scroll-behavior:smooth;scroll-padding-top:84px;-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
   ::selection{background:rgba(34,224,255,.28);color:#eafcff}
+  a{color:inherit;transition:color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease,background .18s ease}
+  img{max-width:100%;display:block}
+  [hidden]{display:none!important}
+  code{font-family:var(--mono);color:var(--cyan);font-size:.9em}
   summary::-webkit-details-marker{display:none}
   summary::marker{content:""}
   @keyframes ck-blink{0%,100%{opacity:1}50%{opacity:.28}}
-  @keyframes ck-pulse{0%,100%{box-shadow:0 0 0 0 rgba(34,224,255,.45)}70%{box-shadow:0 0 0 7px rgba(34,224,255,0)}}
   @keyframes ck-scan{0%{transform:translateY(-12%)}100%{transform:translateY(560%)}}
   @keyframes ck-floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-  @keyframes ck-sweep{to{stroke-dashoffset:0}}
-  @keyframes ck-grid{0%{opacity:.5}50%{opacity:.85}100%{opacity:.5}}
   @keyframes ck-drift{to{background-position:64px 64px}}
   @keyframes ck-cross{to{background-position:2600px 100%}}
-  @media (prefers-reduced-motion: reduce){
-    *{animation:none !important;transition:none !important}
-    html{scroll-behavior:auto}
-    [data-reveal]{opacity:1 !important;transform:none !important}
-  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}[data-reveal]{opacity:1!important;transform:none!important}}
 
+  .backdrop-glow{position:fixed;left:0;right:0;bottom:0;height:75%;pointer-events:none;z-index:0;background-image:radial-gradient(ellipse 48% 100% at 50% 100%,rgba(34,224,255,.16),rgba(34,224,255,.06) 42%,transparent 72%);background-size:2600px 100%;background-repeat:repeat-x;background-position:0 100%;animation:ck-cross 26s linear infinite}
+  .backdrop-dots{position:fixed;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(circle,rgba(135,200,225,.22) 1.4px,transparent 1.9px);background-size:32px 32px;animation:ck-drift 34s linear infinite;mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%);-webkit-mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%)}
+
+  .wrap{max-width:1180px;margin:0 auto;padding-left:24px;padding-right:24px}
+  main,footer{position:relative;z-index:1}
+  .section{padding-top:64px;padding-bottom:30px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)}
+  .h2{font-family:var(--display);font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;line-height:1.15;margin:14px 0 0;color:var(--bright);text-wrap:balance}
+  .lead{font-size:15.5px;color:var(--muted);margin:12px 0 0;text-wrap:pretty}
+  .head{max-width:700px;margin:0 0 42px}
+  .head.center{text-align:center;margin-left:auto;margin-right:auto}
+  .hl{color:var(--text)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px}
+  .card h3{font-family:var(--display);font-weight:700;font-size:18px;margin:0 0 8px;color:var(--bright)}
+  .card p{font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .icon-tile{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;border:1px solid}
+  .tile-danger{background:rgba(255,93,108,.1);border-color:rgba(255,93,108,.22)}
+  .tile-amber{background:rgba(255,179,64,.1);border-color:rgba(255,179,64,.22)}
+  .tile-cyan{background:rgba(34,224,255,.1);border-color:rgba(34,224,255,.22)}
+
+  .btn{font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.3px;text-decoration:none;padding:14px 24px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;gap:9px;border:1px solid transparent;cursor:pointer;line-height:1.2;text-align:center}
+  .btn-primary{color:var(--cyan-ink);background:var(--cyan);box-shadow:0 0 26px rgba(34,224,255,.32)}
+  .btn-primary:hover{box-shadow:0 0 36px rgba(34,224,255,.55);transform:translateY(-1px)}
+  .btn-ghost{color:var(--text);background:transparent;border-color:var(--line2);font-weight:600}
+  .btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+  .btn-amber{color:#2a1a00;background:var(--amber);box-shadow:0 0 22px rgba(255,179,64,.28)}
+  .btn-amber:hover{box-shadow:0 0 32px rgba(255,179,64,.5);transform:translateY(-1px)}
+  .btn-sm{font-size:13.5px;padding:9px 16px;border-radius:8px}
+  .btn-block{display:flex;width:100%}
+
+  .site-header{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(6,9,12,.78);border-bottom:1px solid var(--line)}
+  .nav{display:flex;align-items:center;gap:20px;padding-top:13px;padding-bottom:13px}
+  .brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--text);flex-shrink:0}
+  .brand-name{font-family:var(--display);font-weight:800;font-size:18px;letter-spacing:.5px}
+  .brand-name span{color:var(--cyan)}
+  .nav-links{display:flex;gap:24px;align-items:center;font-family:var(--mono);font-size:12.5px;letter-spacing:.3px;margin-left:auto}
+  .nav-links a{color:var(--muted);text-decoration:none}
+  .nav-links a:hover{color:var(--cyan)}
+  .nav-tools{display:flex;align-items:center;gap:10px}
+  .lang{font-family:var(--mono);font-size:11.5px;font-weight:700;color:var(--muted);text-decoration:none;border:1px solid var(--line2);border-radius:7px;padding:6px 9px;letter-spacing:.6px}
+  .lang:hover{color:var(--cyan);border-color:var(--cyan)}
+  .menu-btn{display:none;background:transparent;border:1px solid var(--line2);border-radius:8px;width:38px;height:36px;align-items:center;justify-content:center;color:var(--text);cursor:pointer}
+
+  .hero{display:grid;grid-template-columns:1.02fr 1.18fr;gap:54px;align-items:center;padding-top:72px;padding-bottom:36px}
+  .pill{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:11.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--cyan);border:1px solid var(--line2);background:rgba(34,224,255,.05);padding:6px 12px;border-radius:999px}
+  .pill-dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:ck-blink 2.4s ease-in-out infinite;flex-shrink:0}
+  .hero h1{font-family:var(--display);font-weight:800;font-size:clamp(33px,4.4vw,55px);line-height:1.04;letter-spacing:-.5px;margin:22px 0 0;color:var(--bright);text-wrap:balance}
+  .hero h1 em{font-style:normal;color:var(--cyan);text-shadow:0 0 26px rgba(34,224,255,.45)}
+  .hero-sub{font-size:18px;color:var(--muted);max-width:540px;margin:22px 0 0;text-wrap:pretty}
+  .hero-ctas{display:flex;flex-wrap:wrap;gap:13px;margin-top:30px}
+  .runs-on{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:32px;font-family:var(--mono);font-size:11.5px;color:var(--dim);align-items:center}
+  .runs-on b{font-weight:400;color:var(--text)}
+
+  .mock-wrap{position:relative}
+  .mock-edge{position:absolute;inset:-2px;border-radius:16px;background:linear-gradient(150deg,rgba(34,224,255,.5),transparent 42%);opacity:.7;-webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px}
+  .mock{position:relative;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:15px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 40px -10px rgba(34,224,255,.12);overflow:hidden}
+  .mock-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.012)}
+  .mock-bar .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .mock-path{margin-left:8px;font-family:var(--mono);font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mock-online{margin-left:auto;display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--ok)}
+  .mock-online::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  .mock-body{display:grid;grid-template-columns:138px 1fr}
+  .mock-side{border-right:1px solid var(--line);padding:13px 11px;background:rgba(0,0,0,.18)}
+  .mock-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.6px;color:var(--dim);text-transform:uppercase;padding:0 4px 7px}
+  .mock-bucket{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px;margin-bottom:2px}
+  .mock-bucket.on{background:rgba(34,224,255,.12);color:var(--cyan)}
+  .gauge{margin-top:16px;padding:12px 4px 4px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:center}
+  .gauge-ring{position:relative;width:84px;height:84px}
+  .gauge-ring svg{transform:rotate(-90deg)}
+  .gauge-val{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:18px;color:var(--bright)}
+  .gauge-val small{font-size:10px;color:var(--muted)}
+  .gauge-cap{font-family:var(--mono);font-size:9.5px;color:var(--dim);margin-top:6px}
+  .mock-files{position:relative;overflow:hidden;min-width:0}
+  .mock-scan{position:absolute;left:0;right:0;top:0;height:34px;background:linear-gradient(180deg,rgba(34,224,255,.14),transparent);animation:ck-scan 4.2s linear infinite;pointer-events:none}
+  .mock-files-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .chip{font-family:var(--mono);font-size:10px;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:6px;padding:3px 8px;white-space:nowrap}
+  .file-row{display:flex;align-items:center;gap:11px;padding:9px 14px}
+  .file-row.on{background:rgba(34,224,255,.05);border-left:2px solid var(--cyan)}
+  .file-row svg{flex-shrink:0}
+  .file-meta{flex:1;min-width:0}
+  .file-name{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .file-sub{font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .tag{font-family:var(--mono);font-size:9.5px;border-radius:5px;padding:3px 7px;border:1px solid;white-space:nowrap}
+  .tag-read{color:var(--cyan);background:rgba(34,224,255,.1);border-color:rgba(34,224,255,.25)}
+  .tag-write{color:var(--amber);background:rgba(255,179,64,.1);border-color:rgba(255,179,64,.25)}
+  .tag-owner{color:var(--cyan-ink);background:var(--cyan);border-color:var(--cyan);font-weight:700}
+  .audit-chip{position:absolute;right:-14px;bottom:-20px;background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:11px 13px;box-shadow:0 18px 40px -12px rgba(0,0,0,.8);display:flex;align-items:center;gap:10px;animation:ck-floaty 5s ease-in-out infinite}
+  .audit-chip .ico{width:30px;height:30px;border-radius:8px;background:rgba(55,224,160,.12);display:flex;align-items:center;justify-content:center}
+  .audit-chip strong{display:block;font-size:11.5px;color:var(--text);font-weight:500}
+  .audit-chip span{font-family:var(--mono);font-size:9.5px;color:var(--dim)}
+
+  .whynow{margin-top:40px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(255,179,64,.05),rgba(8,12,16,.9) 40%,rgba(8,12,16,.9))}
+  .whynow-inner{display:grid;grid-template-columns:240px 1fr;gap:36px;padding-top:44px;padding-bottom:44px;align-items:start}
+  .whynow .eyebrow{color:var(--amber)}
+  .whynow h2{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.15;color:var(--bright);margin:12px 0 0}
+  .timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-left:1px solid var(--line2)}
+  .tl-item{padding:4px 22px 4px 22px;border-right:1px solid var(--line);position:relative}
+  .tl-item:last-child{border-right:0}
+  .tl-date{font-family:var(--mono);font-size:11.5px;color:var(--amber);letter-spacing:.6px;text-transform:uppercase}
+  .tl-item h3{font-family:var(--display);font-weight:700;font-size:16.5px;color:var(--bright);margin:8px 0 6px}
+  .tl-item p{font-size:14px;color:var(--muted);margin:0;text-wrap:pretty}
+  .whynow-note{grid-column:2;font-size:14.5px;color:var(--text);margin:0;padding-left:22px}
+  .whynow-note b{color:var(--cyan);font-weight:500}
+
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:42px;align-items:center;margin-bottom:30px}
+  .feat-num{font-family:var(--mono);font-size:12px;color:var(--cyan);margin-bottom:10px}
+  .feat h3{font-family:var(--display);font-weight:700;font-size:25px;letter-spacing:-.2px;line-height:1.2;margin:0 0 12px;color:var(--bright)}
+  .feat p{font-size:15.5px;color:var(--muted);margin:0 0 16px;text-wrap:pretty}
+  .checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:9px}
+  .checks li{display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)}
+  .checks li::before{content:"";flex-shrink:0;width:18px;height:18px;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m5 12 5 5L20 7' fill='none' stroke='%2322e0ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat}
+  .checks.dim li{color:var(--muted);font-size:13.5px}
+  .checks.dim li::before{opacity:.5}
+  .flow{display:flex;align-items:center;gap:14px}
+  .flow-node{text-align:center}
+  .flow-box{width:62px;height:62px;border-radius:12px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center}
+  .flow-cap{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:7px}
+  .flow-line{flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--cyan) 0 6px,transparent 6px 12px);opacity:.6}
+  .flow-term{margin-top:20px;font-family:var(--mono);font-size:11px;color:var(--dim);border-top:1px solid var(--line);padding-top:14px;overflow-wrap:anywhere}
+  .flow-term span{color:var(--ok)}
+  .provider-grid{display:flex;flex-wrap:wrap;gap:7px;margin-top:18px}
+  .provider-grid span{font-family:var(--mono);font-size:11px;color:var(--text);border:1px solid var(--line2);background:var(--bg2);border-radius:6px;padding:4px 9px}
+
+  .matrix-panel{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:30px;margin:30px 0;box-shadow:0 0 50px -22px rgba(34,224,255,.4)}
+  .matrix-panel .feat{grid-template-columns:.85fr 1.15fr;gap:36px;margin:0}
+  .legend{display:flex;gap:8px 12px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .hint{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin:16px 0 0}
+  .matrix{display:grid;grid-template-columns:118px repeat(4,minmax(0,1fr));gap:6px}
+  .mx-corner{font-family:var(--mono);font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:flex-end;padding-bottom:6px}
+  .mx-col{font-family:var(--mono);font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end;overflow:hidden;text-overflow:ellipsis}
+  .mx-user{font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px;min-width:0}
+  .mx-user small{font-family:var(--mono);font-size:9px;color:var(--dim)}
+  .ck-cell{cursor:pointer;border-radius:7px;padding:9px 2px;font-family:var(--mono);font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ck-cell:hover{filter:brightness(1.2)}
-  a{transition:all .18s ease}</style>
+  .lv0{background:transparent;border:1px dashed var(--dim);color:var(--dim)}
+  .lv1{background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:var(--muted)}
+  .lv2{background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:var(--cyan)}
+  .lv3{background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:var(--amber)}
+  .lv4{background:var(--cyan);border:1px solid var(--cyan);color:var(--cyan-ink);font-weight:700}
+  .override{margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--muted);background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .override b{color:var(--text);font-weight:500}
+
+  .link-demo{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:18px}
+  .link-demo-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .link-demo-top em{font-style:normal;color:var(--cyan);display:flex;align-items:center;gap:6px}
+  .link-demo-top em::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cyan);animation:ck-blink 1.6s infinite}
+  .link-url{font-family:var(--mono);font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border-radius:7px;padding:9px 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:11px}
+  .link-url span{color:var(--cyan)}
+  .link-opts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:10px;color:var(--dim)}
+  .link-opts span{color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px}
+  .link-opts span.on{color:var(--cyan-ink);background:var(--cyan);border-color:var(--cyan);font-weight:700}
+  .link-opts .lock{margin-left:auto;color:var(--cyan);border-color:rgba(34,224,255,.3);background:rgba(34,224,255,.07)}
+  .formats{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+  .formats span{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:7px 11px}
+  .formats span::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--cyan)}
+  .feat-card h3{font-size:21px}
+  .feat-card .feat-num{margin-bottom:10px}
+
+  .shots{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .shot{margin:0;background:var(--panel);border:1px solid var(--line2);border-radius:13px;overflow:hidden}
+  .shot:first-child{grid-column:1/-1}
+  .shot img{width:100%;height:auto;border-bottom:1px solid var(--line)}
+  .shot figcaption{padding:12px 16px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .shot figcaption b{color:var(--text);font-weight:500}
+
+  .step-num{font-family:var(--display);font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1}
+  .step h3{margin:6px 0 9px;font-size:19px}
+  .step p{margin-bottom:14px}
+  .term{font-family:var(--mono);font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}
+  .term .ps{color:var(--dim)}
+  .term .ok-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok);flex-shrink:0}
+
+  .band{margin-top:40px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg2)}
+  .band .section{padding-bottom:62px}
+  .sec-card{padding:22px}
+  .sec-card svg{margin-bottom:13px}
+  .sec-card h3{font-size:16px;margin-bottom:7px}
+  .sec-card p{font-size:13.5px}
+  .sec-card.glow{border-color:var(--line2);box-shadow:0 0 40px -26px rgba(34,224,255,.6)}
+
+  .table-scroll{overflow-x:auto;border:1px solid var(--line2);border-radius:14px;background:var(--panel);-webkit-overflow-scrolling:touch}
+  .compare{width:100%;border-collapse:collapse;min-width:820px;font-size:13.5px}
+  .compare th,.compare td{padding:14px 14px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+  .compare tbody tr:last-child td,.compare tbody tr:last-child th{border-bottom:0}
+  .compare thead th{font-family:var(--display);font-weight:600;font-size:13.5px;color:var(--muted);padding-top:18px;padding-bottom:18px}
+  .compare thead th small{display:block;font-family:var(--mono);font-size:9.5px;font-weight:400;color:var(--dim);margin-top:2px}
+  .compare th[scope=row]{text-align:left;color:var(--text);font-weight:500;font-family:var(--body);font-size:13.5px;position:sticky;left:0;background:var(--panel);z-index:1;min-width:190px}
+  .compare thead th:first-child{position:sticky;left:0;background:var(--panel);z-index:1}
+  .compare .us{background:rgba(34,224,255,.05)}
+  .compare thead .us{color:var(--cyan);font-weight:800;font-size:15px}
+  .v{display:inline-block;font-size:12.5px;line-height:1.35}
+  .v-yes{color:var(--cyan);font-weight:600}
+  .v-part{color:var(--amber);font-family:var(--mono);font-size:11.5px}
+  .v-no{color:var(--dim)}
+  .footnote{font-family:var(--mono);font-size:11px;color:var(--dim);margin:14px 0 0;text-align:center}
+
+  .billing{display:flex;justify-content:center;margin:-18px 0 34px}
+  .toggle{display:inline-flex;border:1px solid var(--line2);border-radius:999px;padding:4px;background:var(--panel);font-family:var(--mono);font-size:12px}
+  .toggle button{border:0;background:transparent;color:var(--muted);font:inherit;padding:7px 16px;border-radius:999px;cursor:pointer}
+  .toggle button[aria-pressed=true]{background:rgba(34,224,255,.14);color:var(--cyan)}
+  .toggle button small{color:var(--ok);margin-left:6px}
+  .plans{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:stretch}
+  .plan{position:relative;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:26px 22px}
+  .plan.featured{background:linear-gradient(180deg,var(--panel2),var(--panel));border-color:rgba(34,224,255,.45);box-shadow:0 0 50px -20px rgba(34,224,255,.5)}
+  .plan.cloud{border-style:dashed;border-color:var(--line2)}
+  .plan-tag{display:inline-flex;align-self:flex-start;font-family:var(--mono);font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;border-radius:999px;padding:4px 10px;border:1px solid var(--line2);color:var(--muted)}
+  .plan.featured .plan-tag{color:var(--cyan);border-color:rgba(34,224,255,.35);background:rgba(34,224,255,.06)}
+  .plan.cloud .plan-tag{color:var(--amber);border-color:rgba(255,179,64,.35);background:rgba(255,179,64,.06)}
+  .plan h3{font-family:var(--display);font-weight:800;font-size:22px;color:var(--bright);margin:14px 0 2px}
+  .plan-for{font-size:13.5px;color:var(--muted);margin:0;min-height:42px}
+  .price{display:flex;align-items:flex-end;gap:5px;margin:18px 0 2px;flex-wrap:wrap}
+  .price .cur{font-family:var(--display);font-weight:600;font-size:16px;color:var(--muted);padding-bottom:6px}
+  .price .amt{font-family:var(--display);font-weight:800;font-size:46px;line-height:.9;color:var(--bright)}
+  .plan.featured .price .amt{text-shadow:0 0 30px rgba(34,224,255,.35)}
+  .price .per{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-bottom:5px}
+  .price-alt{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin:6px 0 0;min-height:34px}
+  .founder{margin:16px 0 0;border:1px solid rgba(255,179,64,.4);background:rgba(255,179,64,.07);border-radius:10px;padding:11px 12px}
+  .founder strong{display:block;font-family:var(--display);font-weight:700;font-size:14px;color:var(--amber)}
+  .founder span{font-size:12.5px;color:var(--muted)}
+  .plan .checks{margin:20px 0 0;gap:8px}
+  .plan .checks li{font-size:13.5px}
+  .plan-soon{margin:14px 0 0;font-size:12.5px;color:var(--dim);border-top:1px dashed var(--line2);padding-top:12px}
+  .plan-soon b{color:var(--muted);font-weight:500}
+  .plan-cta{margin-top:auto;padding-top:22px;display:flex;flex-direction:column;gap:9px}
+  .cloud-tiers{display:flex;flex-direction:column;gap:8px;margin-top:18px}
+  .tier{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--bg2)}
+  .tier b{font-family:var(--display);font-size:15px;color:var(--bright)}
+  .tier small{display:block;font-size:12px;color:var(--muted)}
+  .tier .tp{font-family:var(--display);font-weight:700;font-size:18px;color:var(--bright);white-space:nowrap}
+  .tier .tp em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:400}
+  .waitlist{display:flex;flex-direction:column;gap:8px}
+  .waitlist label{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .waitlist input{width:100%;font:inherit;font-size:14px;color:var(--text);background:var(--bg);border:1px solid var(--line2);border-radius:9px;padding:11px 12px;outline:none}
+  .waitlist input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(34,224,255,.15)}
+  .waitlist-note{font-size:11.5px;color:var(--dim);margin:0}
+  .pricing-notes{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 22px;margin-top:22px;font-family:var(--mono);font-size:11.5px;color:var(--dim);text-align:center}
+
+  .faq{max-width:860px;margin:0 auto}
+  .faq-list{display:flex;flex-direction:column;gap:11px}
+  .faq details{background:var(--panel);border:1px solid var(--line);border-radius:11px}
+  .faq summary{cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:var(--display);font-weight:600;font-size:16.5px;color:var(--bright)}
+  .faq summary::after{content:"+";color:var(--cyan);font-size:22px;flex-shrink:0;transition:transform .2s ease}
+  .faq details[open] summary::after{transform:rotate(45deg)}
+  .faq details p{margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty}
+
+  .final{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:18px;padding:54px 40px;text-align:center;box-shadow:0 0 60px -22px rgba(34,224,255,.45)}
+  .final::before{content:"";position:absolute;inset:0;opacity:.4;background:radial-gradient(500px 240px at 50% -20%,rgba(34,224,255,.22),transparent 65%);pointer-events:none}
+  .final>*{position:relative}
+  .final h2{font-family:var(--display);font-weight:800;font-size:clamp(27px,3.6vw,42px);letter-spacing:-.4px;line-height:1.1;margin:0 0 14px;color:var(--bright);text-wrap:balance}
+  .final p{font-size:16.5px;color:var(--muted);max-width:540px;margin:0 auto 30px;text-wrap:pretty}
+  .final-ctas{display:flex;gap:13px;justify-content:center;flex-wrap:wrap}
+
+  .site-footer{border-top:1px solid var(--line);background:var(--bg2)}
+  .footer-inner{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:28px;padding-top:40px;padding-bottom:40px}
+  .footer-inner h4{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:var(--dim);margin:0 0 12px}
+  .footer-inner ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;font-size:14px}
+  .footer-inner a{color:var(--muted);text-decoration:none}
+  .footer-inner a:hover{color:var(--cyan)}
+  .footer-tag{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin:12px 0 0;max-width:280px}
+  .footer-bottom{border-top:1px solid var(--line);padding-top:16px;padding-bottom:22px;font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between}
+  .footer-bottom a{color:var(--cyan);text-decoration:none}
+
+  @media (max-width:1080px){
+    .plans{grid-template-columns:1fr 1fr}
+    .plan-for,.price-alt{min-height:0}
+  }
+  @media (max-width:880px){
+    .nav-links{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;align-items:stretch;gap:0;background:rgba(6,9,12,.97);border-bottom:1px solid var(--line);padding:6px 16px 12px}
+    .nav-links.open{display:flex}
+    .nav-links a{padding:12px 4px;border-bottom:1px solid var(--line);font-size:13.5px}
+    .nav-links a:last-child{border-bottom:0}
+    .nav-tools{margin-left:auto}
+    .menu-btn{display:inline-flex}
+    .hero,.feat,.matrix-panel .feat,.grid2,.grid3,.whynow-inner,.shots{grid-template-columns:1fr}
+    .hero{gap:46px;padding-top:48px}
+    .shot:first-child{grid-column:auto}
+    .timeline{grid-template-columns:1fr;border-left:0}
+    .tl-item{border-right:0;border-left:2px solid var(--line2);padding:4px 0 4px 16px;margin-bottom:18px}
+    .whynow-note{grid-column:1;padding-left:0}
+    .footer-inner{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:600px){
+    .wrap{padding-left:16px;padding-right:16px}
+    .section{padding-top:48px}
+    .nav{gap:12px}
+    .nav-cta{display:none}
+    .hero-sub{font-size:16.5px}
+    .hero-ctas .btn{flex:1 1 100%}
+    .mock-body{grid-template-columns:1fr}
+    .mock-side{display:none}
+    .audit-chip{right:8px;bottom:-24px}
+    .matrix-panel{padding:18px 14px}
+    .matrix{grid-template-columns:72px repeat(4,minmax(0,1fr));gap:4px}
+    .mx-col{font-size:9.5px}
+    .mx-user{font-size:11px;padding-right:2px}
+    .ck-cell{font-size:9px;padding:9px 1px;border-radius:6px}
+    .card{padding:20px}
+    .plans{grid-template-columns:1fr}
+    .final{padding:40px 18px}
+    .footer-inner{grid-template-columns:1fr}
+    .billing{margin-top:-14px}
+  }
+  </style>
 </head>
 <body>
-<div style="--bg:#06090c;--bg2:#080c10;--panel:#0c1218;--panel2:#101921;--line:rgba(120,165,185,.12);--line2:rgba(120,165,185,.22);--text:#e4eef2;--muted:#8ba0aa;--dim:#5b6e77;--cyan:#22e0ff;--cyan2:#0bb6d6;--amber:#ffb340;--ok:#37e0a0;--danger:#ff5d6c;background:var(--bg);color:var(--text);font-family:'Saira',system-ui,sans-serif;font-weight:400;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;position:relative">
+  <div class="backdrop-glow" aria-hidden="true"></div>
+  <div class="backdrop-dots" aria-hidden="true"></div>
 
-  <!-- ambient backdrop -->
-  <div aria-hidden="true" style="position:fixed;left:0;right:0;bottom:0;height:75%;pointer-events:none;z-index:0;background-image:radial-gradient(ellipse 48% 100% at 50% 100%,rgba(34,224,255,.16),rgba(34,224,255,.06) 42%,transparent 72%);background-size:2600px 100%;background-repeat:repeat-x;background-position:0 100%;animation:ck-cross 26s linear infinite;will-change:background-position"></div>
-  <div aria-hidden="true" style="position:fixed;inset:0;pointer-events:none;z-index:0;background-image:radial-gradient(circle,rgba(135,200,225,.22) 1.4px,transparent 1.9px);background-size:32px 32px;animation:ck-drift 34s linear infinite;mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%);-webkit-mask-image:linear-gradient(180deg,#000 0%,#000 78%,transparent 100%)"></div>
-
-  <!-- ============ NAV ============ -->
-  <header style="position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(6,9,12,.72);border-bottom:1px solid var(--line)">
-    <nav style="max-width:1180px;margin:0 auto;padding:13px 24px;display:flex;align-items:center;gap:24px">
-      <a href="#topo" style="display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--text)">
+  <header class="site-header">
+    <nav class="nav wrap" aria-label="Main">
+      <a href="#top" class="brand" aria-label="Cockpit S3 home">
         <svg width="30" height="30" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-          <path d="M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z" stroke="var(--cyan)" stroke-width="1.6" fill="rgba(34,224,255,.05)"/>
-          <circle cx="20" cy="20" r="7.4" stroke="var(--cyan)" stroke-width="1.6"/>
-          <circle cx="20" cy="20" r="2.4" fill="var(--cyan)"/>
-          <path d="M20 12.6V8.4M20 31.6v-4.2M27.4 20h4.2M8.4 20h4.2" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z" stroke="#22e0ff" stroke-width="1.6" fill="rgba(34,224,255,.05)"/>
+          <circle cx="20" cy="20" r="7.4" stroke="#22e0ff" stroke-width="1.6"/>
+          <circle cx="20" cy="20" r="2.4" fill="#22e0ff"/>
+          <path d="M20 12.6V8.4M20 31.6v-4.2M27.4 20h4.2M8.4 20h4.2" stroke="#22e0ff" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
-        <span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:18px;letter-spacing:.5px">COCKPIT<span style="color:var(--cyan)">·S3</span></span>
+        <span class="brand-name">COCKPIT<span>·S3</span></span>
       </a>
-      <div style="flex:1"></div>
-      <div style="display:none;gap:26px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.3px" class="ck-navlinks">
-        <a href="#produto" style="color:var(--muted);text-decoration:none">produto</a>
-        <a href="#seguranca" style="color:var(--muted);text-decoration:none">segurança</a>
-        <a href="#comparativo" style="color:var(--muted);text-decoration:none">comparativo</a>
-        <a href="#planos" style="color:var(--muted);text-decoration:none">planos</a>
-        <a href="#faq" style="color:var(--muted);text-decoration:none">faq</a>
+      <div class="nav-links" id="nav-links">
+        <a href="#product">Product</a>
+        <a href="#why-now">Why now</a>
+        <a href="#compare">Compare</a>
+        <a href="#pricing">Pricing</a>
+        <a href="https://github.com/pagliarinilucas/Cockpit-S3/tree/main/docs" target="_blank" rel="noopener">Docs</a>
+        <a href="https://github.com/pagliarinilucas/Cockpit-S3" target="_blank" rel="noopener">GitHub</a>
       </div>
-      <a href="mailto:contato@cockpits3.com.br?subject=Quero%20agendar%20uma%20demonstração%20do%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:13.5px;letter-spacing:.3px;text-decoration:none;color:#04222a;background:var(--cyan);padding:9px 16px;border-radius:8px;box-shadow:0 0 18px rgba(34,224,255,.30);white-space:nowrap">Agendar demo</a>
+      <div class="nav-tools">
+        <a href="/pt/" class="lang" hreflang="pt-BR" lang="pt-BR" title="Ver em português">PT</a>
+        <a href="https://github.com/pagliarinilucas/Cockpit-S3" class="btn btn-primary btn-sm nav-cta" target="_blank" rel="noopener">Get it free</a>
+        <button type="button" class="menu-btn" id="menu-btn" aria-controls="nav-links" aria-expanded="false" aria-label="Open menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
     </nav>
   </header>
 
-  <main id="topo" style="position:relative;z-index:1">
-
-    <!-- ============ HERO ============ -->
-    <section style="max-width:1180px;margin:0 auto;padding:74px 24px 40px;display:grid;grid-template-columns:1.02fr 1.18fr;gap:54px;align-items:center" class="ck-hero">
+  <main id="top">
+    <section class="hero wrap" aria-labelledby="hero-title">
       <div data-reveal>
-        <div style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--cyan);border:1px solid var(--line2);background:rgba(34,224,255,.05);padding:6px 12px;border-radius:999px">
-          <span style="width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:ck-blink 2.4s ease-in-out infinite"></span>
-          console de arquivos self-hosted
-        </div>
-        <h1 style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:clamp(34px,4.6vw,57px);line-height:1.03;letter-spacing:-.5px;margin:22px 0 0;color:#f2fbff">
-          Compartilhe arquivos sensíveis <span style="color:var(--cyan);text-shadow:0 0 26px rgba(34,224,255,.45)">sem entregar suas chaves</span>.
-        </h1>
-        <p style="font-size:18.5px;color:var(--muted);max-width:520px;margin:22px 0 0;text-wrap:pretty">
-          O Cockpit S3 roda na sua infraestrutura ou num bucket dedicado que a gente provisiona pra você. Permissões validadas no servidor, links públicos que expiram e travam por IP, e auditoria de tudo. <span style="color:var(--text)">Por R$ 20/mês, com usuários ilimitados.</span>
-        </p>
-        <div style="display:flex;flex-wrap:wrap;gap:13px;margin-top:30px">
-          <a href="mailto:contato@cockpits3.com.br?subject=Quero%20agendar%20uma%20demonstração%20do%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:15px;letter-spacing:.3px;text-decoration:none;color:#04222a;background:var(--cyan);padding:14px 24px;border-radius:10px;box-shadow:0 0 26px rgba(34,224,255,.32);display:inline-flex;align-items:center;gap:9px" data-hover="box-shadow:0 0 34px rgba(34,224,255,.5);transform:translateY(-1px)">
-            Agendar demonstração
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#04222a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="pill"><span class="pill-dot"></span>The MinIO Console replacement · any S3</div>
+        <h1 id="hero-title">The self-hosted web console for <em>any S3 bucket</em>.</h1>
+        <p class="hero-sub">Users, per-bucket and folder permissions, expiring share links and an audit log — on top of the storage you already run. <span class="hl">Unlimited users. AGPL. One container.</span></p>
+        <div class="hero-ctas">
+          <a href="https://github.com/pagliarinilucas/Cockpit-S3" class="btn btn-primary" target="_blank" rel="noopener">
+            Get it on GitHub
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="#04222a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
-          <a href="#como-funciona" style="font-family:'Oxanium',sans-serif;font-weight:600;font-size:15px;letter-spacing:.3px;text-decoration:none;color:var(--text);background:transparent;border:1px solid var(--line2);padding:14px 22px;border-radius:10px;display:inline-flex;align-items:center;gap:9px" data-hover="border-color:var(--cyan);color:var(--cyan)">
-            Ver como funciona
-          </a>
+          <a href="#pricing" class="btn btn-ghost">See Pro &amp; Cloud</a>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:34px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim);align-items:center">
-          <span style="color:var(--muted)">roda sobre</span>
-          <span style="color:var(--text)">Garage</span><span>·</span>
-          <span style="color:var(--text)">MinIO</span><span>·</span>
-          <span style="color:var(--text)">AWS&nbsp;S3</span><span>·</span>
-          <span style="color:var(--text)">Oracle&nbsp;OCI</span><span>·</span>
-          <span>qualquer endpoint compatível</span>
+        <div class="runs-on">
+          <span>works with</span>
+          <b>Garage</b><span>·</span><b>MinIO</b><span>·</span><b>Hetzner</b><span>·</span><b>Backblaze&nbsp;B2</b><span>·</span><b>Wasabi</b><span>·</span><b>AWS&nbsp;S3</b><span>·</span><b>Oracle&nbsp;OCI</b>
         </div>
       </div>
 
-      <!-- LIVE INTERFACE MOCKUP -->
-      <div data-reveal style="position:relative">
-        <div aria-hidden="true" style="position:absolute;inset:-2px;border-radius:16px;background:linear-gradient(150deg,rgba(34,224,255,.5),transparent 42%);filter:blur(0px);opacity:.7;-webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);-webkit-mask-composite:xor;mask-composite:exclude;padding:1px"></div>
-        <div style="position:relative;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:15px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 40px -10px rgba(34,224,255,.12);overflow:hidden">
-          <!-- titlebar -->
-          <div style="display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.012)">
-            <span style="width:10px;height:10px;border-radius:50%;background:#ff5d6c4d;border:1px solid #ff5d6c66"></span>
-            <span style="width:10px;height:10px;border-radius:50%;background:#ffb3404d;border:1px solid #ffb34066"></span>
-            <span style="width:10px;height:10px;border-radius:50%;background:#37e0a04d;border:1px solid #37e0a066"></span>
-            <span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim)">cockpit · /grupo-lima/notas</span>
-            <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--ok)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)"></span>online</span>
+      <div class="mock-wrap" data-reveal aria-hidden="true">
+        <div class="mock-edge"></div>
+        <div class="mock">
+          <div class="mock-bar">
+            <span class="dot" style="background:#ff5d6c4d;border:1px solid #ff5d6c66"></span>
+            <span class="dot" style="background:#ffb3404d;border:1px solid #ffb34066"></span>
+            <span class="dot" style="background:#37e0a04d;border:1px solid #37e0a066"></span>
+            <span class="mock-path">cockpit · /acme/invoices</span>
+            <span class="mock-online">online</span>
           </div>
-          <div style="display:grid;grid-template-columns:138px 1fr">
-            <!-- sidebar -->
-            <div style="border-right:1px solid var(--line);padding:13px 11px;background:rgba(0,0,0,.18)">
-              <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.6px;color:var(--dim);text-transform:uppercase;padding:0 4px 7px">Buckets</div>
-              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;background:rgba(34,224,255,.12);color:var(--cyan);font-size:12.5px;margin-bottom:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>notas</div>
-              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px;margin-bottom:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>contratos</div>
-              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px;margin-bottom:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>fiscal</div>
-              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;color:var(--muted);font-size:12.5px">+ rh</div>
-              <!-- gauge -->
-              <div style="margin-top:16px;padding:12px 4px 4px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:center">
-                <div style="position:relative;width:84px;height:84px">
-                  <svg width="84" height="84" viewBox="0 0 84 84" style="transform:rotate(-90deg)">
+          <div class="mock-body">
+            <div class="mock-side">
+              <div class="mock-label">Buckets</div>
+              <div class="mock-bucket on"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>invoices</div>
+              <div class="mock-bucket"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>contracts</div>
+              <div class="mock-bucket"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>finance</div>
+              <div class="mock-bucket">+ hr</div>
+              <div class="gauge">
+                <div class="gauge-ring">
+                  <svg width="84" height="84" viewBox="0 0 84 84">
                     <circle cx="42" cy="42" r="34" stroke="rgba(120,165,185,.14)" stroke-width="7" fill="none"/>
-                    <circle cx="42" cy="42" r="34" stroke="var(--cyan)" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="79" style="filter:drop-shadow(0 0 5px rgba(34,224,255,.6))"/>
+                    <circle cx="42" cy="42" r="34" stroke="#22e0ff" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="79" style="filter:drop-shadow(0 0 5px rgba(34,224,255,.6))"/>
                   </svg>
-                  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
-                    <span style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;color:#f2fbff">63<span style="font-size:10px;color:var(--muted)">%</span></span>
-                  </div>
+                  <div class="gauge-val">63<small>%</small></div>
                 </div>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);margin-top:6px">312 / 500 GB</span>
+                <span class="gauge-cap">312 / 500 GB</span>
               </div>
             </div>
-            <!-- file list -->
-            <div style="position:relative;overflow:hidden">
-              <div aria-hidden="true" style="position:absolute;left:0;right:0;top:0;height:34px;background:linear-gradient(180deg,rgba(34,224,255,.14),transparent);animation:ck-scan 4.2s linear infinite;pointer-events:none"></div>
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line)">
-                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">14 arquivos</span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:6px;padding:3px 8px">link expira em 04:58</span>
+            <div class="mock-files">
+              <div class="mock-scan"></div>
+              <div class="mock-files-head"><span>14 files</span><span class="chip">link expires in 04:58</span></div>
+              <div class="file-row">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="#ff5d6c" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v4h4" stroke="#ff5d6c" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                <div class="file-meta"><div class="file-name">invoice-2026-0912.pdf</div><div class="file-sub">uploaded 2h ago · 248 KB</div></div>
+                <span class="tag tag-read">read</span>
               </div>
-              <div style="padding:5px 0">
-                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--danger)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v4h4" stroke="var(--danger)" stroke-width="1.5" stroke-linejoin="round"/></svg>
-                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">nota-fiscal-35240912.pdf</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">enviado há 2h · 248 KB</div></div>
-                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--cyan);background:rgba(34,224,255,.1);border:1px solid rgba(34,224,255,.25);border-radius:5px;padding:3px 7px">leitura</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px;background:rgba(34,224,255,.05);border-left:2px solid var(--cyan)">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="9" cy="9.5" r="1.7" fill="var(--cyan)"/><path d="M4 16l4.5-4 3.5 3 3-2.5L20 17" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>
-                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:#f2fbff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">recibo-assinado-4471.jpg</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">visualizando · 1,2 MB</div></div>
-                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#04222a;background:var(--cyan);border-radius:5px;padding:3px 7px;font-weight:700">dono</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v4h4" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round"/></svg>
-                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">comprovante-pagamento.pdf</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">enviado ontem · 96 KB</div></div>
-                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--amber);background:rgba(255,179,64,.1);border:1px solid rgba(255,179,64,.25);border-radius:5px;padding:3px 7px">escrita</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:11px;padding:9px 14px">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round"/></svg>
-                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">relatorio-fiscal-0912.xml</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim)">enviado ontem · 41 KB</div></div>
-                  <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--cyan);background:rgba(34,224,255,.1);border:1px solid rgba(34,224,255,.25);border-radius:5px;padding:3px 7px">leitura</span>
-                </div>
+              <div class="file-row on">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="#22e0ff" stroke-width="1.5"/><circle cx="9" cy="9.5" r="1.7" fill="#22e0ff"/><path d="M4 16l4.5-4 3.5 3 3-2.5L20 17" stroke="#22e0ff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                <div class="file-meta"><div class="file-name" style="color:#f2fbff">signed-receipt-4471.jpg</div><div class="file-sub">previewing · 1.2 MB</div></div>
+                <span class="tag tag-owner">owner</span>
+              </div>
+              <div class="file-row">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="#8ba0aa" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v4h4" stroke="#8ba0aa" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                <div class="file-meta"><div class="file-name">payment-proof.pdf</div><div class="file-sub">uploaded yesterday · 96 KB</div></div>
+                <span class="tag tag-write">write</span>
+              </div>
+              <div class="file-row">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="#8ba0aa" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                <div class="file-meta"><div class="file-name">q3-budget.xlsx</div><div class="file-sub">edited yesterday · 41 KB</div></div>
+                <span class="tag tag-read">read</span>
               </div>
             </div>
           </div>
         </div>
-        <!-- floating audit chip -->
-        <div style="position:absolute;right:-14px;bottom:-20px;background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:11px 13px;box-shadow:0 18px 40px -12px rgba(0,0,0,.8);display:flex;align-items:center;gap:10px;animation:ck-floaty 5s ease-in-out infinite">
-          <span style="width:30px;height:30px;border-radius:8px;background:rgba(55,224,160,.12);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="var(--ok)" stroke-width="1.6" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="var(--ok)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          <div><div style="font-size:11.5px;color:var(--text);font-weight:500">Acesso autorizado</div><div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim)">validado no servidor · 6ms</div></div>
+        <div class="audit-chip">
+          <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="#37e0a0" stroke-width="1.6" stroke-linejoin="round"/><path d="m9 12 2 2 4-4" stroke="#37e0a0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div><strong>Access granted</strong><span>checked server-side · logged</span></div>
         </div>
       </div>
     </section>
 
-    <!-- ============ A DOR ============ -->
-    <section style="max-width:1180px;margin:0 auto;padding:66px 24px 30px">
-      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 42px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// o problema</div>
-        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Drive corporativo cobra caro — e mesmo assim você perde o controle</h2>
+    <section id="why-now" class="whynow" aria-labelledby="whynow-title">
+      <div class="whynow-inner wrap">
+        <div data-reveal>
+          <div class="eyebrow">// why now</div>
+          <h2 id="whynow-title">The free S3 consoles got smaller.</h2>
+        </div>
+        <div class="timeline" data-reveal>
+          <div class="tl-item">
+            <div class="tl-date">May 2025</div>
+            <h3>MinIO trims the CE console</h3>
+            <p>The Community Edition console was reduced to an object browser. User, policy and admin screens moved out of the free UI.</p>
+          </div>
+          <div class="tl-item">
+            <div class="tl-date">Feb 2026</div>
+            <h3>MinIO archives the community repo</h3>
+            <p>The open-source repository was archived. Teams running MinIO CE are looking for a maintained console — or a new backend.</p>
+          </div>
+          <div class="tl-item">
+            <div class="tl-date">Today</div>
+            <h3>Garage is great storage</h3>
+            <p>Its own web UI is a simple admin panel: buckets, keys, objects. It isn't built to hand files to dozens of people safely.</p>
+          </div>
+        </div>
+        <p class="whynow-note" data-reveal>Cockpit S3 sits on top of <b>whichever S3 backend you choose</b> — keep MinIO, move to Garage, or use a hosted provider — and gives every team the same users, permissions, links and audit trail.</p>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px" class="ck-grid3">
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px">
-          <div style="width:42px;height:42px;border-radius:10px;background:rgba(255,93,108,.1);border:1px solid rgba(255,93,108,.22);display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" stroke="var(--danger)" stroke-width="1.7" stroke-linecap="round"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" stroke="var(--danger)" stroke-width="1.7" stroke-linecap="round"/><path d="M4 4l16 16" stroke="var(--danger)" stroke-width="1.7" stroke-linecap="round"/></svg></div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0 0 8px;color:#f2fbff">O link que ninguém lembra quem tem</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty">Um contrato compartilhado por link público há oito meses. Ainda está no ar. Quem tem acesso hoje? Ninguém sabe responder.</p>
+    </section>
+
+    <section class="section wrap" aria-labelledby="problem-title">
+      <div class="head center" data-reveal>
+        <div class="eyebrow">// the problem</div>
+        <h2 class="h2" id="problem-title">Buckets are cheap. Handing them to people is not.</h2>
+      </div>
+      <div class="grid3">
+        <div class="card" data-reveal>
+          <div class="icon-tile tile-danger"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" stroke="#ff5d6c" stroke-width="1.7" stroke-linecap="round"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" stroke="#ff5d6c" stroke-width="1.7" stroke-linecap="round"/><path d="M4 4l16 16" stroke="#ff5d6c" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3>The link nobody remembers</h3>
+          <p>A contract shared by public link eight months ago. Still live. Who can open it today? Nobody can tell you.</p>
         </div>
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px">
-          <div style="width:42px;height:42px;border-radius:10px;background:rgba(255,179,64,.1);border:1px solid rgba(255,179,64,.22);display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M3 17l5-5 4 3 5-6 4 3" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 6h3v3" stroke="var(--amber)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0 0 8px;color:#f2fbff">A fatura que cresce com o time</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty">R$ por usuário, por mês. Cada pessoa nova é mais uma licença — e seus documentos continuam hospedados fora do país.</p>
+        <div class="card" data-reveal>
+          <div class="icon-tile tile-amber"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M3 17l5-5 4 3 5-6 4 3" stroke="#ffb340" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 6h3v3" stroke="#ffb340" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>Access keys passed around</h3>
+          <p>Everyone gets the same key, or you hand-write IAM policies per person. Neither scales, and neither is something finance can use.</p>
         </div>
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:24px">
-          <div style="width:42px;height:42px;border-radius:10px;background:rgba(34,224,255,.1);border:1px solid rgba(34,224,255,.22);display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="var(--cyan)" stroke-width="1.7"/><path d="m20 20-4-4" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"/><path d="M11 8v3.5M11 14h.01" stroke="var(--cyan)" stroke-width="1.7" stroke-linecap="round"/></svg></div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0 0 8px;color:#f2fbff">"Quem mexeu nesse arquivo?"</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0;text-wrap:pretty">Sem registro de quem enviou, baixou ou excluiu, a resposta para a auditoria é sempre um silêncio constrangedor.</p>
+        <div class="card" data-reveal>
+          <div class="icon-tile tile-cyan"><svg width="21" height="21" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#22e0ff" stroke-width="1.7"/><path d="m20 20-4-4" stroke="#22e0ff" stroke-width="1.7" stroke-linecap="round"/><path d="M11 8v3.5M11 14h.01" stroke="#22e0ff" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+          <h3>"Who touched this file?"</h3>
+          <p>No record of who uploaded, downloaded or deleted. When the auditor asks, the answer is an awkward silence.</p>
         </div>
       </div>
     </section>
 
-    <!-- ============ FUNCIONALIDADES ============ -->
-    <section id="produto" style="max-width:1180px;margin:0 auto;padding:60px 24px 30px">
-      <div data-reveal style="max-width:680px;margin:0 0 44px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// o que ele faz</div>
-        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Quatro coisas, bem-feitas</h2>
+    <section id="product" class="section wrap" aria-labelledby="product-title">
+      <div class="head" data-reveal>
+        <div class="eyebrow">// what it does</div>
+        <h2 class="h2" id="product-title">A real file console, not a bucket browser</h2>
       </div>
 
-      <!-- feature 1 -->
-      <div data-reveal style="display:grid;grid-template-columns:1fr 1fr;gap:42px;align-items:center;margin-bottom:30px" class="ck-feat">
+      <div class="feat" data-reveal>
         <div>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">01 / soberania</div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:25px;letter-spacing:-.2px;margin:0 0 12px;color:#f2fbff">Seus dados, sua infraestrutura</h3>
-          <p style="font-size:15.5px;color:var(--muted);margin:0 0 16px;text-wrap:pretty">Roda no servidor da empresa ou em qualquer VPS. Nenhum arquivo trafega por nuvem de terceiros — argumento direto de LGPD e soberania de dados. O object storage é seu; o Cockpit só organiza o acesso a ele.</p>
-          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:9px">
-            <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Dados nunca saem do seu perímetro</li>
-            <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Compatível com Garage, MinIO, AWS S3 e Oracle OCI</li>
+          <div class="feat-num">01 / bring your own storage</div>
+          <h3>Your data stays in your bucket</h3>
+          <p>Runs on your server or any VPS and talks to the S3 endpoint you already pay for. Files never pass through our cloud — useful for GDPR, LGPD and data-residency rules. The storage is yours; Cockpit only organizes who can reach it.</p>
+          <ul class="checks">
+            <li>Multiple S3 connections in one console</li>
+            <li>No proprietary format — objects stay plain S3 (or encrypted, if you choose)</li>
           </ul>
         </div>
-        <div style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px;position:relative;overflow:hidden">
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="text-align:center"><div style="width:62px;height:62px;border-radius:12px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="1.5" stroke="var(--text)" stroke-width="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5" stroke="var(--text)" stroke-width="1.5"/><path d="M7 7h.01M7 17h.01" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round"/></svg></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-top:7px">seu servidor</div></div>
-            <div style="flex:1;height:1px;background:repeating-linear-gradient(90deg,var(--cyan) 0 6px,transparent 6px 12px);opacity:.6;position:relative"><span style="position:absolute;right:-4px;top:-3px;color:var(--cyan)">▸</span></div>
-            <div style="text-align:center;opacity:.45"><div style="width:62px;height:62px;border-radius:12px;border:1px dashed var(--danger);display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M7 17a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 17H7Z" stroke="var(--danger)" stroke-width="1.5" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="var(--danger)" stroke-width="1.5" stroke-linecap="round"/></svg></div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--danger);margin-top:7px">nuvem de 3º</div></div>
+        <div class="card">
+          <div class="flow">
+            <div class="flow-node"><div class="flow-box"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="1.5" stroke="#e4eef2" stroke-width="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5" stroke="#e4eef2" stroke-width="1.5"/><path d="M7 7h.01M7 17h.01" stroke="#22e0ff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="flow-cap">cockpit</div></div>
+            <div class="flow-line"></div>
+            <div class="flow-node"><div class="flow-box"><svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M3 7l9-4 9 4-9 4-9-4Z" stroke="#22e0ff" stroke-width="1.5" stroke-linejoin="round"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4" stroke="#22e0ff" stroke-width="1.5" stroke-linejoin="round"/></svg></div><div class="flow-cap">your S3</div></div>
           </div>
-          <div style="margin-top:20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);border-top:1px solid var(--line);padding-top:14px">$ docker run cockpit-s3 <span style="color:var(--ok)">↳ tudo permanece em 10.0.0.4</span></div>
+          <div class="provider-grid"><span>Garage</span><span>MinIO</span><span>Hetzner</span><span>Backblaze B2</span><span>Wasabi</span><span>AWS S3</span><span>Oracle OCI</span><span>any S3 API</span></div>
+          <div class="flow-term">$ docker run cockpit-s3 <span>↳ everything stays on 10.0.0.4</span></div>
         </div>
       </div>
 
-      <!-- feature 2 — PERMISSION MATRIX (signature) -->
-      <div data-reveal style="background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:30px;margin:30px 0;box-shadow:0 0 50px -22px rgba(34,224,255,.4)">
-        <div style="display:grid;grid-template-columns:.85fr 1.15fr;gap:36px;align-items:center" class="ck-feat">
+      <div class="matrix-panel" data-reveal>
+        <div class="feat">
           <div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">02 / controle de acesso</div>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:25px;letter-spacing:-.2px;margin:0 0 12px;color:#f2fbff">Permissões de verdade, validadas no servidor</h3>
-            <p style="font-size:15.5px;color:var(--muted);margin:0 0 16px;text-wrap:pretty">Uma matriz visual de <span style="color:var(--text)">usuário × bucket</span> com quatro níveis — de <span style="color:var(--text)">só visualizar</span> a dono. Toda requisição é autorizada no backend — não é "esconder o botão no front". Nada de contrato vazando por link esquecido.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:11px">
-              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted)"><span style="width:11px;height:11px;border-radius:3px;border:1px dashed var(--dim)"></span>sem acesso</span>
-              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted)"><span style="width:11px;height:11px;border-radius:3px;background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45)"></span>só ver</span>
-              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--cyan)"><span style="width:11px;height:11px;border-radius:3px;background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4)"></span>leitura</span>
-              <span style="display:inline-flex;align-items:center;gap:6px;color:var(--amber)"><span style="width:11px;height:11px;border-radius:3px;background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5)"></span>escrita</span>
-              <span style="display:inline-flex;align-items:center;gap:6px;color:#04222a"><span style="width:11px;height:11px;border-radius:3px;background:var(--cyan)"></span><span style="color:var(--text)">dono</span></span>
+            <div class="feat-num">02 / access control</div>
+            <h3>Real permissions, enforced on the server</h3>
+            <p>A visual <span class="hl">user × bucket</span> matrix with five levels — from <span class="hl">view-only</span> to owner — plus folder overrides when one bucket isn't granular enough. Every request is authorized in the backend, not by hiding a button.</p>
+            <div class="legend">
+              <span><i class="lv0"></i>none</span>
+              <span><i class="lv1"></i>view</span>
+              <span style="color:var(--cyan)"><i class="lv2"></i>read</span>
+              <span style="color:var(--amber)"><i class="lv3"></i>write</span>
+              <span><i class="lv4"></i>owner</span>
             </div>
-            <p style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim);margin:16px 0 0">▸ clique nas células para alternar o nível</p>
+            <p class="hint">▸ click a cell to cycle its level</p>
           </div>
-          <!-- the matrix -->
-          <div style="overflow-x:auto">
-            <div style="display:grid;grid-template-columns:118px repeat(4,1fr);gap:6px;min-width:430px">
-              <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:flex-end;padding-bottom:6px">usuário ╲ bucket</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">contratos</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">notas</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">fiscal</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);text-align:center;padding-bottom:6px;border-bottom:1px solid var(--line);align-self:end">rh</div>
-              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Você<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">admin</span></div>
-              <button type="button" class="ck-cell" data-r="0" data-c="0" data-level="4" aria-label="Você, bucket contratos: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
-              <button type="button" class="ck-cell" data-r="0" data-c="1" data-level="4" aria-label="Você, bucket notas: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
-              <button type="button" class="ck-cell" data-r="0" data-c="2" data-level="4" aria-label="Você, bucket fiscal: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
-              <button type="button" class="ck-cell" data-r="0" data-c="3" data-level="4" aria-label="Você, bucket rh: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
-              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Financeiro<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">interno</span></div>
-              <button type="button" class="ck-cell" data-r="1" data-c="0" data-level="2" aria-label="Financeiro, bucket contratos: leitura. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:#22e0ff;">leitura</button>
-              <button type="button" class="ck-cell" data-r="1" data-c="1" data-level="3" aria-label="Financeiro, bucket notas: escrita. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:#ffb340;">escrita</button>
-              <button type="button" class="ck-cell" data-r="1" data-c="2" data-level="4" aria-label="Financeiro, bucket fiscal: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
-              <button type="button" class="ck-cell" data-r="1" data-c="3" data-level="0" aria-label="Financeiro, bucket rh: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
-              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Jurídico<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">interno</span></div>
-              <button type="button" class="ck-cell" data-r="2" data-c="0" data-level="4" aria-label="Jurídico, bucket contratos: dono. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;">dono</button>
-              <button type="button" class="ck-cell" data-r="2" data-c="1" data-level="1" aria-label="Jurídico, bucket notas: só ver. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:#8ba0aa;">só ver</button>
-              <button type="button" class="ck-cell" data-r="2" data-c="2" data-level="2" aria-label="Jurídico, bucket fiscal: leitura. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:#22e0ff;">leitura</button>
-              <button type="button" class="ck-cell" data-r="2" data-c="3" data-level="0" aria-label="Jurídico, bucket rh: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
-              <div style="font-size:12.5px;color:var(--text);display:flex;flex-direction:column;justify-content:center;padding-right:8px">Fornecedor<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)">terceiro</span></div>
-              <button type="button" class="ck-cell" data-r="3" data-c="0" data-level="0" aria-label="Fornecedor, bucket contratos: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
-              <button type="button" class="ck-cell" data-r="3" data-c="1" data-level="3" aria-label="Fornecedor, bucket notas: escrita. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:#ffb340;">escrita</button>
-              <button type="button" class="ck-cell" data-r="3" data-c="2" data-level="1" aria-label="Fornecedor, bucket fiscal: só ver. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:#8ba0aa;">só ver</button>
-              <button type="button" class="ck-cell" data-r="3" data-c="3" data-level="0" aria-label="Fornecedor, bucket rh: sem acesso. Clique para alternar." style="cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;background:transparent;border:1px dashed #5b6e77;color:#5b6e77;">—</button>
+          <div>
+            <div class="matrix" id="matrix" data-labels="—|view|read|write|owner" data-level-names="no access|view only|read|write|owner">
+              <div class="mx-corner">user ╲ bucket</div>
+              <div class="mx-col">contracts</div>
+              <div class="mx-col">invoices</div>
+              <div class="mx-col">finance</div>
+              <div class="mx-col">hr</div>
+              <div class="mx-user">You<small>admin</small></div>
+              <button type="button" class="ck-cell" data-level="4" data-row="You" data-col="contracts"></button>
+              <button type="button" class="ck-cell" data-level="4" data-row="You" data-col="invoices"></button>
+              <button type="button" class="ck-cell" data-level="4" data-row="You" data-col="finance"></button>
+              <button type="button" class="ck-cell" data-level="4" data-row="You" data-col="hr"></button>
+              <div class="mx-user">Finance<small>internal</small></div>
+              <button type="button" class="ck-cell" data-level="2" data-row="Finance" data-col="contracts"></button>
+              <button type="button" class="ck-cell" data-level="3" data-row="Finance" data-col="invoices"></button>
+              <button type="button" class="ck-cell" data-level="4" data-row="Finance" data-col="finance"></button>
+              <button type="button" class="ck-cell" data-level="0" data-row="Finance" data-col="hr"></button>
+              <div class="mx-user">Legal<small>internal</small></div>
+              <button type="button" class="ck-cell" data-level="4" data-row="Legal" data-col="contracts"></button>
+              <button type="button" class="ck-cell" data-level="1" data-row="Legal" data-col="invoices"></button>
+              <button type="button" class="ck-cell" data-level="2" data-row="Legal" data-col="finance"></button>
+              <button type="button" class="ck-cell" data-level="0" data-row="Legal" data-col="hr"></button>
+              <div class="mx-user">Vendor<small>external</small></div>
+              <button type="button" class="ck-cell" data-level="0" data-row="Vendor" data-col="contracts"></button>
+              <button type="button" class="ck-cell" data-level="3" data-row="Vendor" data-col="invoices"></button>
+              <button type="button" class="ck-cell" data-level="1" data-row="Vendor" data-col="finance"></button>
+              <button type="button" class="ck-cell" data-level="0" data-row="Vendor" data-col="hr"></button>
             </div>
+            <div class="override"><span class="tag tag-write">override</span><span><b>Vendor</b> → contracts<b>/2026/vendor-x/</b> = write</span></div>
           </div>
         </div>
       </div>
 
-      <!-- feature 3 & 4 side by side -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:30px" class="ck-grid2">
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
-          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">03 / terceiros</div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:21px;letter-spacing:-.2px;margin:0 0 10px;color:#f2fbff">Compartilhe com terceiros sem fricção</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0 0 18px;text-wrap:pretty">Crie um login para o parceiro em segundos — sem conta Google, sem licença. Ou gere um <span style="color:var(--text)">link público que expira sozinho</span>, sem exigir login de quem recebe. Escolha a validade, trave no primeiro IP que abrir e revogue quando quiser. Só quem você autoriza a compartilhar consegue gerar link — e nunca de um arquivo que a pessoa não poderia baixar.</p>
-          <div style="background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
-              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">link público</span>
-              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--cyan);animation:ck-blink 1.6s infinite"></span>expira em 6d 23h</span>
-            </div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border-radius:7px;padding:9px 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:11px">cockpit.suaempresa.com/s/<span style="color:var(--cyan)">a7f3…d92</span></div>
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:10px">
-              <span style="color:var(--dim)">validade</span>
-              <span style="color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px">1h</span>
-              <span style="color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px">24h</span>
-              <span style="color:#04222a;background:var(--cyan);border-radius:5px;padding:2px 6px;font-weight:700">7 dias</span>
-              <span style="color:var(--muted);border:1px solid var(--line2);border-radius:5px;padding:2px 6px">30d</span>
-              <span style="margin-left:auto;color:var(--cyan);display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:5px;padding:2px 7px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="11" rx="2" stroke="var(--cyan)" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.8"/></svg>trava no 1º IP</span>
-            </div>
+      <div class="grid2">
+        <div class="card feat-card" data-reveal>
+          <div class="feat-num">03 / sharing</div>
+          <h3>Share with outsiders, safely</h3>
+          <p>Create a login for a partner in seconds — no Google account, no per-seat license. Or generate a <span class="hl">public link that expires on its own</span>: pick the lifetime, lock it to the first IP that opens it, revoke it anytime. Only people allowed to share can create links, and never for a file they couldn't download themselves.</p>
+          <div class="link-demo">
+            <div class="link-demo-top"><span>public link</span><em>expires in 6d 23h</em></div>
+            <div class="link-url">files.yourcompany.com/s/<span>a7f3…d92</span></div>
+            <div class="link-opts"><span style="border:0;padding:0;color:var(--dim)">lifetime</span><span>1h</span><span>24h</span><span class="on">7 days</span><span>30d</span><span class="lock">locked to 1st IP</span></div>
           </div>
         </div>
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
-          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);margin-bottom:10px">04 / preview & só-ver</div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:21px;letter-spacing:-.2px;margin:0 0 10px;color:#f2fbff">Visualize sem baixar</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px;text-wrap:pretty">Preview inline de PDF, imagem, vídeo e áudio direto no navegador, com navegação entre os arquivos da pasta. E existe o nível <span style="color:var(--text)">só ver</span>: quem tem essa permissão confere os documentos, mas o download não existe pra ele — o botão some e a API recusa. Conferir um contrato ou uma nota fiscal não vira uma cópia solta por aí.</p>
-          <div style="display:flex;gap:9px;flex-wrap:wrap">
-            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 2h8l4 4v16H6V2Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>PDF</span>
-            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="8.5" cy="9.5" r="1.6" fill="var(--cyan)"/><path d="m4 16 4-3.5 3 2.5 3.5-3L20 16" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>Imagem</span>
-            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="m10 9 5 3-5 3V9Z" fill="var(--cyan)"/></svg>Vídeo</span>
-            <span style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 11px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 9v6M8 6v12M12 3v18M16 7v10M20 10v4" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/></svg>Áudio</span>
-          </div>
+        <div class="card feat-card" data-reveal>
+          <div class="feat-num">04 / preview &amp; edit</div>
+          <h3>View without downloading</h3>
+          <p>Inline preview of PDFs, images, video and audio, with next/previous through the folder — and a built-in spreadsheet editor for XLSX and CSV. The <span class="hl">view-only</span> level lets people check a document without ever getting a copy: the button is gone and the API refuses.</p>
+          <div class="formats"><span>PDF</span><span>Images</span><span>Video</span><span>Audio</span><span>XLSX / CSV editor</span></div>
+          <ul class="checks" style="margin-top:18px">
+            <li>Garage cluster admin built in: nodes, buckets, keys</li>
+            <li>Audit log in the UI: uploads, downloads, deletes, grants</li>
+          </ul>
         </div>
       </div>
     </section>
 
-    <!-- ============ COMO FUNCIONA ============ -->
-    <section id="como-funciona" style="max-width:1180px;margin:0 auto;padding:62px 24px 30px">
-      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 44px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// como funciona</div>
-        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">No ar em minutos, não em sprints</h2>
+    <section class="section wrap" aria-labelledby="shots-title">
+      <div class="head" data-reveal>
+        <div class="eyebrow">// the real thing</div>
+        <h2 class="h2" id="shots-title">Screens from the running console</h2>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;position:relative" class="ck-grid3">
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
-          <div style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1">01</div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:19px;margin:6px 0 9px;color:#f2fbff">Suba o container</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px">Um <code style="font-family:'JetBrains Mono',monospace;color:var(--cyan);font-size:13px">docker run</code> e pronto. Banco SQLite embutido — sem Postgres, sem Redis, sem PHP.</p>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px"><span style="color:var(--dim)">$</span> docker run -p 8080 <span style="color:var(--cyan)">cockpit-s3</span></div>
+      <div class="shots" data-reveal>
+        <figure class="shot"><img src="/assets/files.webp" width="1600" height="749" loading="lazy" alt="Cockpit S3 file browser with folders and spreadsheets in a bucket"><figcaption><b>File browser</b> · grid view, upload folders, share links</figcaption></figure>
+        <figure class="shot"><img src="/assets/cluster.webp" width="1600" height="895" loading="lazy" alt="Garage cluster dashboard showing health, storage, nodes and per-bucket usage"><figcaption><b>Garage cluster</b> · health, nodes, usage per bucket</figcaption></figure>
+        <figure class="shot"><img src="/assets/spreadsheet.webp" width="1600" height="906" loading="lazy" alt="Built-in spreadsheet editor open on an XLSX file"><figcaption><b>Spreadsheet editor</b> · edit XLSX/CSV in place</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="section wrap" aria-labelledby="how-title">
+      <div class="head center" data-reveal>
+        <div class="eyebrow">// how it works</div>
+        <h2 class="h2" id="how-title">Live in minutes, not sprints</h2>
+      </div>
+      <div class="grid3">
+        <div class="card step" data-reveal>
+          <div class="step-num">01</div>
+          <h3>Run the container</h3>
+          <p>One <code>docker run</code>. Embedded SQLite — no Postgres, no Redis, no PHP.</p>
+          <div class="term"><span class="ps">$</span> docker run -p 8080 <span style="color:var(--cyan)">cockpit-s3</span></div>
         </div>
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
-          <div style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1">02</div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:19px;margin:6px 0 9px;color:#f2fbff">Conecte seu storage</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px">Aponte para Garage, MinIO ou AWS S3 pela interface — ou peça pra gente provisionar um bucket dedicado em nuvem. Várias conexões, em um só lugar.</p>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)"></span>endpoint conectado</div>
+        <div class="card step" data-reveal>
+          <div class="step-num">02</div>
+          <h3>Connect your storage</h3>
+          <p>Point it at Garage, MinIO, Hetzner, B2, Wasabi, AWS or OCI from the UI. Add as many connections as you need.</p>
+          <div class="term"><span class="ok-dot"></span>endpoint connected</div>
         </div>
-        <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px">
-          <div style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:40px;color:rgba(34,224,255,.22);line-height:1">03</div>
-          <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:19px;margin:6px 0 9px;color:#f2fbff">Crie usuários e compartilhe</h3>
-          <p style="font-size:14.5px;color:var(--muted);margin:0 0 14px">Defina a matriz de permissões, crie o login do parceiro ou gere o link público que expira. Mande. Pronto.</p>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>acesso concedido</div>
+        <div class="card step" data-reveal>
+          <div class="step-num">03</div>
+          <h3>Add people and share</h3>
+          <p>Set the permission matrix, create the partner's login or generate an expiring link. Send it. Done.</p>
+          <div class="term"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="m5 12 5 5L20 7" stroke="#22e0ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>access granted</div>
         </div>
       </div>
     </section>
 
-    <!-- ============ SEGURANÇA ============ -->
-    <section id="seguranca" style="position:relative;margin-top:40px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--bg2)">
-      <div style="max-width:1180px;margin:0 auto;padding:62px 24px">
-        <div data-reveal style="max-width:680px;margin:0 0 42px">
-          <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// segurança & conformidade</div>
-          <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 8px;color:#f2fbff">Segurança de gente grande, sem o peso</h2>
-          <p style="font-size:15.5px;color:var(--muted);margin:0;max-width:600px">A honestidade de engenharia é o estilo: o que está aqui, está validado no servidor. Sem teatro, sem jargão.</p>
+    <div id="security" class="band">
+      <section class="section wrap" aria-labelledby="security-title">
+        <div class="head" data-reveal>
+          <div class="eyebrow">// security &amp; compliance</div>
+          <h2 class="h2" id="security-title">Serious security, without the weight</h2>
+          <p class="lead">Engineering honesty is the style: if it's listed here, it's enforced on the server. No theatre, no jargon.</p>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px" class="ck-grid3">
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line2);border-radius:13px;padding:22px;box-shadow:0 0 40px -26px rgba(34,224,255,.6)">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.5"/><circle cx="12" cy="15" r="1.5" fill="var(--cyan)"/></svg>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Criptografia em repouso</h3>
-            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Cada arquivo é cifrado no servidor, com chave própria por objeto, antes de ir pro storage. No bucket ficam só blocos embaralhados de nome aleatório — backup, disco ou credencial vazada não revelam nada.</p>
+        <div class="grid3">
+          <div class="card sec-card glow" data-reveal>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2" stroke="#22e0ff" stroke-width="1.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" stroke="#22e0ff" stroke-width="1.5"/><circle cx="12" cy="15" r="1.5" fill="#22e0ff"/></svg>
+            <h3>Encryption at rest</h3>
+            <p>Each file is encrypted on the server with its own key before it reaches storage. The bucket only holds scrambled blobs with random names — a leaked backup, disk or credential reveals nothing.</p>
           </div>
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line2);border-radius:13px;padding:22px;box-shadow:0 0 40px -26px rgba(34,224,255,.6)">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M7 18a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 18H7Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 13v4m0-4-1.6 1.6M12 13l1.6 1.6" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Backup &amp; recuperação (DR)</h3>
-            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Backup automático e cifrado das chaves e do índice para um destino que você escolhe. Se a máquina do console cair, você restaura tudo — e os arquivos, já no seu storage, nunca se perdem.</p>
+          <div class="card sec-card glow" data-reveal>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M7 18a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 18H7Z" stroke="#22e0ff" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 13v4m0-4-1.6 1.6M12 13l1.6 1.6" stroke="#22e0ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <h3>Backup &amp; disaster recovery</h3>
+            <p>Automatic, encrypted backup of keys and the metadata index to a destination you choose. Lose the console machine, restore everything — your files never left your storage.</p>
           </div>
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/></svg>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">LGPD & soberania</h3>
-            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Dados na sua infraestrutura, sob sua jurisdição. Nada cruza fronteira sem você mandar.</p>
+          <div class="card sec-card" data-reveal>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" stroke="#22e0ff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            <h3>Data residency</h3>
+            <p>Data on your infrastructure, under your jurisdiction. Nothing crosses a border unless you send it.</p>
           </div>
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><rect x="4" y="10" width="16" height="11" rx="2" stroke="var(--cyan)" stroke-width="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="var(--cyan)" stroke-width="1.5"/></svg>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Criptografia em trânsito</h3>
-            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">TLS de ponta a ponta entre navegador, console e object storage.</p>
+          <div class="card sec-card" data-reveal>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="4" y="10" width="16" height="11" rx="2" stroke="#22e0ff" stroke-width="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#22e0ff" stroke-width="1.5"/></svg>
+            <h3>Encryption in transit</h3>
+            <p>TLS end to end between browser, console and object storage.</p>
           </div>
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 8v4l3 2" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="8.5" stroke="var(--cyan)" stroke-width="1.5"/></svg>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Auditoria nativa</h3>
-            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Linha do tempo de envio, download, exclusão e de quem concedeu ou revogou acesso.</p>
+          <div class="card sec-card" data-reveal>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 8v4l3 2" stroke="#22e0ff" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="8.5" stroke="#22e0ff" stroke-width="1.5"/></svg>
+            <h3>Built-in audit log</h3>
+            <p>A timeline of uploads, downloads, deletions and of who granted or revoked access.</p>
           </div>
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="margin-bottom:13px"><path d="M12 2 3 6v6c0 4 9 10 9 10s9-6 9-10V6l-9-4Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12h6M12 9v6" stroke="var(--cyan)" stroke-width="1.6" stroke-linecap="round"/></svg>
-            <h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:16px;margin:0 0 7px;color:#f2fbff">Arquitetura de tokens</h3>
-            <p style="font-size:13.5px;color:var(--muted);margin:0;text-wrap:pretty">Senhas com argon2id, tokens curtos com revogação instantânea, refresh rotativo com detecção de roubo e rate-limit de login.</p>
+          <div class="card sec-card" data-reveal>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2 3 6v6c0 4 9 10 9 10s9-6 9-10V6l-9-4Z" stroke="#22e0ff" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 12h6M12 9v6" stroke="#22e0ff" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <h3>Token architecture</h3>
+            <p>argon2id passwords, short-lived tokens with instant revocation, rotating refresh with theft detection and login rate limiting.</p>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
 
-    <!-- ============ COMPARATIVO ============ -->
-    <section id="comparativo" style="max-width:1180px;margin:0 auto;padding:64px 24px 30px">
-      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 40px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// comparativo</div>
-        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">O meio-termo que faltava</h2>
-        <p style="font-size:15px;color:var(--muted);margin:12px 0 0">Leve como uma SaaS, soberano como um self-hosted — sem o peso do Nextcloud.</p>
+    <section id="compare" class="section wrap" aria-labelledby="compare-title">
+      <div class="head center" data-reveal>
+        <div class="eyebrow">// compare</div>
+        <h2 class="h2" id="compare-title">Where Cockpit S3 fits</h2>
+        <p class="lead">Lighter than a full collaboration suite, more than a bucket browser.</p>
       </div>
-      <div data-reveal style="overflow-x:auto;border:1px solid var(--line2);border-radius:14px;background:var(--panel)">
-        <table style="width:100%;border-collapse:collapse;min-width:640px;font-size:14px">
+      <div class="table-scroll" data-reveal tabindex="0" role="region" aria-label="Feature comparison table, scrolls horizontally">
+        <table class="compare">
           <thead>
             <tr>
-              <th style="text-align:left;padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;border-bottom:1px solid var(--line)"> </th>
-              <th style="text-align:center;padding:18px 16px;border-bottom:1px solid var(--line2);background:rgba(34,224,255,.06);border-top-left-radius:0"><span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:15px;color:var(--cyan)">Cockpit S3</span></th>
-              <th style="text-align:center;padding:18px 16px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)">Suítes em nuvem</th>
-              <th style="text-align:center;padding:18px 16px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)">Self-hosted pesado</th>
+              <th scope="col"><span class="v-no" style="font-family:var(--mono);font-size:10.5px;font-weight:400">feature</span></th>
+              <th scope="col" class="us">Cockpit S3<small>Community</small></th>
+              <th scope="col">MinIO Console<small>CE, post-May 2025</small></th>
+              <th scope="col">garage-webui</th>
+              <th scope="col">Filestash<small>free tier</small></th>
+              <th scope="col">Nextcloud</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Dados na sua infraestrutura</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sempre</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Nuvem de 3º</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Custo</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ R$20 fixo</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ R$/usuário</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Servidor + tempo</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Permissão validada no servidor</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sempre</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Depende</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Criptografia em repouso (server-side)</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Por bucket</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Lado do provedor</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Raro</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Link com expiração automática</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ 1h–30 dias</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Manual</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Plugin</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Link travado por IP</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Opcional</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Não</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Raro</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Ver sem poder baixar</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Nível próprio</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Limitado</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Não</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Preview no navegador</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Inline</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ Sim</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">~ Parcial</span></td>
-              </tr>
-              <tr>
-                <td style="padding:15px 20px;color:var(--text);border-bottom:1px solid var(--line);font-weight:500">Peso operacional</td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line);background:rgba(34,224,255,.04)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#22e0ff;font-weight:600;font-size:13px;">✓ 1 container</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#ffb340;font-size:12px;font-family:'JetBrains Mono',monospace;">— (SaaS)</span></td>
-                <td style="padding:15px 16px;text-align:center;border-bottom:1px solid var(--line)"><span style="display:inline-flex;align-items:center;justify-content:center;color:#5b6e77;font-size:13px;">✕ Pesado</span></td>
-              </tr>
+              <th scope="row">Unlimited users, free</th>
+              <td class="us"><span class="v v-yes">✓ Yes</span></td>
+              <td><span class="v v-no">✕ Users via CLI only</span></td>
+              <td><span class="v v-no">✕ Single admin</span></td>
+              <td><span class="v v-part">~ Up to 3 users</span></td>
+              <td><span class="v v-yes">✓ Yes</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Per-bucket / folder permission matrix</th>
+              <td class="us"><span class="v v-yes">✓ Matrix + overrides</span></td>
+              <td><span class="v v-no">✕ Not in UI</span></td>
+              <td><span class="v v-no">✕ No</span></td>
+              <td><span class="v v-part">~ RBAC is paid</span></td>
+              <td><span class="v v-part">~ Shares &amp; groups</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Expiring + IP-locked share links</th>
+              <td class="us"><span class="v v-yes">✓ Both</span></td>
+              <td><span class="v v-part">~ Presigned URLs</span></td>
+              <td><span class="v v-no">✕ No</span></td>
+              <td><span class="v v-part">~ Expiry, no IP lock</span></td>
+              <td><span class="v v-part">~ Expiry, no IP lock</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Audit log</th>
+              <td class="us"><span class="v v-yes">✓ In the UI</span></td>
+              <td><span class="v v-no">✕ Not in UI</span></td>
+              <td><span class="v v-no">✕ No</span></td>
+              <td><span class="v v-part">~ Paid</span></td>
+              <td><span class="v v-part">~ Audit app, log file</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Garage cluster admin</th>
+              <td class="us"><span class="v v-yes">✓ Yes</span></td>
+              <td><span class="v v-no">— n/a</span></td>
+              <td><span class="v v-yes">✓ Yes</span></td>
+              <td><span class="v v-no">✕ No</span></td>
+              <td><span class="v v-no">✕ No</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Encryption at rest</th>
+              <td class="us"><span class="v v-yes">✓ Per bucket, in the app</span></td>
+              <td><span class="v v-part">~ Storage-side SSE</span></td>
+              <td><span class="v v-no">✕ No</span></td>
+              <td><span class="v v-part">~ Backend-dependent</span></td>
+              <td><span class="v v-yes">✓ Encryption module</span></td>
+            </tr>
+            <tr>
+              <th scope="row">Single container</th>
+              <td class="us"><span class="v v-yes">✓ Yes</span></td>
+              <td><span class="v v-yes">✓ Bundled with server</span></td>
+              <td><span class="v v-yes">✓ Yes</span></td>
+              <td><span class="v v-yes">✓ Yes</span></td>
+              <td><span class="v v-part">~ App + DB + cache</span></td>
+            </tr>
+            <tr>
+              <th scope="row">AGPL open source</th>
+              <td class="us"><span class="v v-yes">✓ AGPL-3.0 + commercial</span></td>
+              <td><span class="v v-part">~ AGPL, repo archived</span></td>
+              <td><span class="v v-part">~ MIT (permissive)</span></td>
+              <td><span class="v v-yes">✓ AGPL-3.0</span></td>
+              <td><span class="v v-yes">✓ AGPL-3.0</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
-      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);text-align:center;margin:14px 0 0">comparação por categoria de produto · sem nomear marcas</p>
+      <p class="footnote">As of October 2026 — check each vendor's site. Corrections welcome at cockpits3@pm.me.</p>
     </section>
 
-    <!-- ============ PLANOS ============ -->
-    <section id="planos" style="max-width:1180px;margin:0 auto;padding:64px 24px 30px">
-      <div data-reveal style="text-align:center;max-width:680px;margin:0 auto 42px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// planos</div>
-        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Preço que cabe no bolso, não na folha</h2>
-        <p style="font-size:15px;color:var(--muted);margin:12px 0 0">Um preço único. 5 ou 500 contas custam o mesmo.</p>
+    <section id="pricing" class="section wrap" aria-labelledby="pricing-title">
+      <div class="head center" data-reveal>
+        <div class="eyebrow">// pricing</div>
+        <h2 class="h2" id="pricing-title">Free to run. Pay when the business needs more.</h2>
+        <p class="lead">The core is open source with unlimited users. Pro adds a commercial license, SSO and compliance exports. No per-seat pricing, anywhere.</p>
       </div>
-      <div style="display:grid;grid-template-columns:.92fr 1.08fr;gap:18px;align-items:stretch" class="ck-grid2">
-        <!-- price card -->
-        <div data-reveal style="position:relative;overflow:hidden;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:16px;padding:32px;box-shadow:0 0 50px -22px rgba(34,224,255,.4)">
-          <div aria-hidden="true" style="position:absolute;inset:0;opacity:.35;background:radial-gradient(360px 200px at 80% -10%,rgba(34,224,255,.22),transparent 65%)"></div>
-          <div style="position:relative">
-            <div style="display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.06);padding:5px 11px;border-radius:999px">plano único</div>
-            <div style="display:flex;align-items:flex-end;gap:6px;margin:22px 0 4px">
-              <span style="font-family:'Oxanium',sans-serif;font-weight:600;font-size:24px;color:var(--muted)">R$</span>
-              <span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:68px;line-height:.85;color:#f2fbff;text-shadow:0 0 30px rgba(34,224,255,.35)">20</span>
-              <span style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--muted);padding-bottom:9px">/mês</span>
-            </div>
-            <p style="font-size:14px;color:var(--muted);margin:0 0 22px">Sem licença por usuário. Sem surpresa na fatura.</p>
-            <ul style="list-style:none;padding:0;margin:0 0 26px;display:flex;flex-direction:column;gap:11px">
-              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Usuários e terceiros ilimitados</li>
-              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Todas as funcionalidades incluídas</li>
-              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Permissões, links assinados e auditoria</li>
-              <li style="display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--text)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px"><path d="m5 12 5 5L20 7" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Você escolhe onde os arquivos ficam</li>
-            </ul>
-            <a href="mailto:contato@cockpits3.com.br?subject=Quero%20assinar%20o%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:15px;text-decoration:none;color:#04222a;background:var(--cyan);padding:13px 22px;border-radius:10px;box-shadow:0 0 26px rgba(34,224,255,.32);display:flex;align-items:center;justify-content:center;gap:9px" data-hover="transform:translateY(-1px);box-shadow:0 0 34px rgba(34,224,255,.5)">Começar agora</a>
-          </div>
-        </div>
-        <!-- storage options -->
-        <div style="display:grid;grid-template-rows:1fr 1fr;gap:18px">
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px;display:flex;gap:18px;align-items:flex-start">
-            <div style="flex-shrink:0;width:46px;height:46px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="6" rx="1.5" stroke="var(--cyan)" stroke-width="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5" stroke="var(--cyan)" stroke-width="1.5"/><path d="M7 7h.01M7 17h.01" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round"/></svg></div>
-            <div>
-              <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0;color:#f2fbff">Você no comando</h3><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--cyan);border:1px solid rgba(34,224,255,.3);background:rgba(34,224,255,.07);border-radius:5px;padding:2px 7px">self-hosted</span></div>
-              <p style="font-size:14px;color:var(--muted);margin:0;text-wrap:pretty">Roda na sua infra e conecta o S3 que você já tem — Garage, MinIO, AWS. Os arquivos nunca saem do seu perímetro.</p>
-            </div>
-          </div>
-          <div data-reveal style="background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:26px;display:flex;gap:18px;align-items:flex-start">
-            <div style="flex-shrink:0;width:46px;height:46px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M7 18a4 4 0 0 1 0-8 5.5 5.5 0 0 1 10.5-1.5A3.5 3.5 0 0 1 18 18H7Z" stroke="var(--cyan)" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 14v3M12 14l-1.5 1.5M12 14l1.5 1.5" stroke="var(--cyan)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-            <div>
-              <div style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><h3 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:18px;margin:0;color:#f2fbff">Deixe com a gente</h3><span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--amber);border:1px solid rgba(255,179,64,.3);background:rgba(255,179,64,.07);border-radius:5px;padding:2px 7px">nuvem gerenciada</span></div>
-              <p style="font-size:14px;color:var(--muted);margin:0;text-wrap:pretty">Sem servidor pra cuidar? A gente provisiona um bucket dedicado em nuvem — isolado, criptografado e só seu. Você só usa.</p>
-            </div>
-          </div>
+      <div class="billing" data-reveal>
+        <div class="toggle" role="group" aria-label="Billing period">
+          <button type="button" data-billing="yearly" aria-pressed="true">Yearly<small>2 months free</small></button>
+          <button type="button" data-billing="monthly" aria-pressed="false">Monthly</button>
         </div>
       </div>
-    </section>
-
-    <!-- ============ FAQ ============ -->
-    <section id="faq" style="max-width:860px;margin:0 auto;padding:62px 24px 30px">
-      <div data-reveal style="text-align:center;margin:0 auto 38px">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan)">// faq</div>
-        <h2 style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:clamp(26px,3.2vw,38px);letter-spacing:-.3px;margin:14px 0 0;color:#f2fbff">Perguntas honestas, respostas diretas</h2>
-      </div>
-      <div data-reveal style="display:flex;flex-direction:column;gap:11px">
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Preciso entender de S3 para usar?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Não. Você conecta o storage uma única vez pela interface; a partir daí é arrastar, soltar, definir permissão e compartilhar. O S3 fica nos bastidores.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Funciona com MinIO e AWS S3?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Sim. Qualquer endpoint compatível com S3 — Garage, MinIO, AWS S3, Oracle OCI, Wasabi, Backblaze. E você pode gerenciar várias conexões ao mesmo tempo pela própria interface.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Não tenho servidor nem storage. E agora?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Sem problema. A gente provisiona um bucket dedicado em nuvem pra você — isolado, criptografado e só seu. Você não precisa montar infraestrutura nenhuma: assina, recebe o acesso e começa a usar.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">E o backup?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Seus arquivos ficam no seu object storage, sem silo proprietário. E o Cockpit ainda faz backup automático e cifrado das chaves de criptografia e do índice de metadados para um destino que você escolhe — se a máquina do console for perdida, você restaura o acesso a tudo em minutos. No plano gerenciado, a gente pode guardar essa cópia de recuperação por você.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Os arquivos ficam criptografados?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Podem ficar. Você ativa a criptografia em repouso por bucket: a partir daí cada arquivo é cifrado no servidor, com uma chave própria, antes de ser gravado — e no storage só existem blocos ilegíveis com nomes aleatórios. Quem obtiver o bucket, um backup ou o disco não lê nada. Para quem tem acesso no console, preview e download seguem normais: a cifragem é transparente.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Quantos usuários ele suporta?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Sem licença por usuário. 5 ou 500 contas custam o mesmo: só o disco. O custo escala com armazenamento, não com gente.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Tem app mobile?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Ainda não. A interface web é responsiva e funciona bem no celular para conferir e compartilhar arquivos. Apps nativos estão no roadmap — preferimos prometer só o que já entregamos.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">Como funciona o link que expira?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Quem tem permissão para compartilhar gera um link público de um arquivo — sem login para quem recebe. Você escolhe a validade (de 1 hora a 30 dias) e pode travar o acesso no primeiro IP que abrir: a partir daí, só aquele IP consegue ver. Dá pra revogar a qualquer momento, e um usuário "só ver" nunca gera um link de download.</p>
-        </details>
-        <details style="background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:0">
-          <summary style="cursor:pointer;list-style:none;padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;font-family:'Oxanium',sans-serif;font-weight:600;font-size:16.5px;color:#f2fbff">É difícil de operar?<span style="color:var(--cyan);font-size:22px;flex-shrink:0">+</span></summary>
-          <p style="margin:0;padding:0 20px 18px;font-size:14.5px;color:var(--muted);text-wrap:pretty">Um container, banco SQLite embutido, sem dependências externas. Sobe em minutos em qualquer servidor com Docker — incomparavelmente mais leve que as alternativas self-hosted tradicionais.</p>
-        </details>
-      </div>
-    </section>
-
-    <!-- ============ CTA FINAL ============ -->
-    <section style="max-width:1180px;margin:0 auto;padding:56px 24px 80px">
-      <div data-reveal style="position:relative;overflow:hidden;background:linear-gradient(135deg,var(--panel2),var(--panel));border:1px solid var(--line2);border-radius:18px;padding:54px 40px;text-align:center;box-shadow:0 0 60px -22px rgba(34,224,255,.45)">
-        <div aria-hidden="true" style="position:absolute;inset:0;opacity:.4;background:radial-gradient(500px 240px at 50% -20%,rgba(34,224,255,.22),transparent 65%)"></div>
-        <div style="position:relative">
-          <h2 style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:clamp(27px,3.6vw,42px);letter-spacing:-.4px;margin:0 0 14px;color:#f2fbff">Traga seus arquivos de volta pra casa</h2>
-          <p style="font-size:16.5px;color:var(--muted);max-width:520px;margin:0 auto 30px;text-wrap:pretty">Veja o Cockpit S3 rodando com os seus tipos de documento. 20 minutos, sem compromisso.</p>
-          <div style="display:flex;gap:13px;justify-content:center;flex-wrap:wrap">
-            <a href="mailto:contato@cockpits3.com.br?subject=Quero%20agendar%20uma%20demonstração%20do%20Cockpit%20S3" style="font-family:'Oxanium',sans-serif;font-weight:700;font-size:15px;text-decoration:none;color:#04222a;background:var(--cyan);padding:15px 26px;border-radius:11px;box-shadow:0 0 28px rgba(34,224,255,.4);display:inline-flex;align-items:center;gap:9px" data-hover="transform:translateY(-1px);box-shadow:0 0 38px rgba(34,224,255,.6)">Agendar demonstração</a>
-            <a href="https://wa.me/5500000000000?text=Ol%C3%A1!%20Quero%20saber%20mais%20sobre%20o%20Cockpit%20S3" target="_blank" rel="noopener" style="font-family:'Oxanium',sans-serif;font-weight:600;font-size:15px;text-decoration:none;color:var(--text);background:transparent;border:1px solid var(--line2);padding:15px 24px;border-radius:11px;display:inline-flex;align-items:center;gap:9px" data-hover="border-color:var(--ok);color:var(--ok)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 21l1.6-4.5A8 8 0 1 1 8 19.5L3 21Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Falar no WhatsApp</a>
+      <div class="plans">
+        <article class="plan" data-reveal aria-labelledby="plan-community">
+          <span class="plan-tag">open source</span>
+          <h3 id="plan-community">Community</h3>
+          <p class="plan-for">For teams that self-host and are fine with AGPL.</p>
+          <div class="price"><span class="amt">Free</span></div>
+          <p class="price-alt">AGPL-3.0 · unlimited users</p>
+          <ul class="checks">
+            <li>Permission matrix + folder overrides</li>
+            <li>Expiring, IP-locked share links</li>
+            <li>Previews + spreadsheet editor</li>
+            <li>Audit log in the UI</li>
+            <li>Garage cluster admin</li>
+            <li>Multiple S3 connections</li>
+            <li>Encryption at rest</li>
+            <li>DR backup of keys + index</li>
+            <li>Single Docker image</li>
+          </ul>
+          <div class="plan-cta">
+            <a href="https://github.com/pagliarinilucas/Cockpit-S3" class="btn btn-ghost btn-block" target="_blank" rel="noopener">Get it on GitHub</a>
           </div>
+        </article>
+
+        <article class="plan featured" data-reveal aria-labelledby="plan-pro">
+          <span class="plan-tag">most popular</span>
+          <h3 id="plan-pro">Pro</h3>
+          <p class="plan-for">For companies running it in production.</p>
+          <div class="price" data-price-yearly><span class="cur">US$</span><span class="amt">390</span><span class="per">/ year</span></div>
+          <div class="price" data-price-monthly hidden><span class="cur">US$</span><span class="amt">39</span><span class="per">/ month</span></div>
+          <p class="price-alt" data-price-yearly>per production instance · or US$ 39/month · staging free</p>
+          <p class="price-alt" data-price-monthly hidden>per production instance · or US$ 390/year · staging free</p>
+          <div class="founder">
+            <strong>Founder pricing: US$ 190/year</strong>
+            <span>Locked for life — first 30 customers.</span>
+          </div>
+          <ul class="checks">
+            <li>Everything in Community</li>
+            <li>Commercial license — no AGPL obligations</li>
+            <li>SSO via OIDC: Google, Microsoft Entra ID, Keycloak, Authentik</li>
+            <li>Audit export CSV/JSON, retention, webhook/syslog to your SIEM</li>
+            <li>Branding: logo, colors, share page</li>
+            <li>Email support, 2 business days</li>
+          </ul>
+          <p class="plan-soon"><b>Coming soon:</b> LDAP, password-protected links, download limits, watermark.</p>
+          <div class="plan-cta">
+            <a href="mailto:cockpits3@pm.me?subject=Cockpit%20S3%20Pro%20%E2%80%94%20founder%20pricing" class="btn btn-amber btn-block" data-link="founderCheckout" data-subject="Cockpit S3 Pro — founder pricing">Claim founder pricing</a>
+            <a href="mailto:cockpits3@pm.me?subject=Cockpit%20S3%20Pro" class="btn btn-primary btn-block" data-link="proCheckout" data-subject="Cockpit S3 Pro">Buy Pro</a>
+          </div>
+        </article>
+
+        <article class="plan" data-reveal aria-labelledby="plan-enterprise">
+          <span class="plan-tag">custom</span>
+          <h3 id="plan-enterprise">Enterprise</h3>
+          <p class="plan-for">For regulated orgs, resellers and large rollouts.</p>
+          <div class="price"><span class="per" style="padding-bottom:9px">from</span><span class="cur">US$</span><span class="amt" style="font-size:38px">1,490</span><span class="per">/ year</span></div>
+          <p class="price-alt">annual contract · invoice / PO</p>
+          <ul class="checks">
+            <li>Everything in Pro</li>
+            <li>Full white-label</li>
+            <li>SAML + SCIM</li>
+            <li>High availability (roadmap)</li>
+            <li>SLA &amp; priority support</li>
+            <li>Invoice / purchase order</li>
+            <li>MinIO migration help</li>
+            <li>OEM / redistribution rights</li>
+          </ul>
+          <div class="plan-cta">
+            <a href="mailto:cockpits3@pm.me?subject=Cockpit%20S3%20Enterprise" class="btn btn-ghost btn-block">Talk to us</a>
+          </div>
+        </article>
+
+        <article class="plan cloud" data-reveal aria-labelledby="plan-cloud">
+          <span class="plan-tag">waitlist</span>
+          <h3 id="plan-cloud">Cloud</h3>
+          <p class="plan-for">We run the console. You bring the bucket.</p>
+          <div class="cloud-tiers">
+            <div class="tier"><div><b>Starter</b><small>Bring your own bucket · unlimited users</small></div><span class="tp">$29<em>/mo</em></span></div>
+            <div class="tier"><div><b>Business</b><small>+ SSO, audit export, branding</small></div><span class="tp">$79<em>/mo</em></span></div>
+          </div>
+          <p class="price-alt" style="margin-top:10px">US$ per workspace per month</p>
+          <div class="founder">
+            <strong>Founder Cloud pre-sale: US$ 19/month</strong>
+            <span>Locked for as long as you stay.</span>
+          </div>
+          <div class="plan-cta">
+            <form class="waitlist" id="waitlist" data-subject="Cockpit S3 Cloud waitlist" data-body="Please add me to the Cockpit S3 Cloud waitlist. My email: ">
+              <label for="waitlist-email">Work email</label>
+              <input id="waitlist-email" name="email" type="email" required autocomplete="email" placeholder="you@company.com">
+              <button type="submit" class="btn btn-primary btn-block">Join waitlist</button>
+              <p class="waitlist-note">Opens your email app with a prefilled message — no tracking, no backend.</p>
+            </form>
+          </div>
+        </article>
+      </div>
+      <div class="pricing-notes">
+        <span>Prices in US$, excl. taxes</span><span>Production instance = one deployment serving users</span><span>Staging &amp; dev instances free</span>
+      </div>
+    </section>
+
+    <section id="faq" class="section wrap faq" aria-labelledby="faq-title">
+      <div class="head center" data-reveal>
+        <div class="eyebrow">// faq</div>
+        <h2 class="h2" id="faq-title">Honest questions, straight answers</h2>
+      </div>
+      <div class="faq-list" data-reveal>
+        <details>
+          <summary>Is Community really free with unlimited users?</summary>
+          <p>Yes. The Community edition is AGPL-3.0 and includes the full core: permission matrix, folder overrides, expiring links, previews, spreadsheet editor, audit log, Garage admin, encryption at rest and DR backup. No user limits, no time limits.</p>
+        </details>
+        <details>
+          <summary>Then why would I pay for Pro?</summary>
+          <p>Three reasons: a commercial license if your legal team doesn't want AGPL obligations (for example, when you modify the code and expose it to users), SSO and compliance features (OIDC, audit export to your SIEM, retention), and a support channel with a response time. It also funds the project.</p>
+        </details>
+        <details>
+          <summary>Can it replace the MinIO Console?</summary>
+          <p>For the day-to-day — browsing, uploading, sharing, users and permissions — yes. Point Cockpit at your MinIO endpoint and keep running MinIO, or move the data to Garage or a hosted provider later; the console stays the same. Enterprise includes hands-on migration help.</p>
+        </details>
+        <details>
+          <summary>Which storage providers work?</summary>
+          <p>Any S3-compatible endpoint: Garage, MinIO, Hetzner Object Storage, Backblaze B2, Wasabi, AWS S3, Oracle OCI and others. You can manage several connections at once from the UI.</p>
+        </details>
+        <details>
+          <summary>Do I need to know S3 to use it?</summary>
+          <p>Your admin connects the storage once. After that it's drag, drop, set permissions and share. S3 stays behind the scenes.</p>
+        </details>
+        <details>
+          <summary>Are files encrypted?</summary>
+          <p>They can be. Turn on encryption at rest per bucket and each file is encrypted on the server with its own key before it is written — storage only sees unreadable blobs with random names. For people with access in the console, preview and download work as usual.</p>
+        </details>
+        <details>
+          <summary>What about backups?</summary>
+          <p>Your files live in your object storage, not in a proprietary silo. Cockpit also runs automatic, encrypted backups of the encryption keys and metadata index to a destination you choose — if the console machine is lost, you restore access in minutes.</p>
+        </details>
+        <details>
+          <summary>How does the expiring link work?</summary>
+          <p>Someone with share permission creates a public link to a file — no login for the recipient. Pick a lifetime from 1 hour to 30 days and optionally lock it to the first IP that opens it. Revoke anytime. A view-only user can never create a download link.</p>
+        </details>
+        <details>
+          <summary>What counts as a production instance?</summary>
+          <p>One running deployment that real users work in. Staging, test and development instances don't need a license.</p>
+        </details>
+        <details>
+          <summary>When is Cloud available?</summary>
+          <p>It's on a waitlist while we build it. The prices above are the real ones. Join the waitlist to lock the founder price of US$ 19/month; nobody is charged until it ships.</p>
+        </details>
+        <details>
+          <summary>Is it hard to operate?</summary>
+          <p>One container, embedded SQLite, no external dependencies. It starts in minutes on any server with Docker.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="section wrap" style="padding-bottom:80px" aria-labelledby="final-title">
+      <div class="final" data-reveal>
+        <h2 id="final-title">Give your buckets a proper front door</h2>
+        <p>Run Community in five minutes. When legal, SSO or support come up, Pro is one email away.</p>
+        <div class="final-ctas">
+          <a href="https://github.com/pagliarinilucas/Cockpit-S3" class="btn btn-primary" target="_blank" rel="noopener">Get it on GitHub</a>
+          <a href="mailto:cockpits3@pm.me?subject=Cockpit%20S3" class="btn btn-ghost">cockpits3@pm.me</a>
         </div>
       </div>
     </section>
   </main>
 
-  <!-- ============ FOOTER ============ -->
-  <footer style="position:relative;z-index:1;border-top:1px solid var(--line);background:var(--bg2)">
-    <div style="max-width:1180px;margin:0 auto;padding:34px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:11px">
-        <svg width="26" height="26" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z" stroke="var(--cyan)" stroke-width="1.6" fill="rgba(34,224,255,.05)"/><circle cx="20" cy="20" r="7.4" stroke="var(--cyan)" stroke-width="1.6"/><circle cx="20" cy="20" r="2.4" fill="var(--cyan)"/></svg>
-        <span style="font-family:'Oxanium',sans-serif;font-weight:800;font-size:15px">COCKPIT<span style="color:var(--cyan)">·S3</span></span>
+  <footer class="site-footer">
+    <div class="footer-inner wrap">
+      <div>
+        <a href="#top" class="brand">
+          <svg width="26" height="26" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M20 3.2 34.4 11.5v17L20 36.8 5.6 28.5v-17L20 3.2Z" stroke="#22e0ff" stroke-width="1.6" fill="rgba(34,224,255,.05)"/><circle cx="20" cy="20" r="7.4" stroke="#22e0ff" stroke-width="1.6"/><circle cx="20" cy="20" r="2.4" fill="#22e0ff"/></svg>
+          <span class="brand-name" style="font-size:15px">COCKPIT<span>·S3</span></span>
+        </a>
+        <p class="footer-tag">Self-hosted S3 web console · your data, your infrastructure</p>
       </div>
-      <p style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--dim);margin:0">console de arquivos self-hosted · seus dados, sua infraestrutura</p>
-      <div style="display:flex;gap:18px;font-family:'JetBrains Mono',monospace;font-size:12px">
-        <a href="#produto" style="color:var(--muted);text-decoration:none">produto</a>
-        <a href="#seguranca" style="color:var(--muted);text-decoration:none">segurança</a>
-        <a href="mailto:contato@cockpits3.com.br" style="color:var(--cyan);text-decoration:none">contato</a>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#product">Features</a></li>
+          <li><a href="#compare">Compare</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="https://github.com/pagliarinilucas/Cockpit-S3/tree/main/docs" target="_blank" rel="noopener">Docs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="https://github.com/pagliarinilucas/Cockpit-S3/blob/main/LICENSE" target="_blank" rel="noopener">AGPL-3.0</a></li>
+          <li><a href="https://github.com/pagliarinilucas/Cockpit-S3/blob/main/COMMERCIAL-LICENSE.md" target="_blank" rel="noopener">Commercial license</a></li>
+          <li><a href="https://github.com/pagliarinilucas/Cockpit-S3/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Community</h4>
+        <ul>
+          <li><a href="https://github.com/pagliarinilucas/Cockpit-S3" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/pagliarinilucas/Cockpit-S3/discussions" target="_blank" rel="noopener">Discussions</a></li>
+          <li><a href="mailto:cockpits3@pm.me">cockpits3@pm.me</a></li>
+          <li><a href="/pt/" hreflang="pt-BR" lang="pt-BR">Português</a></li>
+        </ul>
       </div>
     </div>
+    <div class="footer-bottom wrap">
+      <span>© 2026 Cockpit S3 · dual-licensed AGPL-3.0 / commercial</span>
+      <a href="mailto:cockpits3@pm.me">cockpits3@pm.me</a>
+    </div>
   </footer>
-</div>
+
 <script>
-  // scroll reveal + responsive collapse (ported from the design prototype)
+  const LINKS = { proCheckout: '', founderCheckout: '', cloudWaitlist: '' };
+  const CONTACT = 'cockpits3@pm.me';
+
   (function () {
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var els = document.querySelectorAll('[data-reveal]');
-
-    function applyResponsive() {
-      var wide = window.innerWidth >= 880;
-      document.querySelectorAll('.ck-navlinks').forEach(function (n) { n.style.display = wide ? 'flex' : 'none'; });
-      function setCols(sel, wideCols) { document.querySelectorAll(sel).forEach(function (g) { g.style.gridTemplateColumns = wide ? wideCols : '1fr'; }); }
-      setCols('.ck-hero', '1.02fr 1.18fr');
-      setCols('.ck-grid3', 'repeat(3,1fr)');
-      setCols('.ck-grid4', 'repeat(4,1fr)');
-      setCols('.ck-grid2', '1fr 1fr');
-      document.querySelectorAll('.ck-feat').forEach(function (g) { g.style.gridTemplateColumns = wide ? (g.dataset.cols || '1fr 1fr') : '1fr'; });
+    function mailto(subject, body) {
+      let url = 'mailto:' + CONTACT + '?subject=' + encodeURIComponent(subject);
+      if (body) url += '&body=' + encodeURIComponent(body);
+      return url;
     }
-    applyResponsive();
-    window.addEventListener('resize', applyResponsive);
 
-    // hover styles (was the design tool's style-hover attribute)
-    document.querySelectorAll('[data-hover]').forEach(function (el) {
-      var base = el.getAttribute('style') || '';
-      var hover = el.getAttribute('data-hover');
-      el.addEventListener('mouseenter', function () { el.setAttribute('style', base + ';' + hover); });
-      el.addEventListener('mouseleave', function () { el.setAttribute('style', base); });
+    document.querySelectorAll('[data-link]').forEach(function (anchor) {
+      const target = LINKS[anchor.dataset.link];
+      if (target) {
+        anchor.href = target;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener';
+      } else {
+        anchor.href = mailto(anchor.dataset.subject);
+      }
     });
 
-    // interactive permission matrix — 5 níveis: — / só ver / leitura / escrita / dono
-    var CELL_BASE = "cursor:pointer;border-radius:7px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;text-align:center;transition:all .15s ease;width:100%;outline-offset:2px;";
-    var CELL_LEVELS = 5;
-    function cellVisual(level) {
-      switch (level) {
-        case 1: return { label: 'só ver', style: CELL_BASE + 'background:rgba(139,160,170,.12);border:1px solid rgba(139,160,170,.45);color:#8ba0aa;' };
-        case 2: return { label: 'leitura', style: CELL_BASE + 'background:rgba(34,224,255,.12);border:1px solid rgba(34,224,255,.4);color:#22e0ff;' };
-        case 3: return { label: 'escrita', style: CELL_BASE + 'background:rgba(255,179,64,.12);border:1px solid rgba(255,179,64,.5);color:#ffb340;' };
-        case 4: return { label: 'dono', style: CELL_BASE + 'background:#22e0ff;border:1px solid #22e0ff;color:#04222a;font-weight:700;' };
-        default: return { label: '—', style: CELL_BASE + 'background:transparent;border:1px dashed #5b6e77;color:#5b6e77;' };
-      }
+    const waitlist = document.getElementById('waitlist');
+    if (waitlist) {
+      waitlist.addEventListener('submit', function (event) {
+        event.preventDefault();
+        const email = waitlist.elements.email.value.trim();
+        if (!waitlist.reportValidity()) return;
+        if (LINKS.cloudWaitlist) {
+          const url = new URL(LINKS.cloudWaitlist, location.href);
+          url.searchParams.set('email', email);
+          window.open(url.toString(), '_blank', 'noopener');
+        } else {
+          location.href = mailto(waitlist.dataset.subject, waitlist.dataset.body + email);
+        }
+      });
     }
-    function renderCell(btn, lvl) {
-      var v = cellVisual(lvl);
-      btn.dataset.level = lvl;
-      btn.setAttribute('style', v.style);
-      btn.textContent = v.label;
+
+    const menuButton = document.getElementById('menu-btn');
+    const navLinks = document.getElementById('nav-links');
+    function setMenu(open) {
+      navLinks.classList.toggle('open', open);
+      menuButton.setAttribute('aria-expanded', String(open));
     }
-    document.querySelectorAll('.ck-cell').forEach(function (btn) {
-      renderCell(btn, parseInt(btn.dataset.level, 10) || 0);   // sync inicial com o esquema de 5 níveis
-      btn.addEventListener('click', function () {
-        renderCell(btn, ((parseInt(btn.dataset.level, 10) || 0) + 1) % CELL_LEVELS);
+    menuButton.addEventListener('click', function () { setMenu(!navLinks.classList.contains('open')); });
+    navLinks.querySelectorAll('a').forEach(function (link) { link.addEventListener('click', function () { setMenu(false); }); });
+
+    document.querySelectorAll('[data-billing]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const monthly = button.dataset.billing === 'monthly';
+        document.querySelectorAll('[data-billing]').forEach(function (other) { other.setAttribute('aria-pressed', String(other === button)); });
+        document.querySelectorAll('[data-price-monthly]').forEach(function (el) { el.hidden = !monthly; });
+        document.querySelectorAll('[data-price-yearly]').forEach(function (el) { el.hidden = monthly; });
       });
     });
 
-    if (reduce || !('IntersectionObserver' in window)) return;
+    const matrix = document.getElementById('matrix');
+    if (matrix) {
+      const labels = matrix.dataset.labels.split('|');
+      const names = matrix.dataset.levelNames.split('|');
+      const levelCount = labels.length;
+      function renderCell(cell, level) {
+        cell.dataset.level = level;
+        cell.className = 'ck-cell lv' + level;
+        cell.textContent = labels[level];
+        cell.setAttribute('aria-label', cell.dataset.row + ', ' + cell.dataset.col + ': ' + names[level]);
+      }
+      matrix.querySelectorAll('.ck-cell').forEach(function (cell) {
+        renderCell(cell, parseInt(cell.dataset.level, 10) || 0);
+        cell.addEventListener('click', function () {
+          renderCell(cell, ((parseInt(cell.dataset.level, 10) || 0) + 1) % levelCount);
+        });
+      });
+    }
+
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const revealEls = document.querySelectorAll('[data-reveal]');
+    if (reduceMotion || !('IntersectionObserver' in window)) return;
     function reveal(el) { el.style.opacity = '1'; el.style.transform = 'none'; }
-    els.forEach(function (el) {
+    revealEls.forEach(function (el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight * 0.92) return;
       el.style.opacity = '0';
       el.style.transform = 'translateY(22px)';
       el.style.transition = 'opacity .6s ease, transform .6s ease';
     });
-    function revealVisible() {
-      var h = window.innerHeight || document.documentElement.clientHeight;
-      els.forEach(function (el) {
-        if (el.style.opacity === '1') return;
-        var r = el.getBoundingClientRect();
-        if (r.top < h * 0.92 && r.bottom > 0) reveal(el);
+    const observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) { reveal(entry.target); observer.unobserve(entry.target); }
       });
-    }
-    revealVisible();
-    window.addEventListener('scroll', revealVisible, { passive: true });
-    try {
-      var io = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) { if (e.isIntersecting) { reveal(e.target); io.unobserve(e.target); } });
-      }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-      els.forEach(function (el) { io.observe(el); });
-    } catch (e) {}
-    setTimeout(function () { els.forEach(reveal); }, 1200);
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    revealEls.forEach(function (el) { observer.observe(el); });
+    setTimeout(function () { revealEls.forEach(reveal); }, 2500);
   })();
 </script>
 </body>

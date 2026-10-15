@@ -20,5 +20,6 @@ O design foi importado do projeto Claude Design **"cockpit landing page"**
 (`Cockpit S3.dc.html`) e convertido para HTML estático — os blocos dinâmicos
 (`sc-for`, `style-hover`) viraram markup + JS vanilla.
 
-CTAs apontam para `contato@cockpits3.com.br` e um número de WhatsApp placeholder
-(`wa.me/5500000000000`) — ajuste antes de publicar.
+Os CTAs apontam para **cockpits3@pm.me** (`mailto:`), o contato oficial do projeto —
+o checkout online ainda não está no ar. Para a lista de espera do Cloud, o assunto do
+email é "Cloud waitlist". Não use outros endereços ou números de contato.
