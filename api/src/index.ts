@@ -9,11 +9,14 @@ import { settingsStore } from './settings/store';
 import { connectionsStore } from './connections/store';
 import { s3, isValidConfig } from './storage/s3';
 import { authRoutes } from './auth/routes';
+import { oidcRoutes } from './auth/oidc-routes';
 import { userRoutes } from './users/routes';
 import { groupRoutes } from './groups/routes';
 import { storageRoutes } from './storage/routes';
 import { connectionsRoutes } from './connections/routes';
 import { activityRoutes } from './audit/routes';
+import { startAuditRetention } from './audit/retention';
+import { brandingRoutes } from './branding/routes';
 import { clusterRoutes, configureClusterS3 } from './clusters/routes';
 import { clustersStore } from './clusters/store';
 import { shareRoutes } from './shares/routes';
@@ -22,6 +25,7 @@ import { staticRoutes } from './web/static';
 import { bootKekProvider, getKekProvider } from './crypto/kek';
 import { escrowRoutes } from './escrow/routes';
 import { sheetRoutes } from './sheet/routes';
+import { licenseRoutes } from './license/routes';
 import { startEscrowScheduler } from './escrow/backup';
 import { startSessionReaper } from './sheet/session';
 
@@ -58,6 +62,7 @@ if (!getKekProvider()) {
   );
 }
 startEscrowScheduler();
+startAuditRetention();
 startSessionReaper();
 
 const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
@@ -76,6 +81,8 @@ const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   })
   .get('/api/health', () => ({ ok: true, connections: connectionsStore.count(), s3: s3.hasAny() }))
   .use(authRoutes)
+  .use(oidcRoutes)
+  .use(licenseRoutes)
   .use(userRoutes)
   .use(groupRoutes)
   .use(storageRoutes)
@@ -84,6 +91,7 @@ const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
   .use(connectionsRoutes)
   .use(clusterRoutes)
   .use(activityRoutes)
+  .use(brandingRoutes)
   .use(shareRoutes)         // authenticated share-link management (/api/shares)
   .use(publicShareRoutes)   // public, login-less share access (/api/share/:token) — before staticRoutes
   .use(staticRoutes)        // serves the SPA in single-container deploys (WEB_DIR set)

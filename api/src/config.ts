@@ -24,6 +24,7 @@ export const config = {
   isProd,
   port: Number(env('PORT', '3000')),
   corsOrigin: env('CORS_ORIGIN', 'http://localhost:4200')!,
+  publicUrl: env('PUBLIC_URL', '')!,
 
   accessSecret: requiredSecret(),
   accessTtl: Number(env('ACCESS_TOKEN_TTL', '900')),        // 15 min

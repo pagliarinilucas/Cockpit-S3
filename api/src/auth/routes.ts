@@ -6,10 +6,12 @@ import { authService } from './service';
 import { tooManyAttempts, resetAttempts } from './ratelimit';
 import { authDerive, requireUser } from './guard';
 import { usersStore } from '../users/store';
+import { sessions } from './sessions';
+import { passwordLoginAllowed } from './oidc-config';
 
-type CookieJar = Record<string, { value?: string; set: (o: Record<string, unknown>) => void }>;
+export type CookieJar = Record<string, { value?: string; set: (o: Record<string, unknown>) => void }>;
 
-function setRefresh(cookie: CookieJar, token: string) {
+export function setRefresh(cookie: CookieJar, token: string) {
   cookie[config.refreshCookie]!.set({
     value: token, httpOnly: true, secure: config.cookieSecure, sameSite: 'strict',
     path: config.refreshCookiePath, maxAge: config.refreshTtl,
@@ -36,6 +38,10 @@ export const authRoutes = new Elysia({ prefix: '/api' })
     if (!bundle) { set.status = 401; return { error: 'invalid_credentials' }; }
 
     resetAttempts(key);
+    if (!passwordLoginAllowed(bundle.user.role)) {
+      sessions.revokeByToken(bundle.refreshToken);
+      set.status = 403; return { error: 'password_login_disabled' };
+    }
     setRefresh(cookie as unknown as CookieJar, bundle.refreshToken);
     return { accessToken: bundle.accessToken, expiresIn: bundle.expiresIn, user: bundle.user };
   }, { body: t.Object({ username: t.String({ minLength: 1 }), password: t.String({ minLength: 1 }) }) })

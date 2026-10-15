@@ -9,6 +9,10 @@ import { api, apiErrMsg, ApiError, type ConnectionPayload, type EscrowStatus } f
 import { useToast } from '../core/toast';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
+import LicensePanel from '../components/settings/LicensePanel.vue';
+import SsoPanel from '../components/settings/SsoPanel.vue';
+import AuditPanel from '../components/settings/AuditPanel.vue';
+import BrandingPanel from '../components/settings/BrandingPanel.vue';
 
 const toast = useToast();
 const connections = ref<Connection[]>([]);
@@ -344,6 +348,11 @@ async function confirmDeleteCluster() {
         <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />Nova conexão</button>
       </div>
     </div>
+
+    <LicensePanel />
+    <SsoPanel />
+    <AuditPanel />
+    <BrandingPanel />
 
     <div class="kek-card">
       <div class="kek-ic"><Icon name="lock" :size="20" /></div>

@@ -8,8 +8,12 @@ import type { SharePublicMeta } from '../core/models';
 import { api, ApiError, sharePreviewUrl, shareDownloadUrl } from '../core/api';
 import { fmtBytes, typeFromName } from '../core/util';
 import Icon from '../components/Icon.vue';
+import BrandMark from '../components/BrandMark.vue';
+import PoweredBy from '../components/PoweredBy.vue';
+import { useBranding } from '../core/branding';
 
 const props = defineProps<{ token: string }>();
+const { branding, productName } = useBranding();
 
 const meta = ref<SharePublicMeta | null>(null);
 const loading = ref(true);
@@ -70,15 +74,16 @@ onMounted(load);
 
     <div class="sp-topbar">
       <div class="sp-brand">
-        <div class="brand-mark"><Icon name="gauge" :size="20" /></div>
+        <BrandMark :size="20" />
         <div>
-          <div class="sp-brand-name">COCKPIT S3</div>
+          <div class="sp-brand-name">{{ branding.active ? productName : 'COCKPIT S3' }}</div>
           <div class="sp-brand-sub">ARQUIVO COMPARTILHADO</div>
         </div>
       </div>
     </div>
 
     <div class="sp-body">
+      <div v-if="branding.active && branding.sharePageMessage" class="sp-message">{{ branding.sharePageMessage }}</div>
       <div v-if="loading" class="loading" style="min-height:200px"><div class="spinner"></div>ABRINDO LINK…</div>
 
       <div v-else-if="errStatus !== null" class="sp-card sp-err">
@@ -117,6 +122,7 @@ onMounted(load);
         </div>
       </div>
     </div>
+    <div class="sp-powered"><PoweredBy /></div>
   </div>
 </template>
 
@@ -127,7 +133,9 @@ onMounted(load);
 .sp-brand { display: flex; align-items: center; gap: 12px; }
 .sp-brand-name { font-family: var(--display-font); font-weight: 800; font-size: 16px; letter-spacing: 1px; }
 .sp-brand-sub { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); letter-spacing: 1.5px; }
-.sp-body { position: relative; flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 40px 20px; }
+.sp-body { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 16px; padding: 40px 20px; }
+.sp-message { width: 100%; max-width: 900px; padding: 12px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--neon) 30%, var(--line-2)); background: color-mix(in srgb, var(--neon) 7%, var(--bg-1)); color: var(--text-2); font-size: 14px; line-height: 1.5; white-space: pre-line; }
+.sp-powered { position: relative; padding: 0 0 24px; }
 .sp-card { width: 100%; max-width: 900px; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; }
 .sp-file { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
 .sp-file-ic { width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--neon) 12%, transparent); color: var(--neon); }

@@ -655,3 +655,6 @@ select.modal-input { appearance: none; cursor: pointer; }
 .enc-opt-title svg { color: var(--green); }
 .enc-opt-desc { font-size: 12px; line-height: 1.55; color: var(--text-3); }
 .enc-opt-desc b { color: var(--text); font-weight: 600; }
+
+.brand-text { min-width: 0; }
+.brand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

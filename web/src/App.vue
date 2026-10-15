@@ -9,6 +9,8 @@ import { api, setOnUnauthorized } from './core/api';
 import Icon from './components/Icon.vue';
 import Toasts from './components/Toasts.vue';
 import ThemePanel from './components/ThemePanel.vue';
+import BrandMark from './components/BrandMark.vue';
+import { useBranding } from './core/branding';
 import Login from './views/Login.vue';
 import Buckets from './views/Buckets.vue';
 import Files from './views/Files.vue';
@@ -52,6 +54,7 @@ const usersRef = ref<Reloadable | null>(null);
 const settingsRef = ref<Reloadable | null>(null);
 const clusterRef = ref<Reloadable | null>(null);
 
+const { branding, productName } = useBranding();
 const isAdmin = computed(() => me.value?.role === 'admin');
 // A basic user only reaches the bucket list if they can see more than one bucket;
 // with a single bucket their home IS that bucket and there's no list to browse.
@@ -209,9 +212,9 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
     <div class="app" :class="{ 'app-min': minimalSidebar }">
       <aside class="sidebar" :class="{ 'sidebar-min': minimalSidebar }">
         <div class="brand">
-          <div class="brand-mark"><Icon name="gauge" :size="22" /></div>
+          <BrandMark :size="22" />
           <div class="brand-text">
-            <div class="brand-name">COCKPIT</div>
+            <div class="brand-name">{{ branding.active ? productName : 'COCKPIT' }}</div>
             <div class="brand-sub">STORAGE · S3</div>
           </div>
         </div>

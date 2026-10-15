@@ -5,6 +5,9 @@ import type {
   ActivityEvent, Perm, User, Role, Connection, Group,
   ClusterSummary, GarageBucket, GarageKey, GaragePerm, NewGarageKey,
   Cluster, ClusterInput, Share, SharePublicMeta,
+  EditionInfo, LicenseStatus,
+  ActivityQuery, AuditExportFormat, AuditSettings, AuditSettingsInput, AuditForwardTest,
+  BrandingSettings, BrandingInput,
 } from './models';
 import type { SheetView } from '../sheet/view';
 
@@ -30,6 +33,32 @@ export interface EscrowStatus {
   lastStatus: string | null;
   lastCount: number | null;
 }
+export interface OidcPublicInfo {
+  enabled: boolean;
+  buttonLabel: string;
+  passwordLogin: boolean;
+}
+export interface OidcSettingsInput {
+  enabled?: boolean;
+  issuer?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scopes?: string;
+  buttonLabel?: string;
+  usernameClaim?: string;
+  autoProvision?: boolean;
+  allowedDomains?: string[];
+  adminGroup?: string;
+  disablePasswordLogin?: boolean;
+}
+export interface OidcSettings extends Required<Omit<OidcSettingsInput, 'clientSecret'>> {
+  clientSecretSet: boolean;
+  redirectUri: string;
+  active: boolean;
+}
+export type OidcTestResult =
+  | { ok: true; issuer: string; authorizationEndpoint: string; tokenEndpoint: string; jwksUri: string; userinfoEndpoint: string | null; tokenAuthMethod: string; pkce: boolean }
+  | { ok: false; error: string };
 export interface EscrowConfigInput {
   enabled?: boolean;
   clientDest?: EscrowClientDestInput | null;
@@ -136,6 +165,14 @@ async function postBlob(path: string, body: unknown, retry = false): Promise<{ b
   }
   if (!res.ok) throw new ApiError(res.status, res.statusText);
   return { blob: await res.blob(), skipped: Number(res.headers.get('X-Merge-Skipped')) || 0 };
+}
+
+function queryParams(query: ActivityQuery): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const [name, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params[name] = String(value);
+  }
+  return params;
 }
 
 interface AuthResponse { accessToken: string; expiresIn: number; user: Me }
@@ -278,7 +315,25 @@ export const api = {
   },
 
   // activity
-  activity: () => req<ActivityEvent[]>('GET', '/activity'),
+  activity: (query: ActivityQuery = {}) => req<ActivityEvent[]>('GET', '/activity', { params: queryParams(query) }),
+  exportActivity: (format: AuditExportFormat, query: ActivityQuery = {}) =>
+    fetchBlob('/activity/export', { ...queryParams(query), format }),
+  auditSettings: () => req<AuditSettings>('GET', '/audit/settings'),
+  saveAuditSettings: (body: AuditSettingsInput) => req<AuditSettings>('PUT', '/audit/settings', { body }),
+  testAuditForward: () => req<AuditForwardTest>('POST', '/audit/test-forward', { body: {} }),
+
+  brandingSettings: () => req<BrandingSettings>('GET', '/branding/settings'),
+  saveBranding: (body: BrandingInput) => req<BrandingSettings>('PUT', '/branding/settings', { body }),
+  removeBrandingLogo: () => req<BrandingSettings>('DELETE', '/branding/logo'),
+
+  edition: () => req<EditionInfo>('GET', '/edition'),
+  license: () => req<LicenseStatus>('GET', '/license'),
+  installLicense: (key: string) => req<LicenseStatus>('PUT', '/license', { body: { key } }),
+  removeLicense: () => req<LicenseStatus>('DELETE', '/license'),
+  oidcPublic: () => req<OidcPublicInfo>('GET', '/auth/oidc/config-public'),
+  oidcSettings: () => req<OidcSettings>('GET', '/auth/oidc/settings'),
+  saveOidcSettings: (input: OidcSettingsInput) => req<OidcSettings>('PUT', '/auth/oidc/settings', { body: input }),
+  testOidc: (issuer?: string) => req<OidcTestResult>('POST', '/auth/oidc/test', { body: issuer ? { issuer } : {} }),
 
   // connections — Garage/S3 connections (admin)
   connections: () => req<Connection[]>('GET', '/connections'),
@@ -330,5 +385,6 @@ export function apiErrMsg(e: unknown, verb = 'carregar'): string {
   const status = e instanceof ApiError ? e.status : -1;
   if (status === 0) return 'API indisponível em localhost:3000.';
   if (status === 501) return 'Recurso ainda não disponível no backend.';
+  if (status === 402) return 'Recurso exclusivo das edições Pro/Enterprise — ative uma licença em Configurações.';
   return `Erro ${status > 0 ? status : ''} ao ${verb}.`.replace('  ', ' ');
 }
