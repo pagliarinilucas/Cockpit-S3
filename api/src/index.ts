@@ -28,7 +28,10 @@ import { sheetRoutes } from './sheet/routes';
 import { licenseRoutes } from './license/routes';
 import { startEscrowScheduler } from './escrow/backup';
 import { startSessionReaper } from './sheet/session';
+import { demoRoutes } from './demo/routes';
+import { startDemoMode } from './demo/reset';
 
+await startDemoMode();
 await bootstrap();
 sessions.prune();
 
@@ -80,6 +83,7 @@ const app = new Elysia({ serve: { maxRequestBodySize: config.uploadMaxBytes } })
     return { error: 'internal' };
   })
   .get('/api/health', () => ({ ok: true, connections: connectionsStore.count(), s3: s3.hasAny() }))
+  .use(demoRoutes)
   .use(authRoutes)
   .use(oidcRoutes)
   .use(licenseRoutes)

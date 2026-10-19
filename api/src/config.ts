@@ -7,6 +7,10 @@ const env = (k: string, def?: string) => process.env[k] ?? def;
 
 const isProd = env('NODE_ENV') === 'production';
 
+const demoEnabled = env('DEMO_MODE', 'false') === 'true';
+const demoMaxUploadBytes = Number(env('DEMO_MAX_UPLOAD_BYTES', String(5 * 1024 * 1024)));
+const demoRequestOverheadBytes = 1024 * 1024;
+
 function requiredSecret(): string {
   const s = env('ACCESS_TOKEN_SECRET');
   if (s && s.length >= 32) return s;
@@ -65,7 +69,9 @@ export const config = {
   // (1 PiB): o único limite real de um upload cifrado é a capacidade do bucket,
   // não um teto artificial do servidor. A rota cifrada usa spool em disco p/
   // arquivos grandes, então aceitar corpos enormes não estoura a RAM.
-  uploadMaxBytes: Number(env('UPLOAD_MAX_BYTES', String(1024 ** 5))),
+  uploadMaxBytes: demoEnabled
+    ? demoMaxUploadBytes + demoRequestOverheadBytes
+    : Number(env('UPLOAD_MAX_BYTES', String(1024 ** 5))),
   // Acima deste tamanho o upload cifrado é derramado em DISCO (spool); abaixo,
   // é mantido em memória (mais rápido, sem I/O de disco). Default 2 GiB.
   uploadSpoolThreshold: Number(env('UPLOAD_SPOOL_THRESHOLD', String(2 * 1024 * 1024 * 1024))),
@@ -85,6 +91,22 @@ export const config = {
   escrowSpoolDir: env('ESCROW_SPOOL_DIR'),
   escrowDebounceMs: Number(env('ESCROW_DEBOUNCE_MS', '90000')),
   escrowPeriodicMs: Number(env('ESCROW_PERIODIC_MS', '3600000')),
+
+  demo: {
+    enabled: demoEnabled,
+    resetMinutes: Math.max(1, Number(env('DEMO_RESET_MINUTES', '60')) || 60),
+    maxUploadBytes: demoMaxUploadBytes,
+    s3: {
+      endpoint: env('DEMO_S3_ENDPOINT', '')!,
+      region: env('DEMO_S3_REGION', 'garage')!,
+      accessKey: env('DEMO_S3_ACCESS_KEY', '')!,
+      secretKey: env('DEMO_S3_SECRET_KEY', '')!,
+    },
+    garageAdmin: {
+      endpoint: env('DEMO_GARAGE_ADMIN_ENDPOINT', '')!,
+      token: env('DEMO_GARAGE_ADMIN_TOKEN', '')!,
+    },
+  },
 };
 
 /** Lê a KEK bruta (32 bytes) de COCKPIT_KEK_FILE ou COCKPIT_KEK (base64). null se ausente. */

@@ -6,6 +6,7 @@ import { perms } from '../auth/permissions';
 import { audit } from '../audit/store';
 import { usersStore } from '../users/store';
 import { sharesStore } from './store';
+import { demoShareTtl } from '../demo/guard';
 
 const ALLOWED_TTL = new Set([3600, 86400, 604800, 2592000]);
 
@@ -33,7 +34,7 @@ export const shareRoutes = new Elysia({ prefix: '/api' })
         bucketId: body.bucketId,
         key: body.key,
         createdBy: user!.username,
-        ttlSec: body.ttl,
+        ttlSec: demoShareTtl(body.ttl),
         lockIp: !!body.lockIp,
       });
       audit.log('share', user!.username, body.bucketId, body.key);
