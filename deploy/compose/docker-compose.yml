@@ -2,10 +2,7 @@ name: cockpit-s3
 
 services:
   cockpit-s3:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-    image: cockpit-s3:latest
+    image: ghcr.io/pagliarinilucas/cockpit-s3:${COCKPIT_VERSION:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production

@@ -33,16 +33,14 @@ Um container Docker, SQLite embutido, roda na sua infraestrutura.
 
 ## 🚀 Início rápido
 
-Ainda não há imagem publicada; construa a partir deste repositório:
+Imagens multi-arquitetura (amd64, arm64) são publicadas no GitHub Container Registry:
 
 ```bash
-git clone https://github.com/pagliarinilucas/Cockpit-S3.git && cd Cockpit-S3
-docker build -t cockpit-s3 .
 docker run -d --name cockpit-s3 -p 3000:3000 \
   -e ACCESS_TOKEN_SECRET=$(openssl rand -hex 32) \
   -e COOKIE_SECURE=false \
   -v cockpit_data:/data \
-  cockpit-s3
+  ghcr.io/pagliarinilucas/cockpit-s3:latest
 docker logs cockpit-s3   # a senha inicial do admin aparece aqui
 ```
 
@@ -50,6 +48,7 @@ Abra http://localhost:3000, entre como `admin` e cadastre seu bucket em **Config
 
 - `COOKIE_SECURE=false` serve só para HTTP puro em localhost. Atrás de HTTPS, deixe o padrão (`true`).
 - Tudo o que o console guarda (usuários, permissões, conexões, auditoria) fica no SQLite do volume `/data`.
+- Para buildar você mesmo: `docker build -t cockpit-s3 .`
 - Com Docker Compose: `cp .env.example .env`, defina `ACCESS_TOKEN_SECRET` e rode `docker compose up -d --build`. Um compose de produção com healthcheck está em [`deploy/compose/`](./deploy/compose/docker-compose.yml).
 - Configuração por provedor (endpoint, região, chaves com privilégio mínimo): [`docs/quickstart/`](./docs/quickstart/).
 

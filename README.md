@@ -36,16 +36,14 @@ English · [Português (Brasil)](./README.pt-BR.md)
 
 ## 🚀 Quickstart
 
-There is no published image yet, so build it from this repository:
+Multi-arch images (amd64, arm64) are published to the GitHub Container Registry:
 
 ```bash
-git clone https://github.com/pagliarinilucas/Cockpit-S3.git && cd Cockpit-S3
-docker build -t cockpit-s3 .
 docker run -d --name cockpit-s3 -p 3000:3000 \
   -e ACCESS_TOKEN_SECRET=$(openssl rand -hex 32) \
   -e COOKIE_SECURE=false \
   -v cockpit_data:/data \
-  cockpit-s3
+  ghcr.io/pagliarinilucas/cockpit-s3:latest
 docker logs cockpit-s3   # the initial admin password is printed here
 ```
 
@@ -53,6 +51,7 @@ Open http://localhost:3000, log in as `admin`, then add your bucket under **Sett
 
 - `COOKIE_SECURE=false` is only for plain HTTP on localhost. Behind HTTPS, leave it at the default (`true`).
 - Everything the console stores (users, permissions, connections, audit log) lives in the SQLite file in the `/data` volume.
+- To build it yourself: `docker build -t cockpit-s3 .`
 - With Docker Compose: `cp .env.example .env`, set `ACCESS_TOKEN_SECRET`, then `docker compose up -d --build`. A production compose file with a healthcheck is in [`deploy/compose/`](./deploy/compose/docker-compose.yml).
 - Per-provider setup (endpoint, region, least-privilege keys): [`docs/quickstart/`](./docs/quickstart/).
 

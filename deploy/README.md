@@ -22,13 +22,13 @@ There is no published image yet; every option below builds the root `Dockerfile`
 cd deploy/compose
 cp .env.example .env
 sed -i "s/^ACCESS_TOKEN_SECRET=.*/ACCESS_TOKEN_SECRET=$(openssl rand -hex 32)/" .env
-docker compose up -d --build
+docker compose up -d
 docker compose logs cockpit-s3 | grep -i senha
 ```
 
 What the compose file does:
 
-- builds the image from the repository root;
+- pulls `ghcr.io/pagliarinilucas/cockpit-s3` (pin a release with `COCKPIT_VERSION=1.0.0` in `.env`; default `latest`);
 - `restart: unless-stopped`;
 - healthcheck on `GET /api/health` every 30 seconds;
 - named volume `cockpit_data` mounted at `/data`;
@@ -67,8 +67,8 @@ Set `COCKPIT_LICENSE_KEY` in `.env`, or paste the key in **Settings → License*
 ## Upgrades
 
 ```bash
-git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 The API creates or updates its tables on boot. Check the release notes for any manual step, and snapshot the `cockpit_data` volume before upgrading.
