@@ -13,6 +13,7 @@ import FormatBar from '../sheet/FormatBar.vue';
 import { SheetSession, type Peer, type Presence, type SheetRender, type Status } from '../sheet/session';
 import { cellRef, parseCellKey, type Cell, type CellStyle, type CellValue } from '../sheet/model';
 import { useToast } from '../core/toast';
+import { fmtNumber, fmtTime, t, type MessageKey } from '../i18n';
 
 const props = defineProps<{ bucketId: string; objectKey: string; user: string }>();
 const emit = defineEmits<{ close: [] }>();
@@ -149,7 +150,7 @@ onMounted(() => {
       dxfs.value = diff ?? [];
       if (!active.value && names.length) active.value = names[0]!;
       refresh();
-      if (div) toast.error('Este arquivo foi alterado fora do editor — abrindo em leitura');
+      if (div) toast.error(t('sheet.editor.openedReadonly'));
     },
     onPeers: (list) => { peers.value = list; },
     onPresence: (clientId, p) => {
@@ -159,13 +160,13 @@ onMounted(() => {
     },
     onSaved: (changed) => {
       dirty.value = false;
-      savedAt.value = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      if (changed) toast.success(`Salvo (${changed} célula${changed > 1 ? 's' : ''})`);
+      savedAt.value = fmtTime(new Date(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      if (changed) toast.success(t('sheet.editor.saved', { count: changed }));
     },
     onUnchanged: () => { dirty.value = false; },
     onDiverged: () => {
       diverged.value = true;
-      toast.error('Arquivo alterado fora do editor: nada foi sobrescrito');
+      toast.error(t('sheet.editor.divergedNothingOverwritten'));
     },
     onError: (message) => toast.error(msgFor(message)),
     onChange: refresh,
@@ -195,37 +196,43 @@ onBeforeUnmount(() => {
   session = null;
 });
 
+const ERROR_KEYS: Record<string, MessageKey> = {
+  sealed: 'sheet.errors.sealed',
+  planilha_grande: 'sheet.errors.tooLarge',
+  sem_permissao: 'sheet.errors.noPermission',
+  ticket_invalido: 'sheet.errors.ticketInvalid',
+  protocolo_binario: 'sheet.errors.binaryProtocol',
+  nao_e_planilha: 'sheet.errors.notSpreadsheet',
+  erro: 'sheet.errors.generic',
+};
+
 function msgFor(code: string): string {
-  if (code === 'sealed') return 'Arquivo cifrado: o servidor está sem a chave para abri-lo';
-  if (code === 'planilha_grande') return 'Planilha grande demais para o editor';
-  if (code === 'sem_permissao') return 'Você não tem mais permissão de escrita aqui';
-  if (code === 'ticket_invalido') return 'Sessão expirada — feche e abra de novo';
-  if (code === 'protocolo_binario') return 'Servidor mandou o documento em formato inválido';
-  return code;
+  const key = ERROR_KEYS[code];
+  return key ? t(key) : code;
 }
 
-const STATUS_LABEL: Record<Status, string> = {
-  conectando: 'conectando',
-  ligado: 'ao vivo',
-  reconectando: 'reconectando',
-  fechado: 'desconectado',
+const STATUS_LABEL: Record<Status, MessageKey> = {
+  conectando: 'sheet.status.connecting',
+  ligado: 'sheet.status.live',
+  reconectando: 'sheet.status.reconnecting',
+  fechado: 'sheet.status.disconnected',
 };
 </script>
 
 <template>
   <div class="se">
     <header class="se-top">
-      <button class="iconbtn iconbtn-lg" title="Fechar" @click="emit('close')">
+      <button class="iconbtn iconbtn-lg" :title="t('sheet.editor.close')" @click="emit('close')">
         <Icon name="x" :size="18" />
       </button>
       <div class="se-id">
         <span class="se-name">{{ name }}</span>
         <span class="se-cell">{{ cellRef(cursor.row, cursor.col) }}</span>
-        <span v-if="selectedCount > 1" class="se-count">{{ selectedCount.toLocaleString('pt-BR') }} células</span>
+        <span v-if="selectedCount > 1" class="se-count">{{ t('sheet.editor.cellsSelected', { count: selectedCount, n: fmtNumber(selectedCount) }) }}</span>
       </div>
 
       <div class="se-status" :class="'st-' + status">
-        <span class="se-dot" />{{ STATUS_LABEL[status] }}
+        <span class="se-dot" />{{ t(STATUS_LABEL[status]) }}
       </div>
 
       <div v-if="others.length" class="se-peers">
@@ -235,27 +242,27 @@ const STATUS_LABEL: Record<Status, string> = {
       <div class="se-spacer" />
 
       <span v-if="diverged" class="se-warn">
-        <Icon name="eye" :size="14" /> leitura — arquivo alterado fora do editor
+        <Icon name="eye" :size="14" /> {{ t('sheet.editor.readonlyDiverged') }}
       </span>
-      <span v-else-if="dirty" class="se-hint">alterações não salvas</span>
-      <span v-else-if="savedAt" class="se-hint">salvo às {{ savedAt }}</span>
+      <span v-else-if="dirty" class="se-hint">{{ t('sheet.editor.unsaved') }}</span>
+      <span v-else-if="savedAt" class="se-hint">{{ t('sheet.editor.savedAt', { time: savedAt }) }}</span>
 
       <button
-        class="iconbtn iconbtn-lg" title="Atalhos (Ctrl + /)"
+        class="iconbtn iconbtn-lg" :title="t('sheet.editor.shortcutsTitle')"
         @click="showShortcuts = true"
       >
         <Icon name="help" :size="17" />
       </button>
 
       <button
-        class="iconbtn iconbtn-lg" :title="light ? 'Tema escuro na planilha' : 'Tema claro na planilha'"
+        class="iconbtn iconbtn-lg" :title="light ? t('sheet.editor.darkTheme') : t('sheet.editor.lightTheme')"
         @click="toggleLight"
       >
         <Icon name="palette" :size="17" />
       </button>
 
       <button class="btn btn-primary" :disabled="diverged || status !== 'ligado'" @click="saveNow">
-        <Icon name="upload" :size="16" />Salvar agora
+        <Icon name="upload" :size="16" />{{ t('sheet.editor.saveNow') }}
       </button>
     </header>
 
@@ -283,7 +290,7 @@ const STATUS_LABEL: Record<Status, string> = {
       @cursor="onCursor"
       @selection="onSelection"
     />
-    <div v-else class="se-loading">carregando planilha…</div>
+    <div v-else class="se-loading">{{ t('sheet.editor.loading') }}</div>
 
     <footer v-if="sheets.length" class="se-tabs">
       <button
@@ -293,8 +300,8 @@ const STATUS_LABEL: Record<Status, string> = {
       >{{ s }}</button>
 
       <div class="se-tabs-spacer" />
-      <button class="se-hintbtn" title="Atalhos (Ctrl + /)" @click="showShortcuts = true">
-        <Icon name="help" :size="13" />atalhos
+      <button class="se-hintbtn" :title="t('sheet.editor.shortcutsTitle')" @click="showShortcuts = true">
+        <Icon name="help" :size="13" />{{ t('sheet.editor.shortcutsButton') }}
         <kbd>Ctrl</kbd><kbd>/</kbd>
       </button>
     </footer>

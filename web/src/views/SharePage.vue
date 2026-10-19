@@ -11,6 +11,7 @@ import Icon from '../components/Icon.vue';
 import BrandMark from '../components/BrandMark.vue';
 import PoweredBy from '../components/PoweredBy.vue';
 import { useBranding } from '../core/branding';
+import { t, fmtDateTime } from '../i18n';
 
 const props = defineProps<{ token: string }>();
 const { branding, productName } = useBranding();
@@ -27,27 +28,27 @@ const downloadUrl = computed(() => shareDownloadUrl(props.token));
 const kind = computed<'image' | 'pdf' | 'text' | 'none'>(() => {
   const m = meta.value;
   if (!m || !m.previewable) return 'none';
-  const t = typeFromName('f.' + (m.ext || '').replace(/^\./, ''));
-  if (t === 'image') return 'image';
-  if (t === 'pdf') return 'pdf';
-  if (t === 'text' || t === 'code') return 'text';
+  const fileType = typeFromName('f.' + (m.ext || '').replace(/^\./, ''));
+  if (fileType === 'image') return 'image';
+  if (fileType === 'pdf') return 'pdf';
+  if (fileType === 'text' || fileType === 'code') return 'text';
   return 'none';
 });
 
+type ShareErrorKind = 'expired' | 'notFound' | 'blocked' | 'offline' | 'generic';
+const errorCopy = (kind: ShareErrorKind) => ({ title: t(`share.page.errors.${kind}.title`), sub: t(`share.page.errors.${kind}.sub`) });
+
 const errMsg = computed(() => {
   switch (errStatus.value) {
-    case 410: return { title: 'Link expirado', sub: 'Este link expirou ou foi revogado pelo autor.' };
-    case 404: return { title: 'Link não encontrado', sub: 'Este link não existe ou já foi removido.' };
-    case 403: return { title: 'Acesso bloqueado', sub: 'Este link está travado a outro dispositivo/IP e não pode ser aberto aqui.' };
-    case 0:   return { title: 'Sem conexão', sub: 'Não foi possível contactar o servidor. Tente novamente.' };
-    default:  return { title: 'Não foi possível abrir', sub: 'Ocorreu um erro ao abrir este link.' };
+    case 410: return errorCopy('expired');
+    case 404: return errorCopy('notFound');
+    case 403: return errorCopy('blocked');
+    case 0:   return errorCopy('offline');
+    default:  return errorCopy('generic');
   }
 });
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR');
-}
+const fmtDate = (iso: string) => fmtDateTime(iso);
 
 async function load() {
   loading.value = true; errStatus.value = null; textBody.value = null;
@@ -77,14 +78,14 @@ onMounted(load);
         <BrandMark :size="20" />
         <div>
           <div class="sp-brand-name">{{ branding.active ? productName : 'COCKPIT S3' }}</div>
-          <div class="sp-brand-sub">ARQUIVO COMPARTILHADO</div>
+          <div class="sp-brand-sub">{{ t('share.page.subtitle') }}</div>
         </div>
       </div>
     </div>
 
     <div class="sp-body">
       <div v-if="branding.active && branding.sharePageMessage" class="sp-message">{{ branding.sharePageMessage }}</div>
-      <div v-if="loading" class="loading" style="min-height:200px"><div class="spinner"></div>ABRINDO LINK…</div>
+      <div v-if="loading" class="loading" style="min-height:200px"><div class="spinner"></div>{{ t('share.page.opening') }}</div>
 
       <div v-else-if="errStatus !== null" class="sp-card sp-err">
         <div class="sp-err-ic"><Icon name="alert" :size="34" /></div>
@@ -103,7 +104,7 @@ onMounted(load);
               <span v-if="meta.ext">{{ meta.ext.replace(/^\./, '').toUpperCase() }}</span>
             </div>
           </div>
-          <a class="btn btn-primary" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />Baixar</a>
+          <a class="btn btn-primary" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />{{ t('share.page.download') }}</a>
         </div>
 
         <div class="sp-preview">
@@ -112,13 +113,13 @@ onMounted(load);
           <pre v-else-if="kind === 'text' && textBody != null" class="sp-text">{{ textBody }}</pre>
           <div v-else class="sp-noprev">
             <Icon name="file" :size="40" />
-            <div class="sp-noprev-name">Sem prévia para este arquivo</div>
-            <a class="btn" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />Baixar arquivo</a>
+            <div class="sp-noprev-name">{{ t('share.page.noPreview') }}</div>
+            <a class="btn" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />{{ t('share.page.downloadFile') }}</a>
           </div>
         </div>
 
         <div class="sp-foot">
-          <span><Icon name="clock" :size="13" /> Expira em {{ fmtDate(meta.expiresAt) }}</span>
+          <span><Icon name="clock" :size="13" /> {{ t('share.page.expiresAt', { date: fmtDate(meta.expiresAt) }) }}</span>
         </div>
       </div>
     </div>

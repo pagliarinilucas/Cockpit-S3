@@ -3,7 +3,11 @@
 import { describe, expect, it } from 'bun:test';
 import { mount } from '@vue/test-utils';
 import Shortcuts from './Shortcuts.vue';
-import { SHORTCUT_GROUPS } from './shortcuts';
+import { shortcutGroups } from './shortcuts';
+import { setLocale } from '../i18n';
+
+setLocale('pt', { persist: false });
+const SHORTCUT_GROUPS = shortcutGroups();
 
 const panel = (props: Record<string, unknown> = {}) =>
   mount(Shortcuts, { props, attachTo: document.body });

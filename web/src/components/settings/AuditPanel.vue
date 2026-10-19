@@ -10,6 +10,7 @@ import { useToast } from '../../core/toast';
 import Icon from '../Icon.vue';
 import Modal from '../Modal.vue';
 import ProGate from '../ProGate.vue';
+import { t } from '../../i18n';
 
 const toast = useToast();
 const settings = ref<AuditSettings | null>(null);
@@ -30,7 +31,7 @@ const syslogProtocol = ref<SyslogProtocol>('udp');
 
 const retentionLabel = computed(() => {
   const days = settings.value?.retentionDays ?? 0;
-  return days ? `Eventos com mais de ${days} dia${days > 1 ? 's' : ''} são removidos automaticamente.` : 'Eventos mantidos para sempre.';
+  return days ? t('settings.audit.retention', { count: days }) : t('settings.audit.keptForever');
 });
 
 const targetsLabel = computed(() => {
@@ -39,7 +40,7 @@ const targetsLabel = computed(() => {
   const targets: string[] = [];
   if (s.webhookUrl) targets.push(`webhook ${new URL(s.webhookUrl).host}`);
   if (s.syslogHost) targets.push(`syslog ${s.syslogProtocol.toUpperCase()} ${s.syslogHost}:${s.syslogPort}`);
-  return targets.length ? `Encaminhando para ${targets.join(' e ')}.` : 'Sem encaminhamento para SIEM.';
+  return targets.length ? t('settings.audit.forwardingTo', { targets: targets.join(t('settings.audit.and')) }) : t('settings.audit.noForwarding');
 });
 
 const hasTargets = computed(() => !!(settings.value?.webhookUrl || settings.value?.syslogHost));
@@ -83,18 +84,18 @@ async function save() {
   try {
     settings.value = await api.saveAuditSettings(body);
     editing.value = false;
-    toast.success('Configurações de auditoria salvas.');
+    toast.success(t('settings.audit.saved'));
   } catch (e) {
     formError.value = e instanceof ApiError && e.status === 400
-      ? 'Revise os campos: URL, host ou porta inválidos.'
-      : apiErrMsg(e, 'salvar');
+      ? t('settings.audit.invalid')
+      : apiErrMsg(e, 'save');
   } finally { saving.value = false; }
 }
 
 function describe(name: string, result: AuditForwardResult | null): string | null {
   if (!result) return null;
   if (result.ok) return `${name}: ok`;
-  return `${name}: ${result.error ?? 'falhou'}`;
+  return `${name}: ${result.error ?? t('settings.audit.failed')}`;
 }
 
 async function testForward() {
@@ -103,86 +104,86 @@ async function testForward() {
     const result = await api.testAuditForward();
     const parts = [describe('Webhook', result.webhook), describe('Syslog', result.syslog)].filter(Boolean);
     const allOk = [result.webhook, result.syslog].every((r) => !r || r.ok);
-    if (allOk) toast.success(`Evento de teste enviado. ${parts.join(' · ')}`);
-    else toast.error(`Falha no envio. ${parts.join(' · ')}`);
-  } catch (e) { toast.error(apiErrMsg(e, 'testar o envio')); }
+    if (allOk) toast.success(t('settings.audit.testSent', { details: parts.join(' · ') }));
+    else toast.error(t('settings.audit.testFailed', { details: parts.join(' · ') }));
+  } catch (e) { toast.error(apiErrMsg(e, 'testSend')); }
   finally { testing.value = false; }
 }
 </script>
 
 <template>
-  <ProGate feature="audit-export" title="Auditoria avançada"
-           pitch="Exporte o log de auditoria (CSV/JSON/NDJSON), defina a retenção e encaminhe eventos para seu SIEM via webhook ou syslog.">
+  <ProGate feature="audit-export" :title="t('settings.audit.gateTitle')"
+           :pitch="t('settings.audit.pitch')">
     <div class="aud-card">
       <div class="aud-ic"><Icon name="activity" :size="20" /></div>
       <div class="aud-main">
-        <div class="aud-title">Auditoria e SIEM</div>
+        <div class="aud-title">{{ t('settings.audit.title') }}</div>
         <div class="aud-desc">{{ retentionLabel }}</div>
         <div class="aud-desc">{{ targetsLabel }}</div>
         <div v-if="settings && settings.forward.dropped" class="aud-desc aud-warn">
-          {{ settings.forward.dropped }} evento(s) descartados por fila cheia desde o último reinício.
+          {{ t('settings.audit.dropped', { count: settings.forward.dropped }) }}
         </div>
       </div>
       <div class="aud-acts">
         <button v-if="hasTargets" class="btn" :disabled="testing" @click="testForward">
-          <Icon name="share" :size="15" />{{ testing ? 'Enviando…' : 'Testar envio' }}
+          <Icon name="share" :size="15" />{{ testing ? t('settings.audit.sending') : t('settings.audit.testSend') }}
         </button>
-        <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />Configurar</button>
+        <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />{{ t('settings.configure') }}</button>
       </div>
     </div>
 
-    <Modal v-if="editing" title="Auditoria e SIEM" icon="activity" wide @close="editing = false">
+    <Modal v-if="editing" :title="t('settings.audit.title')" icon="activity" wide @close="editing = false">
       <div class="field">
-        <label class="field-label" for="aud-retention">Retenção (dias)</label>
+        <label class="field-label" for="aud-retention">{{ t('settings.audit.retentionLabel') }}</label>
         <input id="aud-retention" v-model.number="retentionDays" class="field-input" type="number" min="0" max="36500" />
-        <div class="aud-hint">0 mantém os eventos para sempre. A limpeza roda a cada hora.</div>
+        <div class="aud-hint">{{ t('settings.audit.retentionHint') }}</div>
       </div>
 
       <div class="aud-section">Webhook</div>
       <div class="field">
         <label class="field-label" for="aud-webhook">URL</label>
-        <input id="aud-webhook" v-model="webhookUrl" class="field-input" placeholder="https://siem.exemplo.com/ingest" spellcheck="false" />
+        <input id="aud-webhook" v-model="webhookUrl" class="field-input" :placeholder="t('settings.audit.webhookPlaceholder')" spellcheck="false" />
       </div>
       <div class="aud-row">
         <div class="field">
-          <label class="field-label" for="aud-secret">Segredo HMAC</label>
+          <label class="field-label" for="aud-secret">{{ t('settings.audit.hmacSecret') }}</label>
           <input id="aud-secret" v-model="webhookSecret" class="field-input" type="password" autocomplete="new-password"
-                 :placeholder="settings?.webhookSecretSet ? '•••••• (mantido)' : 'opcional'" :disabled="clearSecret" />
-          <label v-if="settings?.webhookSecretSet" class="aud-check"><input v-model="clearSecret" type="checkbox" /> Remover segredo</label>
+                 :placeholder="settings?.webhookSecretSet ? t('settings.audit.kept') : t('settings.audit.optional')" :disabled="clearSecret" />
+          <label v-if="settings?.webhookSecretSet" class="aud-check"><input v-model="clearSecret" type="checkbox" /> {{ t('settings.audit.removeSecret') }}</label>
         </div>
         <div class="field">
-          <label class="field-label" for="aud-bearer">Token Bearer</label>
+          <label class="field-label" for="aud-bearer">{{ t('settings.audit.bearerToken') }}</label>
           <input id="aud-bearer" v-model="webhookBearer" class="field-input" type="password" autocomplete="new-password"
-                 :placeholder="settings?.webhookBearerSet ? '•••••• (mantido)' : 'opcional'" :disabled="clearBearer" />
-          <label v-if="settings?.webhookBearerSet" class="aud-check"><input v-model="clearBearer" type="checkbox" /> Remover token</label>
+                 :placeholder="settings?.webhookBearerSet ? t('settings.audit.kept') : t('settings.audit.optional')" :disabled="clearBearer" />
+          <label v-if="settings?.webhookBearerSet" class="aud-check"><input v-model="clearBearer" type="checkbox" /> {{ t('settings.audit.removeToken') }}</label>
         </div>
       </div>
-      <div class="aud-hint">Com segredo, o corpo é assinado em <code>X-Cockpit-Signature: sha256=&lt;hmac&gt;</code>.</div>
+      <div class="aud-hint" v-html="t('settings.audit.signatureHint')"></div>
 
       <div class="aud-section">Syslog (RFC 5424)</div>
       <div class="aud-row">
         <div class="field aud-grow">
           <label class="field-label" for="aud-syslog-host">Host</label>
-          <input id="aud-syslog-host" v-model="syslogHost" class="field-input" placeholder="siem.interno" spellcheck="false" />
+          <input id="aud-syslog-host" v-model="syslogHost" class="field-input" :placeholder="t('settings.audit.syslogHostPlaceholder')" spellcheck="false" />
         </div>
         <div class="field">
-          <label class="field-label" for="aud-syslog-port">Porta</label>
+          <label class="field-label" for="aud-syslog-port">{{ t('settings.audit.port') }}</label>
           <input id="aud-syslog-port" v-model.number="syslogPort" class="field-input" type="number" min="1" max="65535" />
         </div>
         <div class="field">
-          <label class="field-label" for="aud-syslog-proto">Protocolo</label>
+          <label class="field-label" for="aud-syslog-proto">{{ t('settings.audit.protocol') }}</label>
           <select id="aud-syslog-proto" v-model="syslogProtocol" class="field-input">
             <option value="udp">UDP</option>
             <option value="tcp">TCP</option>
           </select>
         </div>
       </div>
-      <div class="aud-hint">Deixe URL e host em branco para desativar o encaminhamento.</div>
+      <div class="aud-hint">{{ t('settings.audit.disableHint') }}</div>
 
       <div v-if="formError" class="aud-error">{{ formError }}</div>
       <template #foot>
-        <button class="btn" @click="editing = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Salvando…' : 'Salvar' }}</button>
+        <button class="btn" @click="editing = false">{{ t('common.cancel') }}</button>
+        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? t('settings.saving') : t('common.save') }}</button>
       </template>
     </Modal>
   </ProGate>

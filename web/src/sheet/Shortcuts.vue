@@ -4,14 +4,17 @@
 -->
 <script setup lang="ts">
 import Icon from '../components/Icon.vue';
-import { SHORTCUT_GROUPS } from './shortcuts';
+import { computed } from 'vue';
+import { shortcutConnectors, shortcutGroups } from './shortcuts';
+import { t } from '../i18n';
 
 defineProps<{ readonly?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
-const CONNECTORS = new Set(['+', 'ou', 'e']);
+const groups = computed(() => shortcutGroups());
+const connectors = computed(() => shortcutConnectors());
 
-const isKey = (token: string) => !CONNECTORS.has(token) && token.length <= 9 && !token.includes(' ');
+const isKey = (token: string) => !connectors.value.has(token) && token.length <= 9 && !token.includes(' ');
 </script>
 
 <template>
@@ -19,16 +22,16 @@ const isKey = (token: string) => !CONNECTORS.has(token) && token.length <= 9 && 
     <div class="sk-panel" data-shortcuts @click.stop>
       <header class="sk-head">
         <Icon name="help" :size="18" />
-        <span class="sk-title">Atalhos da planilha</span>
-        <span v-if="readonly" class="sk-ro">nesta tela você só está lendo — os de edição não valem</span>
+        <span class="sk-title">{{ t('sheet.shortcuts.title') }}</span>
+        <span v-if="readonly" class="sk-ro">{{ t('sheet.shortcuts.readonly') }}</span>
         <div class="sk-spacer" />
-        <button class="iconbtn" title="Fechar (Esc)" @click="emit('close')">
+        <button class="iconbtn" :title="t('sheet.shortcuts.close')" @click="emit('close')">
           <Icon name="x" :size="17" />
         </button>
       </header>
 
       <div class="sk-groups">
-        <section v-for="group in SHORTCUT_GROUPS" :key="group.title" class="sk-group">
+        <section v-for="group in groups" :key="group.title" class="sk-group">
           <h3 class="sk-group-title">{{ group.title }}</h3>
           <div
             v-for="(item, i) in group.items" :key="group.title + i"

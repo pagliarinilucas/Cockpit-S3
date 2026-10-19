@@ -6,6 +6,7 @@
 import { ref } from 'vue';
 import Icon from '../components/Icon.vue';
 import { NUM_FORMATS } from './format';
+import { t } from '../i18n';
 import type { CellStyle } from './model';
 
 const props = defineProps<{ current: CellStyle; disabled?: boolean }>();
@@ -55,15 +56,15 @@ const clearAll = (): void => emit('apply', {
 <template>
   <div class="fb" :class="{ 'is-off': disabled }">
     <div class="fb-group">
-      <button class="fb-btn" :class="{ on: current.bold }" title="Negrito" :disabled="disabled" @click="toggle('bold')"><b>N</b></button>
-      <button class="fb-btn" :class="{ on: current.italic }" title="Itálico" :disabled="disabled" @click="toggle('italic')"><i>I</i></button>
-      <button class="fb-btn" :class="{ on: current.underline }" title="Sublinhado" :disabled="disabled" @click="toggle('underline')"><u>S</u></button>
+      <button class="fb-btn" :class="{ on: current.bold }" :title="t('sheet.format.bold')" :disabled="disabled" @click="toggle('bold')"><b>{{ t('sheet.format.boldGlyph') }}</b></button>
+      <button class="fb-btn" :class="{ on: current.italic }" :title="t('sheet.format.italic')" :disabled="disabled" @click="toggle('italic')"><i>{{ t('sheet.format.italicGlyph') }}</i></button>
+      <button class="fb-btn" :class="{ on: current.underline }" :title="t('sheet.format.underline')" :disabled="disabled" @click="toggle('underline')"><u>{{ t('sheet.format.underlineGlyph') }}</u></button>
     </div>
 
     <div class="fb-group">
       <div class="fb-pop-host">
         <button
-          class="fb-btn fb-swatch-btn" title="Cor de preenchimento" :disabled="disabled"
+          class="fb-btn fb-swatch-btn" :title="t('sheet.format.fillColor')" :disabled="disabled"
           @click="openPicker = openPicker === 'bg' ? null : 'bg'"
         >
           <span class="fb-swatch" :style="{ background: current.bg ? '#' + current.bg : 'transparent' }" />
@@ -76,13 +77,13 @@ const clearAll = (): void => emit('apply', {
               :style="{ background: '#' + c }" :title="'#' + c" @click="pickFill(c)"
             />
           </div>
-          <button class="fb-clear" @click="pickFill(null)">sem preenchimento</button>
+          <button class="fb-clear" @click="pickFill(null)">{{ t('sheet.format.noFill') }}</button>
         </div>
       </div>
 
       <div class="fb-pop-host">
         <button
-          class="fb-btn fb-swatch-btn" title="Cor do texto" :disabled="disabled"
+          class="fb-btn fb-swatch-btn" :title="t('sheet.format.textColor')" :disabled="disabled"
           @click="openPicker = openPicker === 'fg' ? null : 'fg'"
         >
           <span class="fb-letter" :style="{ color: current.fg ? '#' + current.fg : 'var(--text)' }">A</span>
@@ -94,26 +95,26 @@ const clearAll = (): void => emit('apply', {
               :style="{ background: '#' + c }" :title="'#' + c" @click="pickText(c)"
             />
           </div>
-          <button class="fb-clear" @click="pickText(null)">cor padrão</button>
+          <button class="fb-clear" @click="pickText(null)">{{ t('sheet.format.defaultColor') }}</button>
         </div>
       </div>
     </div>
 
     <div class="fb-group">
-      <button class="fb-btn" :class="{ on: current.align === 'left' }" title="Alinhar à esquerda" :disabled="disabled" @click="setAlign('left')">⇤</button>
-      <button class="fb-btn" :class="{ on: current.align === 'center' }" title="Centralizar" :disabled="disabled" @click="setAlign('center')">↔</button>
-      <button class="fb-btn" :class="{ on: current.align === 'right' }" title="Alinhar à direita" :disabled="disabled" @click="setAlign('right')">⇥</button>
-      <button class="fb-btn" :class="{ on: current.border }" title="Borda" :disabled="disabled" @click="emit('apply', { border: current.border ? undefined : true })">▢</button>
+      <button class="fb-btn" :class="{ on: current.align === 'left' }" :title="t('sheet.format.alignLeft')" :disabled="disabled" @click="setAlign('left')">⇤</button>
+      <button class="fb-btn" :class="{ on: current.align === 'center' }" :title="t('sheet.format.alignCenter')" :disabled="disabled" @click="setAlign('center')">↔</button>
+      <button class="fb-btn" :class="{ on: current.align === 'right' }" :title="t('sheet.format.alignRight')" :disabled="disabled" @click="setAlign('right')">⇥</button>
+      <button class="fb-btn" :class="{ on: current.border }" :title="t('sheet.format.border')" :disabled="disabled" @click="emit('apply', { border: current.border ? undefined : true })">▢</button>
     </div>
 
     <select
       class="fb-select" :value="current.numFmt ?? ''" :disabled="disabled"
-      title="Formato do número" @change="setFormat(($event.target as HTMLSelectElement).value)"
+      :title="t('sheet.format.numberFormat')" @change="setFormat(($event.target as HTMLSelectElement).value)"
     >
-      <option v-for="f in NUM_FORMATS" :key="f.label" :value="f.code ?? ''">{{ f.label }}</option>
+      <option v-for="f in NUM_FORMATS" :key="f.key" :value="f.code ?? ''">{{ t(`sheet.numFormat.${f.key}`) }}</option>
     </select>
 
-    <button class="fb-btn fb-wide" title="Limpar formatação" :disabled="disabled" @click="clearAll">limpar</button>
+    <button class="fb-btn fb-wide" :title="t('sheet.format.clearTitle')" :disabled="disabled" @click="clearAll">{{ t('sheet.format.clear') }}</button>
   </div>
 </template>
 

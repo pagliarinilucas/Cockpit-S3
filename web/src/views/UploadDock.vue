@@ -9,19 +9,20 @@ import type { FileType } from '../core/models';
 import { fmtBytes, ICON_FOR } from '../core/util';
 import Icon from '../components/Icon.vue';
 import LevelBar from '../components/LevelBar.vue';
+import { t } from '../i18n';
 
 const props = defineProps<{ uploads: UploadItem[] }>();
 defineEmits<{ clear: [] }>();
 
 const active = computed(() => props.uploads.filter((u) => u.progress < 1 && !u.error).length);
-const iconFor = (t: FileType) => ICON_FOR[t];
+const iconFor = (type: FileType) => ICON_FOR[type];
 const pct = (p: number) => Math.round(p * 100) + '%';
 </script>
 
 <template>
   <div v-if="uploads.length" class="updock">
     <div class="updock-head">
-      <span><Icon name="upload" :size="14" /> {{ active > 0 ? 'Enviando ' + active : 'Concluído' }}</span>
+      <span><Icon name="upload" :size="14" /> {{ active > 0 ? t('files.dock.uploading', { count: active }) : t('files.dock.done') }}</span>
       <button class="iconbtn" @click="$emit('clear')"><Icon name="x" :size="14" /></button>
     </div>
     <div class="updock-list">

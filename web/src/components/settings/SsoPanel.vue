@@ -9,6 +9,7 @@ import { useToast } from '../../core/toast';
 import ProGate from '../ProGate.vue';
 import Icon from '../Icon.vue';
 import Modal from '../Modal.vue';
+import { t } from '../../i18n';
 
 const toast = useToast();
 const settings = ref<OidcSettings | null>(null);
@@ -24,7 +25,7 @@ const emptyForm = () => ({
   clientId: '',
   clientSecret: '',
   scopes: 'openid email profile',
-  buttonLabel: 'Entrar com SSO',
+  buttonLabel: t('settings.sso.defaultButtonLabel'),
   usernameClaim: 'preferred_username',
   autoProvision: false,
   allowedDomains: '',
@@ -35,15 +36,15 @@ const form = ref(emptyForm());
 
 const summary = computed(() => {
   const s = settings.value;
-  if (!s) return 'Login único via OpenID Connect.';
-  if (!s.enabled) return 'Desativado. Configure o provedor e habilite para mostrar o botão na tela de login.';
-  if (!s.active) return 'Habilitado, mas inativo: confira o issuer e o client ID.';
+  if (!s) return t('settings.sso.summaryEmpty');
+  if (!s.enabled) return t('settings.sso.summaryDisabled');
+  if (!s.active) return t('settings.sso.summaryInactive');
   const host = (() => { try { return new URL(s.issuer).host; } catch { return s.issuer; } })();
   const extras = [
-    s.autoProvision ? 'cria contas automaticamente' : 'só contas existentes',
-    s.disablePasswordLogin ? 'senha só para admins' : null,
+    s.autoProvision ? t('settings.sso.autoProvision') : t('settings.sso.existingOnly'),
+    s.disablePasswordLogin ? t('settings.sso.passwordAdminsOnly') : null,
   ].filter(Boolean).join(' · ');
-  return `Ativo · ${host} · ${extras}`;
+  return t('settings.sso.summaryActive', { host, extras });
 });
 
 async function load() {
@@ -69,14 +70,14 @@ async function copyRedirect() {
   if (!settings.value) return;
   try {
     await navigator.clipboard.writeText(settings.value.redirectUri);
-    toast.success('Redirect URI copiada.');
-  } catch { toast.error('Não foi possível copiar.'); }
+    toast.success(t('settings.sso.redirectCopied'));
+  } catch { toast.error(t('settings.sso.copyFailed')); }
 }
 
 async function testDiscovery() {
   testing.value = true; testResult.value = null;
   try { testResult.value = await api.testOidc(form.value.issuer.trim() || undefined); }
-  catch (e) { testResult.value = { ok: false, error: apiErrMsg(e, 'testar') }; }
+  catch (e) { testResult.value = { ok: false, error: apiErrMsg(e, 'test') }; }
   finally { testing.value = false; }
 }
 
@@ -98,11 +99,11 @@ async function save() {
       disablePasswordLogin: f.disablePasswordLogin,
     });
     editing.value = false;
-    toast.success('Configuração de SSO salva.');
+    toast.success(t('settings.sso.saved'));
   } catch (e) {
     formError.value = e instanceof ApiError && e.status === 400
-      ? 'Para habilitar, informe um issuer http(s) válido e o client ID.'
-      : apiErrMsg(e, 'salvar');
+      ? t('settings.sso.invalid')
+      : apiErrMsg(e, 'save');
   } finally { saving.value = false; }
 }
 </script>
@@ -110,49 +111,49 @@ async function save() {
 <template>
   <ProGate
     feature="sso"
-    title="Single sign-on (OIDC)"
-    pitch="Login com Google Workspace, Microsoft Entra ID, Keycloak, Authentik ou qualquer provedor OIDC."
+    :title="t('settings.sso.title')"
+    :pitch="t('settings.sso.pitch')"
   >
     <div class="sso-card">
       <div class="sso-ic"><Icon name="shield" :size="20" /></div>
       <div class="sso-main">
         <div class="sso-title">
-          Single sign-on (OIDC)
-          <span class="sso-tag" :class="settings?.active ? 'sso-on' : 'sso-off'">{{ settings?.active ? 'Ativo' : 'Inativo' }}</span>
+          {{ t('settings.sso.title') }}
+          <span class="sso-tag" :class="settings?.active ? 'sso-on' : 'sso-off'">{{ settings?.active ? t('settings.sso.active') : t('settings.sso.inactive') }}</span>
         </div>
         <div class="sso-desc">{{ summary }}</div>
         <div v-if="settings" class="sso-redirect">
           <span class="sso-desc">Redirect URI:</span>
           <code>{{ settings.redirectUri }}</code>
-          <button class="iconbtn" title="Copiar" @click="copyRedirect"><Icon name="copy" :size="14" /></button>
+          <button class="iconbtn" :title="t('settings.sso.copy')" @click="copyRedirect"><Icon name="copy" :size="14" /></button>
         </div>
       </div>
       <div class="sso-acts">
-        <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />Configurar</button>
+        <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />{{ t('settings.configure') }}</button>
       </div>
     </div>
   </ProGate>
 
-  <Modal v-if="editing" title="Single sign-on (OIDC)" icon="shield" wide @close="editing = false">
+  <Modal v-if="editing" :title="t('settings.sso.title')" icon="shield" wide @close="editing = false">
     <div class="field">
-      <label class="field-label"><input type="checkbox" v-model="form.enabled" /> Habilitar login via SSO</label>
+      <label class="field-label"><input type="checkbox" v-model="form.enabled" /> {{ t('settings.sso.enable') }}</label>
     </div>
     <div class="field">
       <label class="field-label" for="sso-issuer">Issuer</label>
       <div class="sso-inline">
         <input id="sso-issuer" class="field-input" v-model="form.issuer" placeholder="https://accounts.google.com" spellcheck="false" />
         <button class="btn" :disabled="testing || !form.issuer.trim()" @click="testDiscovery">
-          <Icon name="refresh" :size="15" />{{ testing ? 'Testando…' : 'Testar descoberta' }}
+          <Icon name="refresh" :size="15" />{{ testing ? t('settings.testing') : t('settings.sso.testDiscovery') }}
         </button>
       </div>
     </div>
     <div v-if="testResult" class="sso-test" :class="testResult.ok ? 'sso-test-ok' : 'sso-test-err'">
       <template v-if="testResult.ok">
-        <div><Icon name="check" :size="14" /> Descoberta OK · {{ testResult.issuer }}</div>
+        <div><Icon name="check" :size="14" /> {{ t('settings.sso.discoveryOk', { issuer: testResult.issuer }) }}</div>
         <div>authorize: <code>{{ testResult.authorizationEndpoint }}</code></div>
         <div>token: <code>{{ testResult.tokenEndpoint }}</code> ({{ testResult.tokenAuthMethod }})</div>
         <div>jwks: <code>{{ testResult.jwksUri }}</code></div>
-        <div v-if="!testResult.pkce">Aviso: o provedor não anuncia PKCE S256.</div>
+        <div v-if="!testResult.pkce">{{ t('settings.sso.noPkce') }}</div>
       </template>
       <div v-else><Icon name="alert" :size="14" /> {{ testResult.error }}</div>
     </div>
@@ -165,7 +166,7 @@ async function save() {
         <label class="field-label" for="sso-secret">Client secret</label>
         <input
           id="sso-secret" class="field-input" type="password" v-model="form.clientSecret" autocomplete="new-password"
-          :placeholder="settings?.clientSecretSet ? '•••••• (mantido se vazio)' : ''"
+          :placeholder="settings?.clientSecretSet ? t('settings.sso.secretKept') : ''"
         />
       </div>
     </div>
@@ -175,36 +176,36 @@ async function save() {
         <input id="sso-scopes" class="field-input" v-model="form.scopes" spellcheck="false" />
       </div>
       <div class="field">
-        <label class="field-label" for="sso-claim">Claim do nome de usuário</label>
+        <label class="field-label" for="sso-claim">{{ t('settings.sso.usernameClaim') }}</label>
         <input id="sso-claim" class="field-input" v-model="form.usernameClaim" placeholder="preferred_username" spellcheck="false" />
       </div>
     </div>
     <div class="modal-row">
       <div class="field">
-        <label class="field-label" for="sso-label">Texto do botão</label>
+        <label class="field-label" for="sso-label">{{ t('settings.sso.buttonText') }}</label>
         <input id="sso-label" class="field-input" v-model="form.buttonLabel" maxlength="64" />
       </div>
       <div class="field">
-        <label class="field-label" for="sso-group">Grupo de administradores</label>
-        <input id="sso-group" class="field-input" v-model="form.adminGroup" placeholder="opcional" spellcheck="false" />
+        <label class="field-label" for="sso-group">{{ t('settings.sso.adminGroup') }}</label>
+        <input id="sso-group" class="field-input" v-model="form.adminGroup" :placeholder="t('settings.sso.optional')" spellcheck="false" />
       </div>
     </div>
     <div class="field">
-      <label class="field-label" for="sso-domains">Domínios de e-mail permitidos</label>
-      <input id="sso-domains" class="field-input" v-model="form.allowedDomains" placeholder="opcional · ex.: empresa.com.br, empresa.com" spellcheck="false" />
+      <label class="field-label" for="sso-domains">{{ t('settings.sso.allowedDomains') }}</label>
+      <input id="sso-domains" class="field-input" v-model="form.allowedDomains" :placeholder="t('settings.sso.allowedDomainsPlaceholder')" spellcheck="false" />
     </div>
     <div class="field">
-      <label class="field-label"><input type="checkbox" v-model="form.autoProvision" /> Criar conta automaticamente no primeiro login</label>
-      <div class="sso-desc">Contas novas entram como usuário comum, sem acesso a buckets até receberem permissões. Quem estiver no grupo de administradores entra como admin.</div>
+      <label class="field-label"><input type="checkbox" v-model="form.autoProvision" /> {{ t('settings.sso.autoProvisionLabel') }}</label>
+      <div class="sso-desc">{{ t('settings.sso.autoProvisionHint') }}</div>
     </div>
     <div class="field">
-      <label class="field-label"><input type="checkbox" v-model="form.disablePasswordLogin" /> Desativar login com senha para não-administradores</label>
-      <div class="sso-desc">Administradores continuam podendo entrar com senha, como acesso de emergência caso o provedor fique fora do ar.</div>
+      <label class="field-label"><input type="checkbox" v-model="form.disablePasswordLogin" /> {{ t('settings.sso.disablePassword') }}</label>
+      <div class="sso-desc">{{ t('settings.sso.disablePasswordHint') }}</div>
     </div>
     <div v-if="formError" class="sso-error">{{ formError }}</div>
     <template #foot>
-      <button class="btn" @click="editing = false">Cancelar</button>
-      <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Salvando…' : 'Salvar' }}</button>
+      <button class="btn" @click="editing = false">{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? t('settings.saving') : t('common.save') }}</button>
     </template>
   </Modal>
 </template>

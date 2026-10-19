@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import type { Perm } from './models';
+import type { MessageKey } from '../i18n';
 
-export const PERM_META: Record<Perm, { label: string; cls: string; icon: string }> = {
-  'owner': { label: 'OWNER', cls: 'perm-owner', icon: 'shield' },
-  'read-write': { label: 'READ/WRITE', cls: 'perm-rw', icon: 'upload' },
-  'read-only': { label: 'READ-ONLY', cls: 'perm-ro', icon: 'eye' },
-  'view-only': { label: 'VIEW-ONLY', cls: 'perm-vo', icon: 'eye' },
+export const PERM_META: Record<Perm, { labelKey: MessageKey; cls: string; icon: string }> = {
+  'owner': { labelKey: 'perm.badge.owner', cls: 'perm-owner', icon: 'shield' },
+  'read-write': { labelKey: 'perm.badge.readWrite', cls: 'perm-rw', icon: 'upload' },
+  'read-only': { labelKey: 'perm.badge.readOnly', cls: 'perm-ro', icon: 'eye' },
+  'view-only': { labelKey: 'perm.badge.viewOnly', cls: 'perm-vo', icon: 'eye' },
 };
 
 export const PERM_CYCLE: (Perm | null)[] = [null, 'view-only', 'read-only', 'read-write', 'owner'];
 
-export const PERM_OPTIONS: { value: Perm; label: string; can: string }[] = [
-  { value: 'view-only', label: 'Só ver (sem download)', can: 'Visualiza e faz preview, mas NÃO baixa nem envia.' },
-  { value: 'read-only', label: 'Ver e baixar', can: 'Visualiza e baixa. Não envia nem apaga.' },
-  { value: 'read-write', label: 'Ver, baixar e enviar', can: 'Visualiza, baixa, envia e apaga.' },
-  { value: 'owner', label: 'Dono (controle total)', can: 'Controle total sobre a pasta.' },
+export const PERM_OPTIONS: { value: Perm; labelKey: MessageKey; canKey: MessageKey }[] = [
+  { value: 'view-only', labelKey: 'perm.option.viewOnly.label', canKey: 'perm.option.viewOnly.can' },
+  { value: 'read-only', labelKey: 'perm.option.readOnly.label', canKey: 'perm.option.readOnly.can' },
+  { value: 'read-write', labelKey: 'perm.option.readWrite.label', canKey: 'perm.option.readWrite.can' },
+  { value: 'owner', labelKey: 'perm.option.owner.label', canKey: 'perm.option.owner.can' },
 ];
 
 const DOWNLOAD_PERMS: Perm[] = ['read-only', 'read-write', 'owner'];

@@ -8,7 +8,11 @@ import { api, ApiError, type OidcPublicInfo } from '../core/api';
 import Icon from '../components/Icon.vue';
 import BrandMark from '../components/BrandMark.vue';
 import PoweredBy from '../components/PoweredBy.vue';
+import DemoNotice from '../components/DemoNotice.vue';
 import { useBranding } from '../core/branding';
+import LocaleSwitcher from '../components/LocaleSwitcher.vue';
+import { t } from '../i18n';
+import type { Catalog } from '../i18n/catalog';
 
 const { branding, productName } = useBranding();
 
@@ -20,17 +24,9 @@ const error = ref<string | null>(null);
 const sso = ref<OidcPublicInfo | null>(null);
 const showPasswordForm = ref(false);
 
-const SSO_ERRORS: Record<string, string> = {
-  disabled: 'O login via SSO não está habilitado nesta instância.',
-  discovery: 'Não foi possível contatar o provedor de identidade. Tente novamente em instantes.',
-  idp: 'O provedor de identidade recusou ou cancelou o login.',
-  state: 'A tentativa de login expirou ou não pôde ser validada. Tente novamente.',
-  token: 'Não foi possível validar a resposta do provedor de identidade.',
-  no_username: 'O provedor de identidade não informou um nome de usuário.',
-  domain: 'Seu e-mail não pertence a um domínio autorizado.',
-  not_provisioned: 'Sua conta ainda não existe no Cockpit S3. Peça acesso a um administrador.',
-  inactive: 'Sua conta está desativada. Fale com um administrador.',
-};
+type SsoErrorCode = keyof Catalog['auth']['ssoErrors'];
+const SSO_ERROR_CODES: SsoErrorCode[] = ['disabled', 'discovery', 'idp', 'state', 'token', 'no_username', 'domain', 'not_provisioned', 'inactive'];
+const isSsoErrorCode = (code: string): code is SsoErrorCode => (SSO_ERROR_CODES as string[]).includes(code);
 
 const ssoEnabled = computed(() => !!sso.value?.enabled);
 const passwordVisible = computed(() => !ssoEnabled.value || sso.value?.passwordLogin !== false || showPasswordForm.value);
@@ -39,7 +35,7 @@ function consumeSsoError() {
   const url = new URL(window.location.href);
   const code = url.searchParams.get('sso_error');
   if (!code) return;
-  error.value = SSO_ERRORS[code] ?? 'Não foi possível entrar com SSO.';
+  error.value = isSsoErrorCode(code) ? t(`auth.ssoErrors.${code}`) : t('auth.ssoFailed');
   url.searchParams.delete('sso_error');
   window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
 }
@@ -55,7 +51,7 @@ function startSso() {
 }
 
 async function submit() {
-  if (!username.value || !password.value) { error.value = 'Informe usuário e senha.'; return; }
+  if (!username.value || !password.value) { error.value = t('auth.missingCredentials'); return; }
   busy.value = true;
   error.value = null;
   try {
@@ -64,10 +60,10 @@ async function submit() {
     emit('loggedIn');
   } catch (e) {
     error.value = e instanceof ApiError && e.status === 0
-      ? 'API indisponível (porta 3000).'
+      ? t('auth.apiUnavailable')
       : e instanceof ApiError && e.status === 403
-        ? 'O login com senha está desativado para sua conta. Use o SSO.'
-        : 'Usuário ou senha inválidos.';
+        ? t('auth.passwordDisabled')
+        : t('auth.invalidCredentials');
   } finally {
     busy.value = false;
   }
@@ -78,11 +74,12 @@ async function submit() {
   <div class="login-wrap">
     <div class="login-grid"></div>
     <div class="login-card">
+      <LocaleSwitcher class="login-locale" />
       <div class="login-brand">
         <BrandMark :size="24" />
         <div>
           <div class="login-title">{{ branding.active ? productName : 'COCKPIT S3' }}</div>
-          <div class="login-sub">STORAGE CONSOLE</div>
+          <div class="login-sub">{{ t('auth.subtitle') }}</div>
         </div>
       </div>
       <template v-if="ssoEnabled">
@@ -90,23 +87,24 @@ async function submit() {
           <Icon name="shield" :size="16" />{{ sso!.buttonLabel }}
         </button>
         <div v-if="error && !passwordVisible" class="login-error sso-error"><Icon name="alert" :size="14" />{{ error }}</div>
-        <div v-if="passwordVisible" class="sso-divider"><span>ou</span></div>
+        <div v-if="passwordVisible" class="sso-divider"><span>{{ t('auth.or') }}</span></div>
         <button v-else type="button" class="sso-toggle" @click="showPasswordForm = true">
-          Entrar com usuário e senha
+          {{ t('auth.usePassword') }}
         </button>
       </template>
+      <DemoNotice @use="(demoUser, demoPassword) => { username = demoUser; password = demoPassword; }" />
       <form v-if="passwordVisible" @submit.prevent="submit">
         <div class="field">
-          <label class="field-label">Usuário</label>
+          <label class="field-label">{{ t('auth.username') }}</label>
           <input class="field-input" v-model="username" :autofocus="!ssoEnabled" autocomplete="username" />
         </div>
         <div class="field">
-          <label class="field-label">Senha</label>
+          <label class="field-label">{{ t('auth.password') }}</label>
           <input class="field-input" type="password" v-model="password" autocomplete="current-password" />
         </div>
         <div v-if="error" class="login-error"><Icon name="alert" :size="14" />{{ error }}</div>
         <button type="submit" class="btn login-btn" :class="{ 'btn-primary': !ssoEnabled }" :disabled="busy">
-          <Icon name="power" :size="16" />{{ busy ? 'Conectando…' : 'Conectar' }}
+          <Icon name="power" :size="16" />{{ busy ? t('auth.connecting') : t('auth.connect') }}
         </button>
       </form>
       <PoweredBy />
@@ -126,4 +124,5 @@ async function submit() {
 }
 .sso-toggle:hover { color: var(--text-1, inherit); }
 .sso-error { margin: 14px 0 0; }
+.login-locale { position: absolute; top: 14px; right: 14px; }
 </style>

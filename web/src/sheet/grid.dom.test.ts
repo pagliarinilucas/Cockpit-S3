@@ -4,6 +4,9 @@ import { describe, expect, it } from 'bun:test';
 import { mount } from '@vue/test-utils';
 import Grid from './Grid.vue';
 import { cellKey, type Cell, type CellStyle } from './model';
+import { setLocale } from '../i18n';
+
+setLocale('pt', { persist: false });
 
 const HEAD_H = 26;
 const HEAD_W = 56;

@@ -6,29 +6,30 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { ActivityEvent, ActivityAction, ActivityQuery, AuditExportFormat } from '../core/models';
 import { api, apiErrMsg } from '../core/api';
-import { timeAgo } from '../core/util';
+import { timeAgoPhrase } from '../core/util';
+import { t, fmtDateTime, type MessageKey } from '../i18n';
 import { useEdition, PRICING_URL } from '../core/edition';
 import { useToast } from '../core/toast';
 import Icon from '../components/Icon.vue';
 
 const props = defineProps<{ query: string }>();
 
-const ACT_META: Record<ActivityAction, { icon: string; col: string; verb: string }> = {
-  upload:   { icon: 'upload',   col: 'var(--neon)',   verb: 'enviou' },
-  download: { icon: 'download', col: 'var(--green)',  verb: 'baixou' },
-  delete:   { icon: 'trash',    col: 'var(--danger)', verb: 'excluiu' },
-  grant:    { icon: 'shield',   col: 'var(--amber)',  verb: 'concedeu' },
-  revoke:   { icon: 'x',        col: 'var(--danger)', verb: 'revogou' },
-  key:      { icon: 'key',      col: 'var(--amber)',  verb: '' },
-  bucket:   { icon: 'database', col: 'var(--neon)',   verb: '' },
-  share:    { icon: 'share',    col: 'var(--neon)',   verb: 'compartilhou' },
+const ACT_META: Record<ActivityAction, { icon: string; col: string; verb: MessageKey | null }> = {
+  upload:   { icon: 'upload',   col: 'var(--neon)',   verb: 'activity.verb.upload' },
+  download: { icon: 'download', col: 'var(--green)',  verb: 'activity.verb.download' },
+  delete:   { icon: 'trash',    col: 'var(--danger)', verb: 'activity.verb.delete' },
+  grant:    { icon: 'shield',   col: 'var(--amber)',  verb: 'activity.verb.grant' },
+  revoke:   { icon: 'x',        col: 'var(--danger)', verb: 'activity.verb.revoke' },
+  key:      { icon: 'key',      col: 'var(--amber)',  verb: null },
+  bucket:   { icon: 'database', col: 'var(--neon)',   verb: null },
+  share:    { icon: 'share',    col: 'var(--neon)',   verb: 'activity.verb.share' },
 };
 const ACTION_OPTIONS = Object.keys(ACT_META) as ActivityAction[];
 const PAGE_SIZE = 200;
-const EXPORT_OPTIONS: { format: AuditExportFormat; label: string }[] = [
-  { format: 'csv', label: 'CSV (planilha)' },
-  { format: 'json', label: 'JSON' },
-  { format: 'ndjson', label: 'NDJSON (SIEM)' },
+const EXPORT_OPTIONS: { format: AuditExportFormat; label: MessageKey }[] = [
+  { format: 'csv', label: 'activity.exportCsv' },
+  { format: 'json', label: 'activity.exportJson' },
+  { format: 'ndjson', label: 'activity.exportNdjson' },
 ];
 
 const toast = useToast();
@@ -101,7 +102,7 @@ function clearFilters() {
 
 function exportFilename(format: AuditExportFormat): string {
   const today = new Date().toISOString().slice(0, 10);
-  return `cockpit-audit-${dateFrom.value || 'inicio'}-${dateTo.value || today}.${format}`;
+  return `cockpit-audit-${dateFrom.value || t('activity.exportFileStart')}-${dateTo.value || today}.${format}`;
 }
 
 async function exportAs(format: AuditExportFormat) {
@@ -114,7 +115,7 @@ async function exportAs(format: AuditExportFormat) {
     a.href = url; a.download = exportFilename(format);
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 15000);
-  } catch (e) { toast.error(apiErrMsg(e, 'exportar')); }
+  } catch (e) { toast.error(apiErrMsg(e, 'export')); }
   finally { exporting.value = false; }
 }
 
@@ -137,71 +138,71 @@ const meta = (a: ActivityEvent) => ACT_META[a.action] ?? ACT_META.bucket;
   <div class="view">
     <div class="view-head">
       <div>
-        <h1 class="view-title">Atividade</h1>
-        <p class="view-sub">Auditoria de acessos e operações no cluster</p>
+        <h1 class="view-title">{{ t('activity.title') }}</h1>
+        <p class="view-sub">{{ t('activity.subtitle') }}</p>
       </div>
       <div class="act-export" @click.stop>
         <button class="btn" :disabled="!canExport || exporting"
-                :title="canExport ? 'Exportar eventos filtrados' : 'Exportação de auditoria é um recurso Pro'"
+                :title="canExport ? t('activity.exportTitle') : t('activity.exportProTitle')"
                 @click="toggleExportMenu">
-          <Icon :name="canExport ? 'download' : 'lock'" :size="15" />{{ exporting ? 'Exportando…' : 'Exportar' }}
+          <Icon :name="canExport ? 'download' : 'lock'" :size="15" />{{ exporting ? t('activity.exporting') : t('activity.export') }}
         </button>
         <div v-if="exportMenuOpen" class="act-menu">
-          <button v-for="o in EXPORT_OPTIONS" :key="o.format" class="act-menu-item" @click="exportAs(o.format)">{{ o.label }}</button>
+          <button v-for="o in EXPORT_OPTIONS" :key="o.format" class="act-menu-item" @click="exportAs(o.format)">{{ t(o.label) }}</button>
         </div>
       </div>
     </div>
 
     <div class="act-filters">
       <label class="act-field">
-        <span class="field-label">De</span>
+        <span class="field-label">{{ t('activity.from') }}</span>
         <input v-model="dateFrom" class="field-input" type="date" :max="dateTo || undefined" @change="reload" />
       </label>
       <label class="act-field">
-        <span class="field-label">Até</span>
+        <span class="field-label">{{ t('activity.to') }}</span>
         <input v-model="dateTo" class="field-input" type="date" :min="dateFrom || undefined" @change="reload" />
       </label>
       <label class="act-field">
-        <span class="field-label">Ação</span>
+        <span class="field-label">{{ t('activity.action') }}</span>
         <select v-model="actionFilter" class="field-input" @change="reload">
-          <option value="">Todas</option>
+          <option value="">{{ t('activity.allActions') }}</option>
           <option v-for="a in ACTION_OPTIONS" :key="a" :value="a">{{ a }}</option>
         </select>
       </label>
       <label class="act-field act-field-grow">
-        <span class="field-label">Usuário</span>
-        <input v-model="actorFilter" class="field-input" placeholder="nome exato" @change="reload" @keydown.enter="reload" />
+        <span class="field-label">{{ t('activity.user') }}</span>
+        <input v-model="actorFilter" class="field-input" :placeholder="t('activity.userPlaceholder')" @change="reload" @keydown.enter="reload" />
       </label>
-      <button v-if="hasFilters" class="btn act-clear" @click="clearFilters"><Icon name="x" :size="14" />Limpar</button>
+      <button v-if="hasFilters" class="btn act-clear" @click="clearFilters"><Icon name="x" :size="14" />{{ t('activity.clear') }}</button>
     </div>
     <div v-if="!canExport" class="act-pro-hint">
       <Icon name="lock" :size="13" />
-      Exportação de auditoria é um recurso Pro.
-      <a :href="PRICING_URL" target="_blank" rel="noopener">Ver planos</a>
+      {{ t('activity.proHint') }}
+      <a :href="PRICING_URL" target="_blank" rel="noopener">{{ t('activity.seePlans') }}</a>
     </div>
 
-    <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO ATIVIDADE…</div>
+    <div v-if="loading" class="loading"><div class="spinner"></div>{{ t('activity.loading') }}</div>
     <div v-else-if="error" class="errbox">
       <Icon name="alert" :size="32" />
-      <div class="errbox-title">Não foi possível carregar a atividade</div>
+      <div class="errbox-title">{{ t('activity.loadError') }}</div>
       <div class="errbox-sub">{{ error }}</div>
-      <button class="btn" @click="reload"><Icon name="refresh" :size="15" />Tentar de novo</button>
+      <button class="btn" @click="reload"><Icon name="refresh" :size="15" />{{ t('activity.tryAgain') }}</button>
     </div>
-    <div v-else-if="filtered.length === 0" class="empty">{{ query || hasFilters ? 'Nenhum evento corresponde aos filtros.' : 'Nenhum evento registrado.' }}</div>
+    <div v-else-if="filtered.length === 0" class="empty">{{ query || hasFilters ? t('activity.noMatches') : t('activity.empty') }}</div>
     <div v-else class="timeline">
       <div v-for="a in filtered" :key="a.id" class="tl-row">
         <div class="tl-icon" :style="{ '--c': meta(a).col }"><Icon :name="meta(a).icon" :size="15" /></div>
         <div class="tl-body">
-          <div class="tl-main"><strong>{{ a.actor }}</strong> {{ meta(a).verb }} <span class="tl-target">{{ a.target }}</span></div>
+          <div class="tl-main"><strong>{{ a.actor }}</strong> {{ meta(a).verb ? t(meta(a).verb!) : '' }} <span class="tl-target">{{ a.target }}</span></div>
           <div class="tl-meta">
             <span class="tl-bucket"><Icon name="database" :size="11" /> {{ a.bucket }}</span>
-            <span class="dot-sep">·</span><span :title="new Date(a.at).toLocaleString('pt-BR')">{{ timeAgo(a.at) + ' atrás' }}</span>
+            <span class="dot-sep">·</span><span :title="fmtDateTime(a.at)">{{ timeAgoPhrase(a.at) }}</span>
           </div>
         </div>
         <div class="tl-action-tag" :style="{ color: meta(a).col, borderColor: meta(a).col }">{{ a.action }}</div>
       </div>
       <button v-if="hasMore" class="btn act-more" :disabled="loadingMore" @click="loadMore">
-        <Icon name="plus" :size="14" />{{ loadingMore ? 'Carregando…' : 'Carregar mais' }}
+        <Icon name="plus" :size="14" />{{ loadingMore ? t('activity.loadingMore') : t('activity.loadMore') }}
       </button>
     </div>
   </div>

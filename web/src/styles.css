@@ -230,6 +230,8 @@ html.no-scanlines body::after { display: none; }
 .source-offer { display: flex; align-items: center; gap: 6px; padding: 2px 4px; font-family: var(--mono);
   font-size: 9.5px; letter-spacing: .5px; color: var(--text-3); text-decoration: none; opacity: .7; transition: opacity .16s, color .16s; }
 .source-offer:hover { opacity: 1; color: var(--neon); }
+.sidebar-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 8px; }
+.sidebar-meta .source-offer { white-space: nowrap; }
 
 /* ---------- MAIN ---------- */
 .main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }

@@ -9,7 +9,11 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SHORTCUT_GROUPS, isShortcutPanelKey } from './shortcuts';
+import { isShortcutPanelKey, shortcutGroups } from './shortcuts';
+import { setLocale } from '../i18n';
+
+setLocale('pt', { persist: false });
+const SHORTCUT_GROUPS = shortcutGroups();
 
 const grid = readFileSync(join(import.meta.dir, 'Grid.vue'), 'utf8');
 

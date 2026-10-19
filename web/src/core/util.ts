@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Lucas Pagliarini
 import type { FileType, Bucket } from './models';
+import { t } from '../i18n';
 
 const GB = 1024 ** 3, MB = 1024 ** 2, KB = 1024;
 
@@ -12,17 +13,23 @@ export function fmtBytes(b?: number): string {
   return b + ' B';
 }
 
-/** Compact pt-BR "time ago": "agora", "3 min", "2 h", "5 d". */
+/** Compact "time ago": "now", "3 min", "2 h", "5 d". */
 export function timeAgo(iso?: string): string {
   if (!iso) return '';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '';
-  const s = Math.floor((Date.now() - t) / 1000);
-  if (s < 60) return 'agora';
-  const m = Math.floor(s / 60); if (m < 60) return m + ' min';
-  const h = Math.floor(m / 60); if (h < 24) return h + ' h';
-  const d = Math.floor(h / 24); if (d < 30) return d + ' d';
-  const mo = Math.floor(d / 30); return mo + ' mês' + (mo > 1 ? 'es' : '');
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return '';
+  const seconds = Math.floor((Date.now() - time) / 1000);
+  if (seconds < 60) return t('time.now');
+  const minutes = Math.floor(seconds / 60); if (minutes < 60) return t('time.minutes', { count: minutes });
+  const hours = Math.floor(minutes / 60); if (hours < 24) return t('time.hours', { count: hours });
+  const days = Math.floor(hours / 24); if (days < 30) return t('time.days', { count: days });
+  return t('time.months', { count: Math.floor(days / 30) });
+}
+
+export function timeAgoPhrase(iso?: string): string {
+  const compact = timeAgo(iso);
+  if (!compact) return '';
+  return compact === t('time.now') ? t('time.justNow') : t('time.ago', { time: compact });
 }
 
 const EXT_TYPE: Record<string, FileType> = {

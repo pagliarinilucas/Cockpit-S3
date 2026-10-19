@@ -4,13 +4,14 @@
 -->
 <script setup lang="ts">
 import { useBranding } from '../core/branding';
+import { t } from '../i18n';
 
 const { showPoweredBy } = useBranding();
 </script>
 
 <template>
   <a v-if="showPoweredBy" class="powered-by" href="https://github.com/pagliarinilucas/Cockpit-S3" target="_blank" rel="noopener">
-    Powered by Cockpit S3
+    {{ t('ui.poweredBy') }}
   </a>
 </template>
 

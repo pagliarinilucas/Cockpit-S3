@@ -10,6 +10,10 @@ import type {
   BrandingSettings, BrandingInput,
 } from './models';
 import type { SheetView } from '../sheet/view';
+import { t } from '../i18n';
+import type { Catalog } from '../i18n/catalog';
+
+export type ActionKey = keyof Catalog['actions'];
 
 export interface ConnectionPayload {
   name: string; endpoint: string; region: string; accessKey: string; secretKey?: string; buckets: string[];
@@ -381,10 +385,11 @@ export function shareDownloadUrl(token: string): string {
 }
 
 /** Shared helper for the views' error messages. */
-export function apiErrMsg(e: unknown, verb = 'carregar'): string {
+export function apiErrMsg(e: unknown, action: ActionKey = 'load'): string {
   const status = e instanceof ApiError ? e.status : -1;
-  if (status === 0) return 'API indisponível em localhost:3000.';
-  if (status === 501) return 'Recurso ainda não disponível no backend.';
-  if (status === 402) return 'Recurso exclusivo das edições Pro/Enterprise — ative uma licença em Configurações.';
-  return `Erro ${status > 0 ? status : ''} ao ${verb}.`.replace('  ', ' ');
+  if (status === 0) return t('errors.network');
+  if (status === 501) return t('errors.notImplemented');
+  if (status === 402) return t('errors.licenseRequired');
+  const actionText = t(`actions.${action}`);
+  return status > 0 ? t('errors.withStatus', { status, action: actionText }) : t('errors.withoutStatus', { action: actionText });
 }

@@ -6,7 +6,8 @@
 import { ref, computed, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue';
 import type { ObjectItem, Perm } from '../core/models';
 import { api } from '../core/api';
-import { fmtBytes, timeAgo, ICON_FOR } from '../core/util';
+import { fmtBytes, timeAgoPhrase, ICON_FOR } from '../core/util';
+import { t } from '../i18n';
 import Icon from '../components/Icon.vue';
 import PermBadge from '../components/PermBadge.vue';
 import { isSheetName, type Cell, type CellStyle } from '../sheet/model';
@@ -165,35 +166,35 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
             </div>
           </div>
           <div class="pv-head-r">
-            <button v-if="editable(item)" class="btn btn-primary" @click="emit('edit', item)"><Icon name="edit" :size="16" />Editar</button>
-            <button v-if="canDownloadOf(item)" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Download</button>
-            <button v-if="canDownloadOf(item)" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />Link</button>
-            <button v-if="canWriteOf(item)" class="iconbtn iconbtn-danger" title="Excluir" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>
+            <button v-if="editable(item)" class="btn btn-primary" @click="emit('edit', item)"><Icon name="edit" :size="16" />{{ t('preview.edit') }}</button>
+            <button v-if="canDownloadOf(item)" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />{{ t('preview.download') }}</button>
+            <button v-if="canDownloadOf(item)" class="btn" @click="emit('copyLink', item)"><Icon name="copy" :size="16" />{{ t('preview.link') }}</button>
+            <button v-if="canWriteOf(item)" class="iconbtn iconbtn-danger" :title="t('preview.delete')" @click="emit('delete', item); emit('close')"><Icon name="trash" :size="17" /></button>
             <button class="iconbtn iconbtn-lg" @click="emit('close')"><Icon name="x" :size="18" /></button>
           </div>
         </div>
 
         <div class="pv-stage">
           <div class="pv-body">
-            <div v-if="loading" class="pv-loading"><div class="spinner"></div>ABRINDO…</div>
-            <div v-else-if="failed" class="pv-loading"><Icon name="alert" :size="34" />Não foi possível abrir a prévia.</div>
+            <div v-if="loading" class="pv-loading"><div class="spinner"></div>{{ t('preview.opening') }}</div>
+            <div v-else-if="failed" class="pv-loading"><Icon name="alert" :size="34" />{{ t('preview.openFailed') }}</div>
             <div v-else-if="item.type === 'sheet'" class="pv-sheet">
               <div class="pv-sheet-bar">
                 <div v-if="sheetNames.length > 1" class="pv-sheet-tabs">
                   <button v-for="s in sheetNames" :key="s" class="pv-sheet-tab" :class="{ 'pv-sheet-tab-on': s === activeSheet }" @click="selectSheet(s)">{{ s }}</button>
                 </div>
                 <div class="pv-sheet-spacer" />
-                <button class="iconbtn" title="Atalhos (Ctrl + /)" @click="showShortcuts = true">
+                <button class="iconbtn" :title="t('preview.shortcuts')" @click="showShortcuts = true">
                   <Icon name="help" :size="16" />
                 </button>
                 <button
                   class="iconbtn"
-                  :title="full ? 'Sair da tela inteira (Esc)' : 'Ver em tela inteira'"
+                  :title="full ? t('preview.exitFullscreen') : t('preview.fullscreen')"
                   @click="toggleFull"
                 >
                   <Icon :name="full ? 'shrink' : 'expand'" :size="16" />
                 </button>
-                <button class="iconbtn" :title="sheetLight ? 'Tema escuro' : 'Tema claro'" @click="toggleSheetLight">
+                <button class="iconbtn" :title="sheetLight ? t('preview.darkTheme') : t('preview.lightTheme')" @click="toggleSheetLight">
                   <Icon name="palette" :size="16" />
                 </button>
               </div>
@@ -218,8 +219,8 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
               <div v-else class="pv-noprev">
                 <Icon name="file" :size="46" />
                 <div class="pv-noprev-name">{{ item.name }}</div>
-                <div class="pv-noprev-sub">Sem prévia para este arquivo</div>
-                <button v-if="canDownloadOf(item)" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />Baixar</button>
+                <div class="pv-noprev-sub">{{ t('preview.noPreviewFile') }}</div>
+                <button v-if="canDownloadOf(item)" class="btn" @click="emit('download', item)"><Icon name="download" :size="16" />{{ t('preview.downloadButton') }}</button>
               </div>
             </template>
             <template v-else-if="url">
@@ -230,18 +231,18 @@ const iconFor = (it: ObjectItem) => ICON_FOR[it.type || 'file'];
                 <div class="pv-wave"><span v-for="(h, i) in wave" :key="i" :style="{ height: h + '%' }"></span></div>
                 <audio :src="url" controls autoplay></audio>
               </div>
-              <div v-else class="pv-loading"><Icon name="file" :size="34" />Sem prévia para este tipo.</div>
+              <div v-else class="pv-loading"><Icon name="file" :size="34" />{{ t('preview.noPreviewType') }}</div>
             </template>
           </div>
 
           <aside class="pv-info">
-            <div class="pv-info-row"><span>TIPO</span><b>{{ (item.type || 'file').toUpperCase() }}</b></div>
-            <div class="pv-info-row"><span>TAMANHO</span><b>{{ fmtBytes(item.size) }}</b></div>
-            <div v-if="item.modified" class="pv-info-row"><span>MODIFICADO</span><b>{{ timeAgo(item.modified) }} atrás</b></div>
-            <div v-if="item.by" class="pv-info-row"><span>AUTOR</span><b>{{ item.by }}</b></div>
+            <div class="pv-info-row"><span>{{ t('preview.type') }}</span><b>{{ (item.type || 'file').toUpperCase() }}</b></div>
+            <div class="pv-info-row"><span>{{ t('preview.size') }}</span><b>{{ fmtBytes(item.size) }}</b></div>
+            <div v-if="item.modified" class="pv-info-row"><span>{{ t('preview.modified') }}</span><b>{{ timeAgoPhrase(item.modified) }}</b></div>
+            <div v-if="item.by" class="pv-info-row"><span>{{ t('preview.author') }}</span><b>{{ item.by }}</b></div>
             <div class="pv-info-sep"></div>
             <div><PermBadge :perm="bucketPerm" :small="true" /></div>
-            <div class="pv-info-counter">{{ idx + 1 }} de {{ items.length }} · use ← →</div>
+            <div class="pv-info-counter">{{ t('preview.counter', { current: idx + 1, total: items.length }) }}</div>
           </aside>
         </div>
       </template>

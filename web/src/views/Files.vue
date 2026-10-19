@@ -22,6 +22,7 @@ import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import Thumb from '../components/Thumb.vue';
 import ShareCreate from '../components/ShareCreate.vue';
 import ShareLinks from '../components/ShareLinks.vue';
+import { t, type MessageKey } from '../i18n';
 
 const props = defineProps<{ bucket: Bucket; path: string[]; canBack?: boolean; canShare?: boolean; user?: string }>();
 const emit = defineEmits<{ back: []; openFolder: [name: string]; crumb: [index: number] }>();
@@ -76,7 +77,7 @@ async function reload() {
     pathPerm.value = res.perm ?? null;
     nextToken.value = res.nextToken ?? null;
   } catch (e) {
-    error.value = apiErrMsg(e, 'listar');
+    error.value = apiErrMsg(e, 'list');
     items.value = [];
   } finally {
     loading.value = false;
@@ -92,7 +93,7 @@ async function loadMore() {
     pathPerm.value = res.perm ?? pathPerm.value;
     nextToken.value = res.nextToken ?? null;
   } catch (e) {
-    toast.error(apiErrMsg(e, 'carregar mais'));
+    toast.error(apiErrMsg(e, 'loadMore'));
   } finally {
     loadingMore.value = false;
   }
@@ -120,7 +121,7 @@ async function runSearch(term: string) {
     if (seq !== searchSeq) return;                 // a newer search superseded this one
     results.value = mapItems(res.items ?? []);
   } catch (e) {
-    if (seq === searchSeq) { results.value = []; toast.error(apiErrMsg(e, 'buscar')); }
+    if (seq === searchSeq) { results.value = []; toast.error(apiErrMsg(e, 'search')); }
   } finally {
     if (seq === searchSeq) searching.value = false;
   }
@@ -179,17 +180,17 @@ function onContext(it: ObjectItem, e: MouseEvent) { ctx.value = { x: e.clientX, 
 const ctxItems = computed<MenuItem[]>(() => {
   const it = ctx.value?.item; if (!it) return [];
   if (it.kind === 'folder') return [
-    { key: 'open', label: 'Abrir', icon: 'folder' },
-    { key: 'zip', label: 'Baixar como ZIP', icon: 'download' },
-    ...(canWriteItem(it) ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
+    { key: 'open', label: t('files.menu.open'), icon: 'folder' },
+    { key: 'zip', label: t('files.menu.zip'), icon: 'download' },
+    ...(canWriteItem(it) ? [{ key: 'delete', label: t('files.menu.delete'), icon: 'trash', danger: true } as MenuItem] : []),
   ];
   return [
-    ...(previewable(it) ? [{ key: 'preview', label: 'Visualizar', icon: 'eye' } as MenuItem] : []),
-    ...(editable(it) ? [{ key: 'edit', label: 'Editar planilha', icon: 'edit' } as MenuItem] : []),
-    ...(canDownloadItem(it) ? [{ key: 'download', label: 'Baixar', icon: 'download' } as MenuItem] : []),
-    ...(canDownloadItem(it) ? [{ key: 'copy', label: 'Copiar link', icon: 'copy' } as MenuItem] : []),
-    ...(props.canShare && canDownloadItem(it) ? [{ key: 'share', label: 'Compartilhar', icon: 'share' } as MenuItem] : []),
-    ...(canWriteItem(it) ? [{ key: 'delete', label: 'Excluir', icon: 'trash', danger: true } as MenuItem] : []),
+    ...(previewable(it) ? [{ key: 'preview', label: t('files.menu.preview'), icon: 'eye' } as MenuItem] : []),
+    ...(editable(it) ? [{ key: 'edit', label: t('files.menu.editSheet'), icon: 'edit' } as MenuItem] : []),
+    ...(canDownloadItem(it) ? [{ key: 'download', label: t('files.menu.download'), icon: 'download' } as MenuItem] : []),
+    ...(canDownloadItem(it) ? [{ key: 'copy', label: t('files.menu.copyLink'), icon: 'copy' } as MenuItem] : []),
+    ...(props.canShare && canDownloadItem(it) ? [{ key: 'share', label: t('files.menu.share'), icon: 'share' } as MenuItem] : []),
+    ...(canWriteItem(it) ? [{ key: 'delete', label: t('files.menu.delete'), icon: 'trash', danger: true } as MenuItem] : []),
   ];
 });
 function onCtxSelect(key: string) {
@@ -220,7 +221,7 @@ async function createSheet(name: string) {
     await reload();
     openEditor(key);
   } catch (e) {
-    toast.error(apiErrMsg(e, 'criar planilha'));
+    toast.error(apiErrMsg(e, 'createSheet'));
   }
 }
 
@@ -233,25 +234,25 @@ async function downloadItem(it: ObjectItem) {
     a.href = url; a.download = it.name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 15000);
-  } catch { toast.error('Falha ao gerar download'); }
+  } catch { toast.error(t('files.downloadFailed')); }
 }
 async function copyLink(it: ObjectItem) {
   try {
     const { url } = await api.download(props.bucket.id, it.key);
     await navigator.clipboard.writeText(url);
-    toast.info('Link assinado copiado');
-  } catch { toast.error('Falha ao copiar link'); }
+    toast.info(t('files.linkCopied'));
+  } catch { toast.error(t('files.copyLinkFailed')); }
 }
 async function batchDownload() {
   const files = selectedFiles.value;
-  if (!files.length) { toast.info('Selecione arquivos para baixar'); return; }
+  if (!files.length) { toast.info(t('files.selectToDownload')); return; }
   for (const f of files) { await downloadItem(f); await new Promise((r) => setTimeout(r, 300)); }
 }
 
-const ZIP_ERRORS: Record<number, string> = {
-  403: 'Sem permissão para baixar estes arquivos',
-  413: 'Seleção muito grande para um ZIP',
-  422: 'Nada para compactar aqui',
+const ZIP_ERRORS: Record<number, MessageKey> = {
+  403: 'files.zipForbidden',
+  413: 'files.zipTooLarge',
+  422: 'files.zipEmpty',
 };
 
 async function startZip(body: { prefix?: string; keys?: string[]; filename: string }) {
@@ -263,10 +264,10 @@ async function startZip(body: { prefix?: string; keys?: string[]; filename: stri
     a.href = api.zipUrl(props.bucket.id, ticket);
     a.download = body.filename + '.zip';
     document.body.appendChild(a); a.click(); a.remove();
-    toast.info(`Compactando ${count} ite${count === 1 ? 'm' : 'ns'} — o download começa em seguida`);
+    toast.info(t('files.zipStarted', { count }));
   } catch (e) {
     const status = (e as { status?: number }).status ?? 0;
-    toast.error(ZIP_ERRORS[status] ?? 'Falha ao gerar o ZIP');
+    toast.error(t(ZIP_ERRORS[status] ?? 'files.zipFailed'));
   } finally {
     zipping.value = false;
   }
@@ -284,7 +285,7 @@ function selectionZip() {
 }
 
 // juntar em PDF
-function openMerge() { merge.value = { items: [...mergeables.value], name: 'combinado' }; }
+function openMerge() { merge.value = { items: [...mergeables.value], name: t('files.mergeDefaultName') }; }
 function removeMerge(i: number) { merge.value?.items.splice(i, 1); }
 
 // reordenação por arrastar (drag nativo): move o item em tempo real ao passar sobre outra linha
@@ -301,22 +302,22 @@ async function confirmMerge() {
   const m = merge.value; if (!m || !m.items.length || merging.value) return;
   merging.value = true;
   try {
-    const { blob, skipped } = await api.mergePdf(props.bucket.id, m.items.map((i) => i.key), m.name.trim() || 'combinado');
+    const { blob, skipped } = await api.mergePdf(props.bucket.id, m.items.map((i) => i.key), m.name.trim() || t('files.mergeDefaultName'));
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = (m.name.trim() || 'combinado') + '.pdf';
+    a.href = url; a.download = (m.name.trim() || t('files.mergeDefaultName')) + '.pdf';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 15000);
     merge.value = null;
-    toast.success('PDF gerado');
-    if (skipped) toast.info(`${skipped} arquivo${skipped > 1 ? 's' : ''} ignorado${skipped > 1 ? 's' : ''} (formato não suportado)`);
-  } catch (e) { toast.error(apiErrMsg(e, 'gerar PDF')); }
+    toast.success(t('files.pdfGenerated'));
+    if (skipped) toast.info(t('files.mergeSkipped', { count: skipped }));
+  } catch (e) { toast.error(apiErrMsg(e, 'generatePdf')); }
   finally { merging.value = false; }
 }
 
 // delete
 function askDelete(it: ObjectItem) { toDelete.value = { keys: [it.key], label: it.name }; }
-function askBatchDelete() { toDelete.value = { keys: [...selection.value], label: `${selection.value.size} itens` }; }
+function askBatchDelete() { toDelete.value = { keys: [...selection.value], label: t('files.itemsLabel', { count: selection.value.size }) }; }
 async function confirmDelete() {
   const d = toDelete.value; if (!d) return;
   toDelete.value = null;
@@ -324,17 +325,17 @@ async function confirmDelete() {
     const res = await api.deleteObjects(props.bucket.id, d.keys);
     if (res.ok === false) {
       const failed = res.failed ?? [];
-      toast.error(`Não foi possível excluir ${failed.length} item${failed.length > 1 ? 's' : ''}: ${failed.join(', ')}`);
+      toast.error(t('files.deleteFailedSome', { count: failed.length, list: failed.join(', ') }));
     } else {
-      toast.success(d.keys.length > 1 ? `${d.keys.length} itens excluídos` : `${d.label} excluído`);
+      toast.success(d.keys.length > 1 ? t('files.deletedMany', { count: d.keys.length }) : t('files.deletedOne', { name: d.label }));
     }
     reload();
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       toast.error(d.keys.length > 1
-        ? 'Algum item está aberto no editor de planilhas. Feche o editor e tente de novo.'
-        : `"${d.label}" está aberto no editor de planilhas. Feche o editor e tente de novo.`);
-    } else toast.error('Falha ao excluir');
+        ? t('files.deleteLockedMany')
+        : t('files.deleteLockedOne', { name: d.label }));
+    } else toast.error(t('files.deleteFailed'));
   }
 }
 
@@ -342,8 +343,8 @@ async function confirmDelete() {
 async function createFolder(name: string) {
   if (!name.trim()) return;
   showFolder.value = false;
-  try { await api.createFolder(props.bucket.id, prefix.value, name.trim()); toast.success(`Pasta "${name}" criada`); reload(); }
-  catch { toast.error('Falha ao criar pasta'); }
+  try { await api.createFolder(props.bucket.id, prefix.value, name.trim()); toast.success(t('files.folderCreated', { name })); reload(); }
+  catch { toast.error(t('files.folderCreateFailed')); }
 }
 
 // upload
@@ -369,16 +370,16 @@ function enqueue(file: File, rel: string, onDone: () => void, onErr: () => void)
   });
 }
 function runBatch(items: { file: File; rel: string }[]) {
-  if (!canWrite.value) { toast.error('Sem permissão de escrita neste bucket'); return; }
+  if (!canWrite.value) { toast.error(t('files.noWritePermission')); return; }
   if (!items.length) return;
   const total = items.length;
   const label = items[0]!.rel || items[0]!.file.name;
   let done = 0, ok = 0, fail = 0;
   const finish = () => {
     if (++done < total) return;
-    if (fail === 0) toast.success(total === 1 ? `${label} enviado` : `${ok} arquivos enviados`);
-    else if (ok === 0) toast.error(total === 1 ? `Falha ao enviar ${label}` : `Falha ao enviar ${fail} arquivos`);
-    else toast.error(`${ok} enviados, ${fail} com falha`);
+    if (fail === 0) toast.success(total === 1 ? t('files.uploadedOne', { name: label }) : t('files.uploadedMany', { count: ok }));
+    else if (ok === 0) toast.error(total === 1 ? t('files.uploadFailedOne', { name: label }) : t('files.uploadFailedMany', { count: fail }));
+    else toast.error(t('files.uploadPartial', { ok, failed: fail }));
     reload();
   };
   let next = 0;
@@ -393,7 +394,7 @@ function runBatch(items: { file: File; rel: string }[]) {
 }
 const pendingUpload = ref<{ items: { file: File; rel: string }[]; collisions: string[] } | null>(null);
 function requestUpload(batch: { file: File; rel: string }[]) {
-  if (!canWrite.value) { toast.error('Sem permissão de escrita neste bucket'); return; }
+  if (!canWrite.value) { toast.error(t('files.noWritePermission')); return; }
   if (!batch.length) return;
   const existing = new Set(items.value.filter((i) => i.kind === 'file').map((i) => i.key));
   const collisions = batch.filter((b) => existing.has(prefix.value + b.rel)).map((b) => b.rel);
@@ -436,7 +437,7 @@ async function onDrop(e: DragEvent) {
   if (entries.length) {
     const collected: { file: File; rel: string }[] = [];
     await Promise.all(entries.map((en) => walkEntry(en, '', collected)));
-    if (!collected.length) { toast.error('Nada para enviar'); return; }
+    if (!collected.length) { toast.error(t('files.nothingToUpload')); return; }
     requestUpload(collected);
   } else {
     const files = Array.from(e.dataTransfer?.files ?? []);
@@ -456,8 +457,8 @@ async function saveBucketAlias(value: string) {
   try {
     const r = await api.setBucketAlias(props.bucket.id, value);
     props.bucket.alias = r.alias ?? undefined; // mesmo objeto da lista de Buckets → reflete lá também
-    toast.success('Apelido atualizado');
-  } catch (e) { toast.error(apiErrMsg(e, 'salvar')); }
+    toast.success(t('files.aliasUpdated'));
+  } catch (e) { toast.error(apiErrMsg(e, 'save')); }
 }
 
 defineExpose({ reload });
@@ -467,9 +468,9 @@ defineExpose({ reload });
   <div class="view view-files" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
     <!-- breadcrumbs -->
     <div class="crumbs">
-      <button v-if="canGoUp" class="iconbtn crumb-back" title="Voltar" @click="goUp"><Icon name="chevL" :size="18" /></button>
+      <button v-if="canGoUp" class="iconbtn crumb-back" :title="t('files.back')" @click="goUp"><Icon name="chevL" :size="18" /></button>
       <button class="crumb crumb-root" @click="canBack ? $emit('back') : $emit('crumb', -1)"><Icon name="database" :size="15" /> {{ bucketLabel(bucket) }}</button>
-      <button class="iconbtn" title="Renomear apelido" @click="renamingBucket = true"><Icon name="edit" :size="15" /></button>
+      <button class="iconbtn" :title="t('files.renameAlias')" @click="renamingBucket = true"><Icon name="edit" :size="15" /></button>
       <template v-for="(seg, i) in path" :key="i">
         <Icon name="chevR" :size="13" class="crumb-sep" />
         <button class="crumb" @click="crumb(i)">{{ seg }}</button>
@@ -481,51 +482,51 @@ defineExpose({ reload });
     <div class="ftoolbar">
       <div class="searchbox searchbox-inline">
         <Icon name="search" :size="15" />
-        <input v-model="query" :placeholder="'Buscar em ' + (bucket.name ?? bucket.id) + '…'" />
+        <input v-model="query" :placeholder="t('files.searchIn', { name: bucket.name ?? bucket.id })" />
         <button v-if="query" class="iconbtn" @click="query = ''"><Icon name="x" :size="14" /></button>
       </div>
       <div class="ftoolbar-right">
-        <button v-if="ordered.length > 0" class="btn" @click="selectAll" :title="allSel ? 'Desmarcar todos' : 'Selecionar todos'">
-          <Icon name="check" :size="16" />{{ allSel ? 'Desmarcar' : 'Selecionar tudo' }}
+        <button v-if="ordered.length > 0" class="btn" @click="selectAll" :title="allSel ? t('files.deselectAll') : t('files.selectAll')">
+          <Icon name="check" :size="16" />{{ allSel ? t('files.deselect') : t('files.selectAll') }}
         </button>
-        <button v-if="canShare" class="btn" @click="showLinks = true"><Icon name="link" :size="16" />Links</button>
-        <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />Pasta</button>
-        <button v-if="canWrite" class="btn" @click="folderInput?.click()"><Icon name="upload" :size="16" />Enviar pasta</button>
-        <button v-if="canWrite" class="btn" @click="showNewSheet = true"><Icon name="sheet" :size="16" />Planilha</button>
-        <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Upload</button>
+        <button v-if="canShare" class="btn" @click="showLinks = true"><Icon name="link" :size="16" />{{ t('files.links') }}</button>
+        <button v-if="canWrite" class="btn" @click="showFolder = true"><Icon name="folderPlus" :size="16" />{{ t('files.folder') }}</button>
+        <button v-if="canWrite" class="btn" @click="folderInput?.click()"><Icon name="upload" :size="16" />{{ t('files.uploadFolder') }}</button>
+        <button v-if="canWrite" class="btn" @click="showNewSheet = true"><Icon name="sheet" :size="16" />{{ t('files.sheet') }}</button>
+        <button v-if="canWrite" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />{{ t('files.upload') }}</button>
         <input ref="fileInput" type="file" multiple hidden @change="onPick" />
         <input ref="folderInput" type="file" webkitdirectory multiple hidden @change="onPick" />
         <div class="seg">
-          <button class="seg-btn" :class="{ 'seg-on': viewMode === 'list' }" @click="viewMode = 'list'" title="Lista"><Icon name="list" :size="16" /></button>
-          <button class="seg-btn" :class="{ 'seg-on': viewMode === 'grid' }" @click="viewMode = 'grid'" title="Grade"><Icon name="grid" :size="16" /></button>
+          <button class="seg-btn" :class="{ 'seg-on': viewMode === 'list' }" @click="viewMode = 'list'" :title="t('files.listView')"><Icon name="list" :size="16" /></button>
+          <button class="seg-btn" :class="{ 'seg-on': viewMode === 'grid' }" @click="viewMode = 'grid'" :title="t('files.gridView')"><Icon name="grid" :size="16" /></button>
         </div>
       </div>
     </div>
 
     <!-- selection bar -->
     <div v-if="selection.size > 0" class="selbar">
-      <span class="selbar-count"><Icon name="check" :size="14" /> {{ selection.size }} selecionado{{ selection.size > 1 ? 's' : '' }}</span>
+      <span class="selbar-count"><Icon name="check" :size="14" /> {{ t('files.selectedCount', { count: selection.size }) }}</span>
       <div class="selbar-actions">
-        <button v-if="selCanDownload && onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />Baixar</button>
-        <button v-if="selCanDownload" class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? 'Preparando…' : 'Baixar ZIP' }}</button>
-        <button v-if="selCanDownload && mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />Criar PDF</button>
-        <button v-if="selCanWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />Excluir</button>
-        <button class="btn" @click="clearSel"><Icon name="x" :size="16" />Limpar</button>
+        <button v-if="selCanDownload && onlyFilesSelected" class="btn" @click="batchDownload"><Icon name="download" :size="16" />{{ t('files.download') }}</button>
+        <button v-if="selCanDownload" class="btn" :disabled="zipping" @click="selectionZip"><Icon name="download" :size="16" />{{ zipping ? t('files.preparing') : t('files.downloadZip') }}</button>
+        <button v-if="selCanDownload && mergeables.length >= 2" class="btn" @click="openMerge"><Icon name="pdf" :size="16" />{{ t('files.createPdf') }}</button>
+        <button v-if="selCanWrite" class="btn btn-danger" @click="askBatchDelete"><Icon name="trash" :size="16" />{{ t('files.delete') }}</button>
+        <button class="btn" @click="clearSel"><Icon name="x" :size="16" />{{ t('files.clear') }}</button>
       </div>
     </div>
 
-    <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
+    <div v-if="loading" class="loading"><div class="spinner"></div>{{ t('files.loading') }}</div>
     <div v-else-if="error" class="errbox">
       <Icon name="alert" :size="32" />
-      <div class="errbox-title">Não foi possível listar a pasta</div>
+      <div class="errbox-title">{{ t('files.listFailed') }}</div>
       <div class="errbox-sub">{{ error }}</div>
-      <button class="btn" @click="reload"><Icon name="refresh" :size="15" />Tentar de novo</button>
+      <button class="btn" @click="reload"><Icon name="refresh" :size="15" />{{ t('files.tryAgain') }}</button>
     </div>
-    <div v-else-if="searching && ordered.length === 0" class="loading"><div class="spinner"></div>BUSCANDO EM TODO O BUCKET…</div>
+    <div v-else-if="searching && ordered.length === 0" class="loading"><div class="spinner"></div>{{ t('files.searchingBucket') }}</div>
     <div v-else-if="ordered.length === 0" class="empty empty-files">
       <Icon :name="isSearch ? 'search' : 'folder'" :size="30" />
-      <p>{{ isSearch ? 'Nada encontrado.' : 'Pasta vazia.' }}</p>
-      <button v-if="canWrite && !isSearch" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />Enviar arquivos</button>
+      <p>{{ isSearch ? t('files.nothingFound') : t('files.emptyFolder') }}</p>
+      <button v-if="canWrite && !isSearch" class="btn btn-primary" @click="fileInput?.click()"><Icon name="upload" :size="16" />{{ t('files.uploadFiles') }}</button>
     </div>
 
     <!-- list -->
@@ -533,9 +534,9 @@ defineExpose({ reload });
       <div class="frow frow-head">
         <label class="frow-check"><input type="checkbox" :checked="allSel" @change="selectAll" /><span class="cbox"><Icon name="check" :size="12" /></span></label>
         <div class="frow-icon"></div>
-        <div class="frow-name">NOME</div>
-        <div class="frow-size">TAMANHO</div>
-        <div class="frow-date">MODIFICADO</div>
+        <div class="frow-name">{{ t('files.colName') }}</div>
+        <div class="frow-size">{{ t('files.colSize') }}</div>
+        <div class="frow-date">{{ t('files.colModified') }}</div>
         <div class="frow-actions"></div>
       </div>
       <div class="flist">
@@ -551,20 +552,20 @@ defineExpose({ reload });
           </div>
           <div class="frow-name">
             <span class="frow-title">{{ it.name }}</span>
-            <span v-if="it.kind === 'folder'" class="frow-meta">pasta</span>
+            <span v-if="it.kind === 'folder'" class="frow-meta">{{ t('files.folderMeta') }}</span>
             <span v-else-if="isSearch && relDir(it)" class="frow-meta"><Icon name="folder" :size="12" /> {{ relDir(it) }} · {{ tp(it) }}</span>
-            <span v-else class="frow-meta">{{ tp(it) }}{{ it.by ? ' · por ' + it.by : '' }}</span>
+            <span v-else class="frow-meta">{{ tp(it) }}{{ it.by ? t('files.byUser', { user: it.by }) : '' }}</span>
           </div>
           <div class="frow-size">{{ it.kind === 'folder' ? '—' : fmtBytes(it.size) }}</div>
           <div class="frow-date">{{ timeAgo(it.modified) }}</div>
           <div class="frow-actions" @click.stop>
-            <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
-            <button v-if="editable(it)" class="iconbtn" title="Editar planilha" @click="openEditor(it.key)"><Icon name="edit" :size="16" /></button>
-            <button v-if="canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
-            <button v-if="canDownloadItem(it) && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
-            <button v-if="canDownloadItem(it)" class="iconbtn" title="Copiar link" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
-            <button v-if="canShare && canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="16" /></button>
-            <button v-if="canWriteItem(it)" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
+            <button v-if="previewable(it)" class="iconbtn" :title="t('files.preview')" @click="openPreview(it)"><Icon name="eye" :size="16" /></button>
+            <button v-if="editable(it)" class="iconbtn" :title="t('files.editSheet')" @click="openEditor(it.key)"><Icon name="edit" :size="16" /></button>
+            <button v-if="canDownloadItem(it) && it.kind === 'file'" class="iconbtn" :title="t('files.downloadTitle')" @click="downloadItem(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownloadItem(it) && it.kind === 'folder'" class="iconbtn" :title="t('files.folderZip')" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="16" /></button>
+            <button v-if="canDownloadItem(it)" class="iconbtn" :title="t('files.copyLink')" @click="copyLink(it)"><Icon name="copy" :size="16" /></button>
+            <button v-if="canShare && canDownloadItem(it) && it.kind === 'file'" class="iconbtn" :title="t('files.share')" @click="openShare(it)"><Icon name="share" :size="16" /></button>
+            <button v-if="canWriteItem(it)" class="iconbtn iconbtn-danger" :title="t('files.delete')" @click="askDelete(it)"><Icon name="trash" :size="16" /></button>
           </div>
         </div>
       </div>
@@ -584,13 +585,13 @@ defineExpose({ reload });
         </div>
         <div class="fcard-name" :title="isSearch && relDir(it) ? relDir(it) + it.name : it.name">{{ it.name }}</div>
         <div v-if="isSearch && relDir(it)" class="fcard-meta fcard-dir" :title="relDir(it)"><Icon name="folder" :size="11" /> {{ relDir(it) }}</div>
-        <div class="fcard-meta">{{ it.kind === 'folder' ? 'pasta' : fmtBytes(it.size) }}<span class="dot-sep">·</span>{{ timeAgo(it.modified) }}</div>
+        <div class="fcard-meta">{{ it.kind === 'folder' ? t('files.folderMeta') : fmtBytes(it.size) }}<span class="dot-sep">·</span>{{ timeAgo(it.modified) }}</div>
         <div class="fcard-actions" @click.stop>
-          <button v-if="previewable(it)" class="iconbtn" title="Visualizar" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
-          <button v-if="canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Download" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
-          <button v-if="canDownloadItem(it) && it.kind === 'folder'" class="iconbtn" title="Baixar pasta como ZIP" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
-          <button v-if="canShare && canDownloadItem(it) && it.kind === 'file'" class="iconbtn" title="Compartilhar" @click="openShare(it)"><Icon name="share" :size="15" /></button>
-          <button v-if="canWriteItem(it)" class="iconbtn iconbtn-danger" title="Excluir" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
+          <button v-if="previewable(it)" class="iconbtn" :title="t('files.preview')" @click="openPreview(it)"><Icon name="eye" :size="15" /></button>
+          <button v-if="canDownloadItem(it) && it.kind === 'file'" class="iconbtn" :title="t('files.downloadTitle')" @click="downloadItem(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canDownloadItem(it) && it.kind === 'folder'" class="iconbtn" :title="t('files.folderZip')" :disabled="zipping" @click="downloadFolderZip(it)"><Icon name="download" :size="15" /></button>
+          <button v-if="canShare && canDownloadItem(it) && it.kind === 'file'" class="iconbtn" :title="t('files.share')" @click="openShare(it)"><Icon name="share" :size="15" /></button>
+          <button v-if="canWriteItem(it)" class="iconbtn iconbtn-danger" :title="t('files.delete')" @click="askDelete(it)"><Icon name="trash" :size="15" /></button>
         </div>
       </div>
     </div>
@@ -598,23 +599,23 @@ defineExpose({ reload });
     <!-- carregar mais (paginação) — só na navegação normal, não na busca -->
     <div v-if="!loading && !error && !isSearch && nextToken" class="loadmore">
       <button class="btn" :disabled="loadingMore" @click="loadMore">
-        <Icon name="chevD" :size="16" />{{ loadingMore ? 'Carregando…' : 'Carregar mais' }}
+        <Icon name="chevD" :size="16" />{{ loadingMore ? t('files.loadingMore') : t('files.loadMore') }}
       </button>
     </div>
 
     <!-- footer -->
     <div v-if="!loading && !error" class="fstatus">
-      <span v-if="isSearch">{{ ordered.length }} resultado{{ ordered.length !== 1 ? 's' : '' }}{{ ordered.length >= 300 ? '+' : '' }} para “{{ query.trim() }}” · busca recursiva</span>
-      <span v-else>{{ folderCount }} {{ folderCount !== 1 ? 'pastas' : 'pasta' }} · {{ fileCount }} {{ fileCount !== 1 ? 'arquivos' : 'arquivo' }}{{ nextToken ? '+' : '' }} · {{ fmtBytes(totalSize) }}{{ nextToken ? ' carregados' : ' nesta pasta' }}</span>
-      <span v-if="!canDownloadPerm(notePerm)" class="ro-note"><Icon name="eye" :size="13" /> somente visualização (sem download)</span>
-      <span v-else-if="!canWritePerm(notePerm)" class="ro-note"><Icon name="eye" :size="13" /> acesso somente leitura</span>
+      <span v-if="isSearch">{{ t('files.searchStatus', { count: ordered.length, more: ordered.length >= 300 ? '+' : '', term: query.trim() }) }}</span>
+      <span v-else>{{ t('files.folderCount', { count: folderCount }) }} · {{ t('files.fileCount', { count: fileCount }) }}{{ nextToken ? '+' : '' }} · {{ fmtBytes(totalSize) }}{{ nextToken ? t('files.sizeLoaded') : t('files.sizeInFolder') }}</span>
+      <span v-if="!canDownloadPerm(notePerm)" class="ro-note"><Icon name="eye" :size="13" /> {{ t('files.viewOnlyNote') }}</span>
+      <span v-else-if="!canWritePerm(notePerm)" class="ro-note"><Icon name="eye" :size="13" /> {{ t('files.readOnlyNote') }}</span>
     </div>
 
     <!-- dropzone -->
     <div v-if="drag" class="dropzone">
       <div class="dropzone-inner">
         <Icon name="upload" :size="42" />
-        <div class="dropzone-title">Solte para enviar</div>
+        <div class="dropzone-title">{{ t('files.dropToUpload') }}</div>
         <div class="dropzone-sub">{{ bucket.name ?? bucket.id }}{{ path.length ? ' / ' + path.join(' / ') : '' }}</div>
       </div>
     </div>
@@ -637,64 +638,64 @@ defineExpose({ reload });
   <SheetEditor v-if="editing" :bucket-id="bucket.id" :object-key="editing" :user="user ?? ''"
     @close="editing = null; reload()" />
 
-  <InputModal v-if="showFolder" title="Nova pasta" icon="folderPlus" placeholder="nome-da-pasta"
-    confirmLabel="Criar pasta" @close="showFolder = false" @confirm="createFolder" />
+  <InputModal v-if="showFolder" :title="t('files.newFolder')" icon="folderPlus" :placeholder="t('files.folderPlaceholder')"
+    :confirmLabel="t('files.createFolder')" @close="showFolder = false" @confirm="createFolder" />
 
-  <InputModal v-if="showNewSheet" title="Nova planilha" icon="sheet" placeholder="minha-planilha"
-    hint="Cria um .xlsx vazio nesta pasta e abre no editor." confirm-label="Criar planilha"
+  <InputModal v-if="showNewSheet" :title="t('files.newSheet')" icon="sheet" :placeholder="t('files.sheetPlaceholder')"
+    :hint="t('files.sheetHint')" :confirm-label="t('files.createSheet')"
     @close="showNewSheet = false" @confirm="createSheet" />
 
-  <InputModal v-if="renamingBucket" title="Renomear apelido" icon="edit"
-              :initial="bucket.alias ?? ''" placeholder="apelido do bucket"
-              hint="Deixe vazio para voltar ao nome do bucket." confirm-label="Salvar"
+  <InputModal v-if="renamingBucket" :title="t('files.renameAlias')" icon="edit"
+              :initial="bucket.alias ?? ''" :placeholder="t('files.aliasPlaceholder')"
+              :hint="t('files.aliasHint')" :confirm-label="t('common.save')"
               @confirm="saveBucketAlias" @close="renamingBucket = false" />
 
-  <Modal v-if="pendingUpload" title="Substituir arquivos?" icon="upload" @close="pendingUpload = null">
+  <Modal v-if="pendingUpload" :title="t('files.replaceTitle')" icon="upload" @close="pendingUpload = null">
     <p class="modal-text">
       {{ pendingUpload.collisions.length === 1
-        ? 'Já existe um arquivo com este nome nesta pasta:'
-        : `Já existem ${pendingUpload.collisions.length} arquivos com o mesmo nome nesta pasta:` }}
+        ? t('files.replaceOne')
+        : t('files.replaceMany', { count: pendingUpload.collisions.length }) }}
     </p>
     <ul style="margin:8px 0 0;padding:0;list-style:none;max-height:180px;overflow:auto;font-family:var(--mono);font-size:12.5px;color:var(--text-2)">
       <li v-for="c in pendingUpload.collisions.slice(0, 10)" :key="c" style="padding:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c }}</li>
-      <li v-if="pendingUpload.collisions.length > 10" style="padding:3px 0;color:var(--text-3)">… e mais {{ pendingUpload.collisions.length - 10 }}</li>
+      <li v-if="pendingUpload.collisions.length > 10" style="padding:3px 0;color:var(--text-3)">{{ t('files.andMore', { count: pendingUpload.collisions.length - 10 }) }}</li>
     </ul>
-    <p class="modal-warn"><Icon name="shield" :size="14" /> Substituir apaga o conteúdo atual — não há como desfazer.</p>
+    <p class="modal-warn"><Icon name="shield" :size="14" /> {{ t('files.replaceWarn') }}</p>
     <template #foot>
-      <button class="btn" @click="pendingUpload = null">Cancelar</button>
-      <button class="btn btn-danger" @click="confirmUpload"><Icon name="upload" :size="16" />Substituir</button>
+      <button class="btn" @click="pendingUpload = null">{{ t('common.cancel') }}</button>
+      <button class="btn btn-danger" @click="confirmUpload"><Icon name="upload" :size="16" />{{ t('files.replace') }}</button>
     </template>
   </Modal>
 
-  <Modal v-if="toDelete" title="Confirmar exclusão" icon="trash" @close="toDelete = null">
-    <p class="modal-text">Excluir <strong>{{ toDelete.label }}</strong> do bucket <strong>{{ bucket.id }}</strong>?</p>
-    <p class="modal-warn"><Icon name="shield" :size="14" /> Esta ação remove o objeto de todas as réplicas do cluster e não pode ser desfeita.</p>
+  <Modal v-if="toDelete" :title="t('files.confirmDeleteTitle')" icon="trash" @close="toDelete = null">
+    <p class="modal-text">{{ t('files.confirmDeleteBefore') }}<strong>{{ toDelete.label }}</strong>{{ t('files.confirmDeleteMiddle') }}<strong>{{ bucket.id }}</strong>{{ t('files.confirmDeleteAfter') }}</p>
+    <p class="modal-warn"><Icon name="shield" :size="14" /> {{ t('files.confirmDeleteWarn') }}</p>
     <template #foot>
-      <button class="btn" @click="toDelete = null">Cancelar</button>
-      <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />Excluir definitivamente</button>
+      <button class="btn" @click="toDelete = null">{{ t('common.cancel') }}</button>
+      <button class="btn btn-danger" @click="confirmDelete"><Icon name="trash" :size="16" />{{ t('files.deleteForever') }}</button>
     </template>
   </Modal>
 
-  <Modal v-if="merge" title="Criar PDF" icon="pdf" wide @close="merge = null">
-    <p class="modal-text">{{ merge.items.length }} arquivo{{ merge.items.length !== 1 ? 's' : '' }} serão combinados nesta ordem:</p>
+  <Modal v-if="merge" :title="t('files.createPdf')" icon="pdf" wide @close="merge = null">
+    <p class="modal-text">{{ t('files.mergeIntro', { count: merge.items.length }) }}</p>
     <ul class="merge-grid">
       <li v-for="(it, i) in merge.items" :key="it.key" class="merge-cell" :class="{ 'merge-dragging': dragIdx === i }"
-          title="Arraste para reordenar" draggable="true"
+          :title="t('files.dragToReorder')" draggable="true"
           @dragstart="onDragStart(i)" @dragenter.prevent="onDragEnter(i)" @dragover.prevent @dragend="onDragEnd">
         <span class="merge-thumb"><Thumb :bucket-id="bucket.id" :obj-key="it.key" :icon="ICON_FOR[it.type || 'file']" :size="30" /></span>
         <span class="merge-ord">{{ i + 1 }}</span>
-        <button class="merge-del" title="Remover" :disabled="merge.items.length <= 1" @click="removeMerge(i)"><Icon name="x" :size="14" /></button>
+        <button class="merge-del" :title="t('files.remove')" :disabled="merge.items.length <= 1" @click="removeMerge(i)"><Icon name="x" :size="14" /></button>
         <span class="merge-name" :title="it.name">{{ it.name }}</span>
       </li>
     </ul>
     <label class="merge-namefield">
-      <span>Nome do arquivo</span>
-      <input v-model="merge.name" type="text" placeholder="combinado" @keyup.enter="confirmMerge" />
+      <span>{{ t('files.fileName') }}</span>
+      <input v-model="merge.name" type="text" :placeholder="t('files.mergeDefaultName')" @keyup.enter="confirmMerge" />
     </label>
     <template #foot>
-      <button class="btn" @click="merge = null">Cancelar</button>
+      <button class="btn" @click="merge = null">{{ t('common.cancel') }}</button>
       <button class="btn btn-primary" :disabled="merging || merge.items.length < 1" @click="confirmMerge">
-        <Icon name="pdf" :size="16" />{{ merging ? 'Gerando…' : 'Gerar PDF' }}
+        <Icon name="pdf" :size="16" />{{ merging ? t('files.generating') : t('files.generatePdf') }}
       </button>
     </template>
   </Modal>

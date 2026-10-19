@@ -6,12 +6,13 @@
 import { computed } from 'vue';
 import type { Perm } from '../core/models';
 import Icon from './Icon.vue';
+import { t } from '../i18n';
 
 const LEVELS = [
-  { value: 'view-only', label: 'Ver', icon: 'eye', tag: 'PODE VER', tagCls: 'muted', desc: 'Só visualiza a lista de arquivos.' },
-  { value: 'read-only', label: 'Baixar', icon: 'download', tag: 'PODE BAIXAR', tagCls: 'ok', desc: 'Visualiza e baixa os arquivos.' },
-  { value: 'read-write', label: 'Enviar', icon: 'upload', tag: 'PODE ENVIAR', tagCls: 'cyan', desc: 'Visualiza, baixa e envia novos arquivos.' },
-  { value: 'owner', label: 'Dono', icon: 'shield', tag: 'DONO', tagCls: 'amber', desc: 'Controle total: também renomeia e exclui.' },
+  { value: 'view-only', key: 'viewOnly', icon: 'eye', tagCls: 'muted' },
+  { value: 'read-only', key: 'readOnly', icon: 'download', tagCls: 'ok' },
+  { value: 'read-write', key: 'readWrite', icon: 'upload', tagCls: 'cyan' },
+  { value: 'owner', key: 'owner', icon: 'shield', tagCls: 'amber' },
 ] as const;
 
 const props = defineProps<{ perm: Perm }>();
@@ -23,15 +24,15 @@ const segCls = (i: number) => (i === activeIdx.value ? 'on' : i < activeIdx.valu
 
 <template>
   <div class="pp">
-    <div class="pp-seg" role="group" aria-label="Nível de acesso">
+    <div class="pp-seg" role="group" :aria-label="t('perm.picker.ariaLabel')">
       <button v-for="(l, i) in LEVELS" :key="l.value" type="button" class="pp-opt" :class="segCls(i)"
               :aria-pressed="l.value === perm" @click="emit('change', l.value)">
-        <Icon :name="l.icon" :size="14" /><span>{{ l.label }}</span>
+        <Icon :name="l.icon" :size="14" /><span>{{ t(`perm.picker.${l.key}.label`) }}</span>
       </button>
     </div>
     <div class="pp-cap">
-      <span class="pp-tag" :class="current.tagCls">{{ current.tag }}</span>
-      <span class="pp-desc">{{ current.desc }}</span>
+      <span class="pp-tag" :class="current.tagCls">{{ t(`perm.picker.${current.key}.tag`) }}</span>
+      <span class="pp-desc">{{ t(`perm.picker.${current.key}.desc`) }}</span>
     </div>
   </div>
 </template>

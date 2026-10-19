@@ -7,6 +7,7 @@ import { computed } from 'vue';
 import type { LicenseFeature } from '../core/models';
 import { useEdition, PRICING_URL } from '../core/edition';
 import Icon from './Icon.vue';
+import { t } from '../i18n';
 
 const props = defineProps<{ feature: LicenseFeature; title: string; pitch: string }>();
 const { has } = useEdition();
@@ -23,7 +24,7 @@ const tier = computed(() => (props.feature === 'white-label' ? 'Enterprise' : 'P
       <div class="pro-gate-desc">{{ pitch }}</div>
     </div>
     <a class="btn btn-primary" :href="PRICING_URL" target="_blank" rel="noopener">
-      <Icon name="key" :size="15" />Upgrade to {{ tier }}
+      <Icon name="key" :size="15" />{{ t('ui.proGate.upgrade', { tier }) }}
     </a>
   </div>
 </template>
