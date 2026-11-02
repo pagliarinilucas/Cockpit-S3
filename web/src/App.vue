@@ -93,7 +93,16 @@ function locHash(): string {
     const segs = filePath.value.map(encodeURIComponent).join('/');
     return `#/b/${encodeURIComponent(activeBucket.value.id)}${segs ? '/' + segs : ''}`;
   }
-  return view.value === 'buckets' ? '#/' : `#/${view.value}`;
+  if (view.value === 'buckets') return '#/';
+  const subsection = window.location.hash.match(/^#\/[\w-]+(\/[\w-]+)$/);
+  const keepSubsection = subsection && window.location.hash.startsWith(`#/${view.value}/`);
+  return `#/${view.value}${keepSubsection ? subsection[1] : ''}`;
+}
+const ADMIN_VIEWS: View[] = ['activity', 'users', 'cluster', 'settings'];
+function adminViewFromLocation(st: Loc | null): View | null {
+  const fromState = st?.view && ADMIN_VIEWS.includes(st.view) ? st.view : null;
+  const fromHash = ADMIN_VIEWS.find((v) => window.location.hash === `#/${v}` || window.location.hash.startsWith(`#/${v}/`)) ?? null;
+  return fromState ?? fromHash;
 }
 function pushLoc() { history.pushState(snapshot(), '', locHash()); }
 function resetLoc() { history.replaceState(snapshot(), '', locHash()); }   // set the base entry
@@ -110,7 +119,8 @@ function rebuildStack(bucket: Bucket, segs: string[]) {
 }
 function onPop(e: PopStateEvent) {
   if (!me.value) return;            // ignore while logged out
-  const loc: Loc = (e.state && (e.state as Loc).view) ? (e.state as Loc) : { view: 'buckets', bucket: null, path: [] };
+  const hashView = isAdmin.value ? adminViewFromLocation(null) : null;
+  const loc: Loc = (e.state && (e.state as Loc).view) ? (e.state as Loc) : { view: hashView ?? 'buckets', bucket: null, path: [] };
   // A basic single-bucket user has no bucket list to go back to — re-anchor them
   // in their bucket so Back never exposes the buckets screen.
   if (loc.view === 'buckets' && !canBrowseBuckets.value && homeBucket.value) {
@@ -138,6 +148,8 @@ onMounted(async () => {
         rebuildStack(st.bucket, st.path ?? []);
         api.buckets().then(noteBuckets).catch(() => {});   // populate counts in the background
       } else {
+        const adminView = isAdmin.value ? adminViewFromLocation(st) : null;
+        if (adminView) view.value = adminView;
         resetLoc();
       }
     }

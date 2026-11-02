@@ -43,6 +43,12 @@ const targetsLabel = computed(() => {
   return targets.length ? t('settings.audit.forwardingTo', { targets: targets.join(t('settings.audit.and')) }) : t('settings.audit.noForwarding');
 });
 
+const webhookHost = computed(() => {
+  const url = settings.value?.webhookUrl;
+  if (!url) return '';
+  try { return new URL(url).host; } catch { return url; }
+});
+
 const hasTargets = computed(() => !!(settings.value?.webhookUrl || settings.value?.syslogHost));
 
 async function load() {
@@ -114,21 +120,43 @@ async function testForward() {
 <template>
   <ProGate feature="audit-export" :title="t('settings.audit.gateTitle')"
            :pitch="t('settings.audit.pitch')">
-    <div class="aud-card">
-      <div class="aud-ic"><Icon name="activity" :size="20" /></div>
-      <div class="aud-main">
-        <div class="aud-title">{{ t('settings.audit.title') }}</div>
-        <div class="aud-desc">{{ retentionLabel }}</div>
-        <div class="aud-desc">{{ targetsLabel }}</div>
-        <div v-if="settings && settings.forward.dropped" class="aud-desc aud-warn">
-          {{ t('settings.audit.dropped', { count: settings.forward.dropped }) }}
+    <div class="cfg-panel">
+      <div class="cfg-panel-head">
+        <div>
+          <div class="cfg-panel-title">
+            <Icon name="activity" :size="17" />{{ t('settings.audit.title') }}
+            <span class="cfg-chip" :class="hasTargets ? 'is-on' : ''">{{ hasTargets ? t('settings.sso.active') : t('settingsLayout.audit.off') }}</span>
+          </div>
+          <p class="cfg-panel-desc">{{ targetsLabel }}</p>
+        </div>
+        <div class="cfg-actions">
+          <button v-if="hasTargets" class="btn" :disabled="testing" @click="testForward">
+            <Icon name="share" :size="15" />{{ testing ? t('settings.audit.sending') : t('settings.audit.testSend') }}
+          </button>
+          <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />{{ t('settings.configure') }}</button>
         </div>
       </div>
-      <div class="aud-acts">
-        <button v-if="hasTargets" class="btn" :disabled="testing" @click="testForward">
-          <Icon name="share" :size="15" />{{ testing ? t('settings.audit.sending') : t('settings.audit.testSend') }}
-        </button>
-        <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />{{ t('settings.configure') }}</button>
+      <div class="cfg-readouts">
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.audit.retention') }}</div>
+          <div class="cfg-readout-value">{{ retentionLabel }}</div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.audit.webhook') }}</div>
+          <div class="cfg-readout-value" :class="webhookHost ? 'is-on' : 'is-off'">{{ webhookHost || t('settingsLayout.audit.off') }}</div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.audit.syslog') }}</div>
+          <div class="cfg-readout-value" :class="settings?.syslogHost ? 'is-on' : 'is-off'">
+            {{ settings?.syslogHost ? `${settings.syslogProtocol.toUpperCase()} ${settings.syslogHost}:${settings.syslogPort}` : t('settingsLayout.audit.off') }}
+          </div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.audit.queue') }}</div>
+          <div class="cfg-readout-value" :class="{ 'is-warn': !!settings?.forward.dropped }">
+            {{ t('settingsLayout.audit.queueValue', { queued: settings?.forward.queued ?? 0, dropped: settings?.forward.dropped ?? 0 }) }}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -190,21 +218,6 @@ async function testForward() {
 </template>
 
 <style scoped>
-.aud-card {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  padding: 14px 16px; margin-bottom: 18px;
-  border: 1px solid var(--line-2, rgba(255,255,255,.1)); border-radius: 12px;
-  background: var(--bg-0, rgba(255,255,255,.02));
-}
-.aud-ic {
-  flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
-  color: var(--neon, #2dd4ff); background: color-mix(in srgb, var(--neon, #2dd4ff) 14%, transparent);
-}
-.aud-main { flex: 1; min-width: 220px; }
-.aud-title { font-weight: 600; margin-bottom: 3px; }
-.aud-desc { font-size: 12.5px; line-height: 1.5; color: var(--text-3, #9aa4b2); }
-.aud-warn { color: var(--amber); }
-.aud-acts { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
 .aud-section { margin: 16px 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
 .aud-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .aud-row .field { flex: 1; min-width: 140px; }

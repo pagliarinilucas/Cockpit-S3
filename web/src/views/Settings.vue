@@ -3,7 +3,7 @@
   Copyright (C) 2026 Lucas Pagliarini
 -->
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, provide, watch } from 'vue';
 import type { Connection, Cluster, ClusterInput } from '../core/models';
 import { api, apiErrMsg, ApiError, type ConnectionPayload, type EscrowStatus } from '../core/api';
 import { useToast } from '../core/toast';
@@ -13,11 +13,46 @@ import LicensePanel from '../components/settings/LicensePanel.vue';
 import SsoPanel from '../components/settings/SsoPanel.vue';
 import AuditPanel from '../components/settings/AuditPanel.vue';
 import BrandingPanel from '../components/settings/BrandingPanel.vue';
+import SettingsSection from '../components/settings/SettingsSection.vue';
+import { useEdition, OPEN_LICENSE_KEY } from '../core/edition';
+import type { LicenseFeature } from '../core/models';
 import { t, fmtDateTime } from '../i18n';
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 
 const toast = useToast();
+const { edition, has } = useEdition();
+
+type SectionId = 'storage' | 'security' | 'sso' | 'audit' | 'branding' | 'license';
+type GroupId = 'storage' | 'security' | 'access' | 'compliance' | 'appearance' | 'instance';
+interface SectionDef { id: SectionId; group: GroupId; icon: string; feature?: LicenseFeature }
+const SECTIONS: SectionDef[] = [
+  { id: 'storage', group: 'storage', icon: 'database' },
+  { id: 'security', group: 'security', icon: 'lock' },
+  { id: 'sso', group: 'access', icon: 'shield', feature: 'sso' },
+  { id: 'audit', group: 'compliance', icon: 'activity', feature: 'audit-export' },
+  { id: 'branding', group: 'appearance', icon: 'palette', feature: 'branding' },
+  { id: 'license', group: 'instance', icon: 'key' },
+];
+const SECTION_IDS = SECTIONS.map((s) => s.id);
+const isSectionId = (value: string): value is SectionId => (SECTION_IDS as string[]).includes(value);
+const sectionFromHash = (): SectionId => {
+  const match = window.location.hash.match(/^#\/settings\/([\w-]+)/);
+  return match && isSectionId(match[1]!) ? match[1] : 'storage';
+};
+const section = ref<SectionId>(sectionFromHash());
+const current = computed(() => SECTIONS.find((s) => s.id === section.value)!);
+watch(section, (id) => {
+  try { history.replaceState(history.state, '', `#/settings/${id}`); } catch { return; }
+});
+function openSection(id: SectionId) {
+  section.value = id;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+provide(OPEN_LICENSE_KEY, () => openSection('license'));
+
+const EDITION_LABEL = { community: 'Community', pro: 'Pro', enterprise: 'Enterprise' } as const;
+
 const connections = ref<Connection[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -223,6 +258,28 @@ async function load() {
   } catch (e) { error.value = apiErrMsg(e); }
   finally { loading.value = false; }
 }
+const readiness = computed(() => {
+  const e = escrow.value;
+  const checks = [
+    { key: 'checkDest' as const, done: !!e?.clientDest },
+    { key: 'checkCode' as const, done: !!e?.recoverySet && !!e?.recoveryShown },
+    { key: 'checkAuto' as const, done: !!e?.enabled },
+  ];
+  return { checks, done: checks.filter((c) => c.done).length, total: checks.length };
+});
+
+function railStatus(def: SectionDef): { text: string; tone: string; lock: boolean } {
+  if (def.feature && !has(def.feature)) return { text: '', tone: '', lock: true };
+  if (def.id === 'storage') return { text: String(sources.value.length), tone: sources.value.length ? '' : 'is-warn', lock: false };
+  if (def.id === 'security') {
+    if (!escrow.value) return { text: '', tone: '', lock: false };
+    const r = readiness.value;
+    return { text: `${r.done}/${r.total}`, tone: r.done === r.total ? 'is-on' : 'is-warn', lock: false };
+  }
+  if (def.id === 'license') return { text: EDITION_LABEL[edition.value.edition], tone: edition.value.edition === 'community' ? '' : 'is-neon', lock: false };
+  return { text: '', tone: '', lock: false };
+}
+
 onMounted(() => { load(); loadEscrow(); });
 defineExpose({ reload: load });
 
@@ -341,97 +398,203 @@ async function confirmDeleteCluster() {
 
 <template>
   <div class="view settings">
-    <div class="view-head">
+    <div class="view-head cfg-head">
       <div>
-        <h1 class="view-title">{{ t('settings.title') }}</h1>
-        <p class="view-sub">{{ t('settings.subtitle', { clusters: t('settings.clusterCount', { count: clusters.length }), connections: t('settings.connectionCount', { count: connections.length }) }) }}</p>
+        <div class="cfg-eyebrow">// {{ t('settingsLayout.eyebrow') }}</div>
+        <h1 class="view-title">{{ t('settingsLayout.title') }}</h1>
+        <p class="view-sub">{{ t('settingsLayout.subtitle') }}</p>
       </div>
-      <div class="head-acts">
-        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />{{ t('settings.newCluster') }}</button>
-        <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />{{ t('settings.newConnection') }}</button>
-      </div>
-    </div>
-
-    <LicensePanel />
-    <SsoPanel />
-    <AuditPanel />
-    <BrandingPanel />
-
-    <div class="kek-card">
-      <div class="kek-ic"><Icon name="lock" :size="20" /></div>
-      <div class="kek-main">
-        <div class="kek-title">{{ t('settings.kek.title') }}</div>
-        <div class="kek-desc" v-html="t('settings.kek.desc')"></div>
-      </div>
-      <button class="btn" :disabled="kekLoading" @click="revealKek">
-        <Icon name="key" :size="16" />{{ kekLoading ? t('settings.kek.revealing') : t('settings.kek.reveal') }}
+      <button class="cfg-edition" :class="'is-' + edition.edition" @click="openSection('license')">
+        <span class="cfg-edition-dot"></span>
+        <span class="cfg-edition-name">{{ EDITION_LABEL[edition.edition] }}</span>
+        <span class="cfg-edition-sub">{{ edition.edition === 'community' ? 'AGPL-3.0' : t('settings.license.title') }}</span>
       </button>
     </div>
 
-    <div class="kek-card escrow-card">
-      <div class="kek-ic"><Icon name="shield" :size="20" /></div>
-      <div class="kek-main">
-        <div class="kek-title">{{ t('settings.escrow.title') }}</div>
-        <div class="kek-desc" v-html="t('settings.escrow.desc')"></div>
-        <div v-if="!escrowLoading && escrow" class="escrow-status">
-          {{ t('settings.escrow.lastBackup', { date: fmtDate(escrow.lastBackupAt) }) }}{{ escrow.lastStatus ? ` (${escrow.lastStatus})` : '' }}
-          · {{ t('settings.escrow.retained', { count: escrow.lastCount ?? 0 }) }}
-          · {{ escrow.enabled ? t('settings.escrow.on') : t('settings.escrow.off') }}
-          <template v-if="escrow.vendorAvailable">
-            · {{ t(escrow.vendorEnabled ? 'settings.escrow.managedOn' : 'settings.escrow.managedAvailable', { fingerprint: escrow.vendorFingerprint ?? '' }) }}
-          </template>
-          <template v-else> · {{ t('settings.escrow.managedUnavailable') }}</template>
-        </div>
-      </div>
-      <div class="escrow-acts">
-        <button class="btn" @click="openEscrowEdit"><Icon name="cpu" :size="16" />{{ t('settings.configure') }}</button>
-        <button class="btn" @click="openRecoveryEdit"><Icon name="key" :size="16" />{{ t('settings.escrow.generateCode') }}</button>
-        <button class="btn" :disabled="escrowTesting || !escrow?.clientDest" @click="testEscrowDest">
-          <Icon name="activity" :size="16" />{{ escrowTesting ? t('settings.testing') : t('settings.escrow.testDestination') }}
-        </button>
-        <button class="btn btn-primary" :disabled="escrowBackingUp || !escrow?.enabled" @click="backupNow">
-          <Icon name="database" :size="16" />{{ escrowBackingUp ? t('settings.escrow.backingUp') : t('settings.escrow.backupNow') }}
-        </button>
-      </div>
-    </div>
+    <div class="cfg-shell">
+      <nav class="cfg-rail" :aria-label="t('settingsLayout.navLabel')">
+        <template v-for="(def, i) in SECTIONS" :key="def.id">
+          <div v-if="i === 0 || SECTIONS[i - 1]!.group !== def.group" class="cfg-rail-group">{{ t(`settingsLayout.groups.${def.group}`) }}</div>
+          <button class="cfg-rail-item" :class="{ 'is-active': section === def.id }" :aria-current="section === def.id ? 'page' : undefined" @click="openSection(def.id)">
+            <Icon :name="def.icon" :size="16" />
+            <span class="cfg-rail-label">{{ t(`settingsLayout.sections.${def.id}.label`) }}</span>
+            <span v-if="railStatus(def).lock" class="cfg-rail-lock"><Icon name="lock" :size="12" /></span>
+            <span v-else-if="railStatus(def).text" class="cfg-rail-status" :class="railStatus(def).tone">{{ railStatus(def).text }}</span>
+          </button>
+        </template>
+      </nav>
 
-    <div v-if="loading" class="loading"><div class="spinner"></div>{{ t('settings.loadingCaps') }}</div>
-    <div v-else-if="error" class="errbox">
-      <Icon name="alert" :size="32" />
-      <div class="errbox-title">{{ t('settings.loadFailed') }}</div>
-      <div class="errbox-sub">{{ error }}</div>
-      <button class="btn" @click="load"><Icon name="refresh" :size="15" />{{ t('settings.tryAgain') }}</button>
-    </div>
-    <div v-else-if="sources.length === 0" class="empty-files">
-      <Icon name="database" :size="30" />
-      <p>{{ t('settings.empty') }}</p>
-      <div class="head-acts">
-        <button class="btn btn-primary" @click="openNewCluster"><Icon name="plus" :size="16" />{{ t('settings.addCluster') }}</button>
-        <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />{{ t('settings.addConnection') }}</button>
-      </div>
-    </div>
-    <div v-else class="conn-list">
-      <div v-for="s in sources" :key="s.kind + ':' + s.data.id" class="conn-item">
-        <div class="conn-ic"><Icon :name="s.kind === 'cluster' ? 'gauge' : 'database'" :size="22" /></div>
-        <div class="conn-main">
-          <div class="conn-name">
-            {{ s.data.name }}
-            <span class="conn-tag" :class="s.kind === 'cluster' ? 'tag-cluster' : 'tag-conn'">{{ s.kind === 'cluster' ? t('settings.tag.cluster') : t('settings.tag.connection') }}</span>
-          </div>
-          <div v-if="s.kind === 'cluster'" class="conn-sub">
-            admin {{ s.data.adminEndpoint }} · s3 {{ s.data.s3Endpoint }} · {{ s.data.region }}
-            · {{ s.data.adminConfigured ? t('settings.source.tokenSet') : t('settings.source.noToken') }}
-          </div>
-          <div v-else class="conn-sub">
-            {{ s.data.endpoint }} · {{ s.data.region }} · {{ s.data.accessKey }}
-            · {{ s.data.buckets.length ? t('settings.source.fixedBuckets', { count: s.data.buckets.length }) : t('settings.source.allBuckets') }}
-            · {{ s.data.secretSet ? t('settings.source.secretSet') : t('settings.source.noSecret') }}
-          </div>
-        </div>
-        <div class="conn-acts">
-          <button class="iconbtn" :title="t('settings.edit')" @click="s.kind === 'cluster' ? openEditCluster(s.data) : openEdit(s.data)"><Icon name="cpu" :size="17" /></button>
-          <button class="iconbtn iconbtn-danger" :title="t('settings.remove')" @click="s.kind === 'cluster' ? (clusterToDelete = s.data) : (toDelete = s.data)"><Icon name="trash" :size="17" /></button>
-        </div>
+      <div class="cfg-content">
+        <SettingsSection
+          :key="section"
+          :group="t(`settingsLayout.groups.${current.group}`)"
+          :title="t(`settingsLayout.sections.${section}.title`)"
+          :desc="t(`settingsLayout.sections.${section}.desc`)"
+        >
+          <template v-if="section === 'storage' && sources.length" #actions>
+            <button class="btn" @click="openNewCluster"><Icon name="gauge" :size="16" />{{ t('settings.newCluster') }}</button>
+            <button class="btn btn-primary" @click="openNew"><Icon name="plus" :size="16" />{{ t('settings.newConnection') }}</button>
+          </template>
+
+          <template v-if="section === 'storage'">
+            <div v-if="loading" class="loading"><div class="spinner"></div>{{ t('settings.loadingCaps') }}</div>
+            <div v-else-if="error" class="errbox">
+              <Icon name="alert" :size="32" />
+              <div class="errbox-title">{{ t('settings.loadFailed') }}</div>
+              <div class="errbox-sub">{{ error }}</div>
+              <button class="btn" @click="load"><Icon name="refresh" :size="15" />{{ t('settings.tryAgain') }}</button>
+            </div>
+            <div v-else-if="sources.length === 0" class="cfg-empty">
+              <div class="cfg-empty-title">{{ t('settingsLayout.storage.emptyTitle') }}</div>
+              <p class="cfg-empty-desc">{{ t('settingsLayout.storage.emptyDesc') }}</p>
+              <div class="cfg-tiles">
+                <button class="cfg-tile is-cluster" @click="openNewCluster">
+                  <span class="cfg-tile-ic"><Icon name="gauge" :size="22" /></span>
+                  <span class="cfg-tile-title">{{ t('settingsLayout.storage.clusterTileTitle') }}</span>
+                  <span class="cfg-tile-desc">{{ t('settingsLayout.storage.clusterTileDesc') }}</span>
+                  <span class="cfg-tile-cta"><Icon name="plus" :size="14" />{{ t('settings.addCluster') }}</span>
+                </button>
+                <button class="cfg-tile" @click="openNew">
+                  <span class="cfg-tile-ic"><Icon name="database" :size="22" /></span>
+                  <span class="cfg-tile-title">{{ t('settingsLayout.storage.connTileTitle') }}</span>
+                  <span class="cfg-tile-desc">{{ t('settingsLayout.storage.connTileDesc') }}</span>
+                  <span class="cfg-tile-cta"><Icon name="plus" :size="14" />{{ t('settings.addConnection') }}</span>
+                </button>
+              </div>
+            </div>
+            <div v-else class="cfg-sources">
+              <article v-for="s in sources" :key="s.kind + ':' + s.data.id" class="cfg-panel cfg-source" :class="s.kind === 'cluster' ? 'is-cluster' : 'is-conn'">
+                <div class="cfg-panel-head">
+                  <div class="cfg-panel-title">
+                    <Icon :name="s.kind === 'cluster' ? 'gauge' : 'database'" :size="17" />{{ s.data.name }}
+                    <span class="cfg-chip" :class="s.kind === 'cluster' ? 'is-warn' : 'is-neon'">{{ s.kind === 'cluster' ? t('settingsLayout.storage.kindCluster') : t('settingsLayout.storage.kindConnection') }}</span>
+                  </div>
+                  <div class="cfg-actions">
+                    <button class="iconbtn" :title="t('settings.edit')" @click="s.kind === 'cluster' ? openEditCluster(s.data) : openEdit(s.data)"><Icon name="edit" :size="16" /></button>
+                    <button class="iconbtn iconbtn-danger" :title="t('settings.remove')" @click="s.kind === 'cluster' ? (clusterToDelete = s.data) : (toDelete = s.data)"><Icon name="trash" :size="16" /></button>
+                  </div>
+                </div>
+                <div v-if="s.kind === 'cluster'" class="cfg-readouts">
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.endpoint') }}</div>
+                    <div class="cfg-readout-value" :title="s.data.s3Endpoint">{{ s.data.s3Endpoint }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.admin') }}</div>
+                    <div class="cfg-readout-value" :title="s.data.adminEndpoint">{{ s.data.adminEndpoint }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.region') }}</div>
+                    <div class="cfg-readout-value">{{ s.data.region }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.credentials') }}</div>
+                    <div class="cfg-readout-value" :class="s.data.adminConfigured ? 'is-on' : 'is-warn'">Admin token {{ s.data.adminConfigured ? t('settingsLayout.storage.configured') : t('settingsLayout.storage.missing') }}</div>
+                  </div>
+                </div>
+                <div v-else class="cfg-readouts">
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.endpoint') }}</div>
+                    <div class="cfg-readout-value" :title="s.data.endpoint">{{ s.data.endpoint }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.region') }}</div>
+                    <div class="cfg-readout-value">{{ s.data.region }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.accessKey') }}</div>
+                    <div class="cfg-readout-value" :title="s.data.accessKey">{{ s.data.accessKey }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.buckets') }}</div>
+                    <div class="cfg-readout-value">{{ s.data.buckets.length ? t('settings.source.fixedBuckets', { count: s.data.buckets.length }) : t('settings.source.allBuckets') }}</div>
+                  </div>
+                  <div class="cfg-readout">
+                    <div class="cfg-readout-label">{{ t('settingsLayout.storage.credentials') }}</div>
+                    <div class="cfg-readout-value" :class="s.data.secretSet ? 'is-on' : 'is-warn'">Secret key {{ s.data.secretSet ? t('settingsLayout.storage.configured') : t('settingsLayout.storage.missing') }}</div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </template>
+
+          <template v-else-if="section === 'security'">
+            <div class="cfg-panel">
+              <div class="cfg-panel-head">
+                <div>
+                  <div class="cfg-panel-title"><Icon name="lock" :size="17" />{{ t('settingsLayout.security.kekTitle') }}</div>
+                  <p class="cfg-panel-desc" v-html="t('settings.kek.desc')"></p>
+                </div>
+                <div class="cfg-actions">
+                  <button class="btn" :disabled="kekLoading" @click="revealKek">
+                    <Icon name="key" :size="16" />{{ kekLoading ? t('settings.kek.revealing') : t('settings.kek.reveal') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="cfg-panel">
+              <div class="cfg-panel-head">
+                <div>
+                  <div class="cfg-panel-title">
+                    <Icon name="shield" :size="17" />{{ t('settingsLayout.security.drTitle') }}
+                    <span class="cfg-chip" :class="escrow?.enabled ? 'is-on' : ''">{{ escrow?.enabled ? t('settings.escrow.on') : t('settings.escrow.off') }}</span>
+                  </div>
+                  <p class="cfg-panel-desc" v-html="t('settings.escrow.desc')"></p>
+                </div>
+                <div class="cfg-actions">
+                  <button class="btn" @click="openEscrowEdit"><Icon name="cpu" :size="16" />{{ t('settings.configure') }}</button>
+                </div>
+              </div>
+
+              <div v-if="escrow" class="cfg-ready">
+                <div class="cfg-ready-head">
+                  <span class="cfg-readout-label">{{ t('settingsLayout.security.readiness') }}</span>
+                  <span class="cfg-ready-score" :class="readiness.done === readiness.total ? 'is-on' : 'is-warn'">{{ t('settingsLayout.security.readinessScore', { done: readiness.done, total: readiness.total }) }}</span>
+                </div>
+                <div class="cfg-ready-bar"><span v-for="c in readiness.checks" :key="c.key" :class="{ 'is-done': c.done }"></span></div>
+                <ul class="cfg-ready-list">
+                  <li v-for="c in readiness.checks" :key="c.key" :class="{ 'is-done': c.done }">
+                    <span class="cfg-ready-mark"><Icon :name="c.done ? 'check' : 'x'" :size="12" /></span>
+                    {{ t(`settingsLayout.security.${c.key}`) }}
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="escrow" class="cfg-readouts cfg-dr-readouts">
+                <div class="cfg-readout">
+                  <div class="cfg-readout-label">{{ t('settingsLayout.security.lastBackup') }}</div>
+                  <div class="cfg-readout-value" :class="{ 'is-off': !escrow.lastBackupAt }">{{ fmtDate(escrow.lastBackupAt) }}{{ escrow.lastStatus ? ` · ${escrow.lastStatus}` : '' }}</div>
+                </div>
+                <div class="cfg-readout">
+                  <div class="cfg-readout-label">{{ t('settingsLayout.security.snapshots') }}</div>
+                  <div class="cfg-readout-value">{{ escrow.lastCount ?? 0 }}</div>
+                </div>
+                <div class="cfg-readout">
+                  <div class="cfg-readout-label">{{ t('settingsLayout.security.managed') }}</div>
+                  <div class="cfg-readout-value" :class="escrow.vendorEnabled ? 'is-on' : escrow.vendorAvailable ? '' : 'is-off'">
+                    {{ escrow.vendorEnabled ? t('settingsLayout.security.managedOn') : escrow.vendorAvailable ? t('settingsLayout.security.managedAvailable') : t('settingsLayout.security.managedUnavailable') }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="cfg-actions cfg-dr-actions">
+                <button class="btn" @click="openRecoveryEdit"><Icon name="key" :size="16" />{{ t('settings.escrow.generateCode') }}</button>
+                <button class="btn" :disabled="escrowTesting || !escrow?.clientDest" @click="testEscrowDest">
+                  <Icon name="activity" :size="16" />{{ escrowTesting ? t('settings.testing') : t('settings.escrow.testDestination') }}
+                </button>
+                <button class="btn btn-primary" :disabled="escrowBackingUp || !escrow?.enabled" @click="backupNow">
+                  <Icon name="database" :size="16" />{{ escrowBackingUp ? t('settings.escrow.backingUp') : t('settings.escrow.backupNow') }}
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <SsoPanel v-else-if="section === 'sso'" />
+          <AuditPanel v-else-if="section === 'audit'" />
+          <BrandingPanel v-else-if="section === 'branding'" />
+          <LicensePanel v-else-if="section === 'license'" />
+        </SettingsSection>
       </div>
     </div>
 
@@ -635,37 +798,138 @@ async function confirmDeleteCluster() {
   </div>
 </template>
 
-<style scoped>
-.head-acts { display: flex; gap: 10px; flex-wrap: wrap; }
-.conn-name { display: flex; align-items: center; gap: 8px; }
-.conn-tag {
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-  padding: 2px 7px; border-radius: 999px; border: 1px solid currentColor; line-height: 1.4;
-}
-.tag-cluster { color: var(--amber, #ffb02e); }
-.tag-conn { color: var(--neon, #2dd4ff); }
+<style src="../components/settings/settings.css"></style>
 
-.kek-card {
-  display: flex; align-items: center; gap: 14px;
-  padding: 14px 16px; margin-bottom: 18px;
-  border: 1px solid var(--line-2, rgba(255,255,255,.1)); border-radius: 12px;
-  background: var(--bg-0, rgba(255,255,255,.02));
+<style scoped>
+.cfg-head { align-items: flex-end; }
+.cfg-eyebrow {
+  margin-bottom: 8px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.8px; text-transform: uppercase; color: var(--neon);
 }
-.kek-ic {
-  flex: none; width: 40px; height: 40px; border-radius: 10px;
-  display: grid; place-items: center;
-  color: var(--green, #34d399);
-  background: color-mix(in srgb, var(--green, #34d399) 14%, transparent);
+.cfg-edition {
+  display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: 10px; align-items: center;
+  padding: 10px 16px; border-radius: 10px; cursor: pointer; text-align: left; font: inherit; color: var(--text);
+  border: 1px solid var(--line-2); background: var(--bg-1);
+  transition: border-color .15s, background .15s;
+  --edition: var(--text-3);
 }
-.kek-main { flex: 1; min-width: 0; }
-.kek-title { font-weight: 600; margin-bottom: 3px; }
-.kek-desc { font-size: 12.5px; line-height: 1.5; color: var(--text-3, #9aa4b2); }
-.kek-desc code {
-  font-size: 11.5px; padding: 1px 5px; border-radius: 5px;
-  background: var(--line-2, rgba(255,255,255,.08));
+.cfg-edition.is-pro { --edition: var(--neon); }
+.cfg-edition.is-enterprise { --edition: var(--amber); }
+.cfg-edition:hover { border-color: color-mix(in srgb, var(--edition) 55%, var(--line-2)); background: var(--bg-2); }
+.cfg-edition-dot {
+  grid-row: span 2; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--edition); box-shadow: 0 0 10px var(--edition);
 }
-.kek-secret { font-family: ui-monospace, monospace; font-size: 12.5px; word-break: break-all; resize: none; }
-.escrow-card { align-items: flex-start; flex-wrap: wrap; }
-.escrow-status { margin-top: 8px; font-size: 12px; color: var(--text-3, #9aa4b2); }
-.escrow-acts { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
+.cfg-edition-name { font-family: var(--display-font); font-weight: 700; font-size: 14px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--edition); }
+.cfg-edition-sub { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+
+.cfg-shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 34px; align-items: start; }
+.cfg-rail {
+  position: sticky; top: 18px; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1);
+}
+.cfg-rail-group {
+  padding: 12px 10px 6px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--text-3);
+}
+.cfg-rail-group:first-child { padding-top: 4px; }
+.cfg-rail-item {
+  position: relative; display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 10px; border: 1px solid transparent; border-radius: 9px; background: none; cursor: pointer;
+  font: inherit; font-size: 13.5px; color: var(--text-2); text-align: left;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.cfg-rail-item:hover { background: var(--bg-2); color: var(--text); }
+.cfg-rail-item.is-active {
+  color: var(--text); background: color-mix(in srgb, var(--neon) 9%, var(--bg-2));
+  border-color: color-mix(in srgb, var(--neon) 28%, transparent);
+}
+.cfg-rail-item.is-active::before {
+  content: ''; position: absolute; left: -11px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--neon); box-shadow: 0 0 12px var(--neon);
+}
+.cfg-rail-item .ic { flex: none; color: var(--text-3); }
+.cfg-rail-item.is-active .ic { color: var(--neon); }
+.cfg-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cfg-rail-status {
+  flex: none; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-2);
+  font-family: var(--mono); font-size: 10px; color: var(--text-2);
+}
+.cfg-rail-status.is-on { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.cfg-rail-status.is-warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.cfg-rail-status.is-neon { color: var(--neon); border-color: color-mix(in srgb, var(--neon) 40%, transparent); }
+.cfg-rail-lock { flex: none; display: grid; place-items: center; color: var(--amber); opacity: .85; }
+.cfg-content { min-width: 0; }
+
+.cfg-sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 16px; }
+.cfg-sources .cfg-panel + .cfg-panel { margin-top: 0; }
+.cfg-source { overflow: hidden; }
+.cfg-source::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--neon); opacity: .7;
+}
+.cfg-source.is-cluster::before { background: var(--amber); }
+
+.cfg-empty {
+  padding: 30px; border: 1px dashed var(--line-2); border-radius: 16px; text-align: center;
+  background: radial-gradient(500px 220px at 50% 0%, color-mix(in srgb, var(--neon) 7%, transparent), transparent 70%);
+}
+.cfg-empty-title { font-family: var(--display-font); font-weight: 700; font-size: 20px; color: var(--text); }
+.cfg-empty-desc { margin: 8px auto 0; max-width: 52ch; font-size: 13.5px; color: var(--text-2); }
+.cfg-tiles { margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; text-align: left; }
+.cfg-tile {
+  display: flex; flex-direction: column; gap: 8px; padding: 20px; border-radius: 13px; cursor: pointer;
+  font: inherit; color: var(--text); text-align: left;
+  border: 1px solid var(--line-2); background: var(--bg-1);
+  transition: transform .15s, border-color .15s, box-shadow .15s;
+  --tile: var(--neon);
+}
+.cfg-tile.is-cluster { --tile: var(--amber); }
+.cfg-tile:hover {
+  transform: translateY(-2px); border-color: color-mix(in srgb, var(--tile) 50%, transparent);
+  box-shadow: 0 10px 30px -18px var(--tile);
+}
+.cfg-tile-ic {
+  width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+  color: var(--tile); background: color-mix(in srgb, var(--tile) 13%, transparent);
+}
+.cfg-tile-title { font-family: var(--display-font); font-weight: 700; font-size: 16px; }
+.cfg-tile-desc { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.cfg-tile-cta {
+  margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--tile);
+}
+
+.cfg-ready { margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-0); }
+.cfg-ready-head { display: flex; justify-content: space-between; align-items: center; }
+.cfg-ready-score { font-family: var(--mono); font-size: 12px; }
+.cfg-ready-score.is-on { color: var(--green); }
+.cfg-ready-score.is-warn { color: var(--amber); }
+.cfg-ready-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 10px 0 12px; }
+.cfg-ready-bar span { height: 5px; border-radius: 3px; background: var(--bg-3); }
+.cfg-ready-bar span.is-done { background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 50%, transparent); }
+.cfg-ready-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cfg-ready-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.cfg-ready-list li.is-done { color: var(--text); }
+.cfg-ready-mark {
+  flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center;
+  color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.cfg-ready-list li.is-done .cfg-ready-mark { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.cfg-dr-actions { margin-top: 16px; }
+
+.kek-secret { font-family: var(--mono); font-size: 12.5px; word-break: break-all; resize: none; }
+
+@media (max-width: 960px) {
+  .cfg-shell { grid-template-columns: 1fr; gap: 20px; }
+  .cfg-rail {
+    position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding: 6px;
+    scrollbar-width: none;
+  }
+  .cfg-rail::-webkit-scrollbar { display: none; }
+  .cfg-rail-group { display: none; }
+  .cfg-rail-item { width: auto; flex: none; }
+  .cfg-rail-item.is-active::before { display: none; }
+}
+@media (max-width: 600px) {
+  .cfg-head { flex-direction: column; align-items: flex-start; }
+}
 </style>

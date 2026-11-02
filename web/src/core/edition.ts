@@ -6,6 +6,7 @@ import { api } from './api';
 
 export const PRICING_URL = 'https://github.com/pagliarinilucas/Cockpit-S3#pricing';
 export const SALES_EMAIL = 'cockpits3@pm.me';
+export const OPEN_LICENSE_KEY = Symbol('openLicense');
 
 const edition = ref<EditionInfo>({ edition: 'community', features: [] });
 let loading: Promise<void> | null = null;

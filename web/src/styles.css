@@ -503,6 +503,8 @@ select.modal-input { appearance: none; cursor: pointer; }
 @keyframes fade { from { opacity: 0; } }
 .modal { width: 440px; max-width: 92vw; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); overflow: hidden; animation: pop .18s cubic-bezier(.2,.9,.3,1.2); }
 .modal.modal-wide { width: 680px; }
+.modal.modal-xl { width: 980px; }
+.modal-body { max-height: min(76vh, 820px); overflow-y: auto; }
 @keyframes pop { from { transform: scale(.96) translateY(8px); opacity: 0; } }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .modal-title { display: flex; align-items: center; gap: 10px; font-family: var(--display-font); font-weight: 700; font-size: 16px; }
@@ -607,7 +609,7 @@ select.modal-input { appearance: none; cursor: pointer; }
 .tp-toggle[data-on="1"] i { transform: translateX(16px); }
 
 /* ============ SETTINGS ============ */
-.settings { max-width: 640px; }
+.settings { max-width: 1180px; }
 .settings-card { background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 14px; padding: 22px 24px; }
 .settings-card .field { margin-bottom: 18px; }
 .settings-actions { display: flex; gap: 10px; align-items: center; margin-top: 4px; }

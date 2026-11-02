@@ -47,6 +47,19 @@ const summary = computed(() => {
   return t('settings.sso.summaryActive', { host, extras });
 });
 
+const providerHost = computed(() => {
+  const issuer = settings.value?.issuer;
+  if (!issuer) return '';
+  try { return new URL(issuer).host; } catch { return issuer; }
+});
+
+const status = computed(() => {
+  const s = settings.value;
+  if (s?.active) return { tone: 'is-on', label: t('settingsLayout.sso.statusActive') };
+  if (s?.enabled) return { tone: 'is-warn', label: t('settingsLayout.sso.statusInactive') };
+  return { tone: '', label: t('settingsLayout.sso.statusDisabled') };
+});
+
 async function load() {
   try { settings.value = await api.oidcSettings(); } catch { settings.value = null; }
 }
@@ -114,22 +127,45 @@ async function save() {
     :title="t('settings.sso.title')"
     :pitch="t('settings.sso.pitch')"
   >
-    <div class="sso-card">
-      <div class="sso-ic"><Icon name="shield" :size="20" /></div>
-      <div class="sso-main">
-        <div class="sso-title">
-          {{ t('settings.sso.title') }}
-          <span class="sso-tag" :class="settings?.active ? 'sso-on' : 'sso-off'">{{ settings?.active ? t('settings.sso.active') : t('settings.sso.inactive') }}</span>
+    <div class="cfg-panel">
+      <div class="cfg-panel-head">
+        <div>
+          <div class="cfg-panel-title">
+            <Icon name="shield" :size="17" />{{ t('settings.sso.title') }}
+            <span class="cfg-chip" :class="status.tone">{{ status.label }}</span>
+          </div>
+          <p class="cfg-panel-desc">{{ summary }}</p>
         </div>
-        <div class="sso-desc">{{ summary }}</div>
-        <div v-if="settings" class="sso-redirect">
-          <span class="sso-desc">Redirect URI:</span>
-          <code>{{ settings.redirectUri }}</code>
-          <button class="iconbtn" :title="t('settings.sso.copy')" @click="copyRedirect"><Icon name="copy" :size="14" /></button>
+        <div class="cfg-actions">
+          <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />{{ t('settings.configure') }}</button>
         </div>
       </div>
-      <div class="sso-acts">
-        <button class="btn btn-primary" @click="openEdit"><Icon name="edit" :size="15" />{{ t('settings.configure') }}</button>
+      <div class="cfg-readouts">
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.sso.provider') }}</div>
+          <div class="cfg-readout-value" :class="{ 'is-off': !providerHost }">{{ providerHost || t('settingsLayout.sso.notSet') }}</div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.sso.clientId') }}</div>
+          <div class="cfg-readout-value" :class="{ 'is-off': !settings?.clientId }">{{ settings?.clientId || t('settingsLayout.sso.notSet') }}</div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.sso.accounts') }}</div>
+          <div class="cfg-readout-value">{{ settings?.autoProvision ? t('settingsLayout.sso.accountsAuto') : t('settingsLayout.sso.accountsExisting') }}</div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.sso.domains') }}</div>
+          <div class="cfg-readout-value">{{ settings?.allowedDomains.length ? settings.allowedDomains.join(', ') : t('settingsLayout.sso.anyDomain') }}</div>
+        </div>
+        <div class="cfg-readout">
+          <div class="cfg-readout-label">{{ t('settingsLayout.sso.passwordLogin') }}</div>
+          <div class="cfg-readout-value" :class="{ 'is-warn': settings?.disablePasswordLogin }">{{ settings?.disablePasswordLogin ? t('settingsLayout.sso.passwordAdmins') : t('settingsLayout.sso.passwordEveryone') }}</div>
+        </div>
+      </div>
+      <div v-if="settings" class="cfg-inline-code">
+        <span class="cfg-inline-code-label">{{ t('settingsLayout.sso.redirect') }}</span>
+        <code>{{ settings.redirectUri }}</code>
+        <button class="iconbtn" :title="t('settings.sso.copy')" @click="copyRedirect"><Icon name="copy" :size="14" /></button>
       </div>
     </div>
   </ProGate>
@@ -211,28 +247,8 @@ async function save() {
 </template>
 
 <style scoped>
-.sso-card {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  padding: 14px 16px; margin-bottom: 18px;
-  border: 1px solid var(--line-2, rgba(255,255,255,.1)); border-radius: 12px;
-  background: var(--bg-0, rgba(255,255,255,.02));
-}
-.sso-ic {
-  flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
-  color: var(--neon, #2dd4ff); background: color-mix(in srgb, var(--neon, #2dd4ff) 14%, transparent);
-}
-.sso-main { flex: 1; min-width: 220px; }
-.sso-title { font-weight: 600; margin-bottom: 3px; display: flex; align-items: center; gap: 8px; }
-.sso-tag {
-  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-  padding: 2px 7px; border-radius: 999px; border: 1px solid currentColor; line-height: 1.4;
-}
-.sso-on { color: var(--green, #3ddc97); }
-.sso-off { color: var(--text-3, #9aa4b2); }
 .sso-desc { font-size: 12.5px; line-height: 1.5; color: var(--text-3, #9aa4b2); }
-.sso-redirect { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .sso-redirect code, .sso-test code { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
-.sso-acts { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
 .sso-inline { display: flex; gap: 8px; }
 .sso-inline .field-input { flex: 1; min-width: 0; }
 .sso-inline .btn { flex: none; }

@@ -13,10 +13,12 @@ import * as users from './messages/users';
 import * as cluster from './messages/cluster';
 import * as activity from './messages/activity';
 import * as settings from './messages/settings';
+import * as settingsLayout from './messages/settingsLayout';
+import * as roster from './messages/roster';
 import * as sheet from './messages/sheet';
 import * as demo from './messages/demo';
 
-const modules = [common, errors, app, auth, share, ui, files, buckets, preview, users, cluster, activity, settings, sheet, demo] as const;
+const modules = [common, errors, app, auth, share, ui, files, buckets, preview, users, cluster, activity, settings, settingsLayout, roster, sheet, demo] as const;
 
 type UnionToIntersection<U> = (U extends unknown ? (arg: U) => void : never) extends (arg: infer I) => void ? I : never;
 export type Catalog = UnionToIntersection<(typeof modules)[number]['en']>;

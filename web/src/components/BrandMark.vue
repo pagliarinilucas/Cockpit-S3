@@ -12,7 +12,7 @@ const { logo, productName } = useBranding();
 
 <template>
   <div v-if="logo" class="brand-mark brand-mark-logo"><img :src="logo" :alt="productName" /></div>
-  <div v-else class="brand-mark"><Icon name="gauge" :size="size" /></div>
+  <div v-else class="brand-mark"><Icon name="database" :size="size" /></div>
 </template>
 
 <style scoped>
