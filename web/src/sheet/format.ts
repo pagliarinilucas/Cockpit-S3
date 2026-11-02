@@ -12,14 +12,14 @@ import type { CellValue } from './model';
 
 /** Formatos oferecidos na barra do editor. */
 export const NUM_FORMATS = [
-  { label: 'Geral', code: null },
-  { label: 'Número', code: '#,##0.00' },
-  { label: 'Inteiro', code: '#,##0' },
-  { label: 'Moeda', code: '"R$" #,##0.00' },
-  { label: 'Percentual', code: '0.00%' },
-  { label: 'Data', code: 'dd/mm/yyyy' },
-  { label: 'Data e hora', code: 'dd/mm/yyyy hh:mm' },
-  { label: 'Texto', code: '@' },
+  { key: 'general', code: null },
+  { key: 'number', code: '#,##0.00' },
+  { key: 'integer', code: '#,##0' },
+  { key: 'currency', code: '"R$" #,##0.00' },
+  { key: 'percent', code: '0.00%' },
+  { key: 'date', code: 'dd/mm/yyyy' },
+  { key: 'dateTime', code: 'dd/mm/yyyy hh:mm' },
+  { key: 'text', code: '@' },
 ] as const;
 
 const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30);

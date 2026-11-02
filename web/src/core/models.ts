@@ -216,9 +216,95 @@ export interface SharePublicMeta {
 }
 
 export interface ActivityEvent {
+  id: number;
   action: ActivityAction;
   actor: string;
   bucket: string;
   target: string;
   at: string;
+}
+
+export type Edition = 'community' | 'pro' | 'enterprise';
+export type LicenseFeature = 'sso' | 'audit-export' | 'branding' | 'white-label';
+
+export interface EditionInfo {
+  edition: Edition;
+  features: LicenseFeature[];
+}
+
+export interface LicenseStatus extends EditionInfo {
+  state: 'none' | 'active' | 'expired' | 'invalid';
+  source: 'env' | 'database' | null;
+  licensee: string | null;
+  email: string | null;
+  instance: string | null;
+  issuedAt: string | null;
+  expiresAt: string | null;
+  updatesUntil: string | null;
+  releaseDate: string;
+  error: string | null;
+}
+
+export interface ActivityQuery {
+  since?: string;
+  until?: string;
+  actor?: string;
+  action?: string;
+  bucket?: string;
+  limit?: number;
+  before?: number;
+}
+
+export type AuditExportFormat = 'csv' | 'json' | 'ndjson';
+export type SyslogProtocol = 'udp' | 'tcp';
+
+export interface AuditSettings {
+  retentionDays: number;
+  webhookUrl: string;
+  webhookSecretSet: boolean;
+  webhookBearerSet: boolean;
+  syslogHost: string;
+  syslogPort: number;
+  syslogProtocol: SyslogProtocol;
+  licensed: boolean;
+  forward: { queued: number; dropped: number };
+}
+
+export interface AuditSettingsInput {
+  retentionDays?: number;
+  webhookUrl?: string;
+  webhookSecret?: string;
+  webhookBearer?: string;
+  syslogHost?: string;
+  syslogPort?: number;
+  syslogProtocol?: SyslogProtocol;
+}
+
+export interface AuditForwardResult { ok: boolean; status?: number; error?: string }
+
+export interface AuditForwardTest {
+  webhook: AuditForwardResult | null;
+  syslog: AuditForwardResult | null;
+}
+
+export interface Branding {
+  active: boolean;
+  productName: string;
+  accentColor: string | null;
+  logo: string | null;
+  sharePageMessage: string;
+  hidePoweredBy: boolean;
+}
+
+export interface BrandingSettings extends Omit<Branding, 'active'> {
+  licensed: boolean;
+  whiteLabel: boolean;
+}
+
+export interface BrandingInput {
+  productName?: string;
+  accentColor?: string | null;
+  logo?: string | null;
+  sharePageMessage?: string;
+  hidePoweredBy?: boolean;
 }

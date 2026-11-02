@@ -10,9 +10,9 @@ const { toasts } = useToast();
 
 <template>
   <div class="toast-wrap">
-    <div v-for="t in toasts" :key="t.id" class="toast" :class="'toast-' + t.kind">
-      <Icon :name="t.kind === 'error' ? 'x' : t.kind === 'success' ? 'check' : 'activity'" :size="15" />
-      <span>{{ t.msg }}</span>
+    <div v-for="toast in toasts" :key="toast.id" class="toast" :class="'toast-' + toast.kind">
+      <Icon :name="toast.kind === 'error' ? 'x' : toast.kind === 'success' ? 'check' : 'activity'" :size="15" />
+      <span>{{ toast.msg }}</span>
     </div>
   </div>
 </template>

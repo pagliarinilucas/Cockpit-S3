@@ -1,0 +1,37 @@
+name: cockpit-s3
+
+services:
+  cockpit-s3:
+    image: ghcr.io/pagliarinilucas/cockpit-s3:${COCKPIT_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:?set ACCESS_TOKEN_SECRET (openssl rand -hex 32)}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-2592000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      COCKPIT_LICENSE_KEY: ${COCKPIT_LICENSE_KEY:-}
+      DB_PATH: /data/cockpit.sqlite
+      WEB_DIR: /app/public
+      PORT: "3000"
+    volumes:
+      - cockpit_data:/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+volumes:
+  cockpit_data:

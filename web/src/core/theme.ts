@@ -44,11 +44,16 @@ export function initTheme() {
   apply();
 }
 
+export function hasExplicitTheme(): boolean {
+  return read(THEME_KEY) !== null;
+}
+
 export function useTheme() {
   const setTheme = (id: string) => {
     if (!THEMES.some((t) => t.id === id)) return;
     current.value = id;
     write(THEME_KEY, id);
+    document.documentElement.style.removeProperty('--neon');
     apply();
   };
   const toggleScanlines = () => {

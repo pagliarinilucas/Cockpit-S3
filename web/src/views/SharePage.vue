@@ -8,8 +8,13 @@ import type { SharePublicMeta } from '../core/models';
 import { api, ApiError, sharePreviewUrl, shareDownloadUrl } from '../core/api';
 import { fmtBytes, typeFromName } from '../core/util';
 import Icon from '../components/Icon.vue';
+import BrandMark from '../components/BrandMark.vue';
+import PoweredBy from '../components/PoweredBy.vue';
+import { useBranding } from '../core/branding';
+import { t, fmtDateTime } from '../i18n';
 
 const props = defineProps<{ token: string }>();
+const { branding, productName } = useBranding();
 
 const meta = ref<SharePublicMeta | null>(null);
 const loading = ref(true);
@@ -23,27 +28,27 @@ const downloadUrl = computed(() => shareDownloadUrl(props.token));
 const kind = computed<'image' | 'pdf' | 'text' | 'none'>(() => {
   const m = meta.value;
   if (!m || !m.previewable) return 'none';
-  const t = typeFromName('f.' + (m.ext || '').replace(/^\./, ''));
-  if (t === 'image') return 'image';
-  if (t === 'pdf') return 'pdf';
-  if (t === 'text' || t === 'code') return 'text';
+  const fileType = typeFromName('f.' + (m.ext || '').replace(/^\./, ''));
+  if (fileType === 'image') return 'image';
+  if (fileType === 'pdf') return 'pdf';
+  if (fileType === 'text' || fileType === 'code') return 'text';
   return 'none';
 });
 
+type ShareErrorKind = 'expired' | 'notFound' | 'blocked' | 'offline' | 'generic';
+const errorCopy = (kind: ShareErrorKind) => ({ title: t(`share.page.errors.${kind}.title`), sub: t(`share.page.errors.${kind}.sub`) });
+
 const errMsg = computed(() => {
   switch (errStatus.value) {
-    case 410: return { title: 'Link expirado', sub: 'Este link expirou ou foi revogado pelo autor.' };
-    case 404: return { title: 'Link não encontrado', sub: 'Este link não existe ou já foi removido.' };
-    case 403: return { title: 'Acesso bloqueado', sub: 'Este link está travado a outro dispositivo/IP e não pode ser aberto aqui.' };
-    case 0:   return { title: 'Sem conexão', sub: 'Não foi possível contactar o servidor. Tente novamente.' };
-    default:  return { title: 'Não foi possível abrir', sub: 'Ocorreu um erro ao abrir este link.' };
+    case 410: return errorCopy('expired');
+    case 404: return errorCopy('notFound');
+    case 403: return errorCopy('blocked');
+    case 0:   return errorCopy('offline');
+    default:  return errorCopy('generic');
   }
 });
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR');
-}
+const fmtDate = (iso: string) => fmtDateTime(iso);
 
 async function load() {
   loading.value = true; errStatus.value = null; textBody.value = null;
@@ -70,16 +75,17 @@ onMounted(load);
 
     <div class="sp-topbar">
       <div class="sp-brand">
-        <div class="brand-mark"><Icon name="gauge" :size="20" /></div>
+        <BrandMark :size="20" />
         <div>
-          <div class="sp-brand-name">COCKPIT S3</div>
-          <div class="sp-brand-sub">ARQUIVO COMPARTILHADO</div>
+          <div class="sp-brand-name">{{ branding.active ? productName : 'COCKPIT S3' }}</div>
+          <div class="sp-brand-sub">{{ t('share.page.subtitle') }}</div>
         </div>
       </div>
     </div>
 
     <div class="sp-body">
-      <div v-if="loading" class="loading" style="min-height:200px"><div class="spinner"></div>ABRINDO LINK…</div>
+      <div v-if="branding.active && branding.sharePageMessage" class="sp-message">{{ branding.sharePageMessage }}</div>
+      <div v-if="loading" class="loading" style="min-height:200px"><div class="spinner"></div>{{ t('share.page.opening') }}</div>
 
       <div v-else-if="errStatus !== null" class="sp-card sp-err">
         <div class="sp-err-ic"><Icon name="alert" :size="34" /></div>
@@ -98,7 +104,7 @@ onMounted(load);
               <span v-if="meta.ext">{{ meta.ext.replace(/^\./, '').toUpperCase() }}</span>
             </div>
           </div>
-          <a class="btn btn-primary" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />Baixar</a>
+          <a class="btn btn-primary" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />{{ t('share.page.download') }}</a>
         </div>
 
         <div class="sp-preview">
@@ -107,16 +113,17 @@ onMounted(load);
           <pre v-else-if="kind === 'text' && textBody != null" class="sp-text">{{ textBody }}</pre>
           <div v-else class="sp-noprev">
             <Icon name="file" :size="40" />
-            <div class="sp-noprev-name">Sem prévia para este arquivo</div>
-            <a class="btn" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />Baixar arquivo</a>
+            <div class="sp-noprev-name">{{ t('share.page.noPreview') }}</div>
+            <a class="btn" :href="downloadUrl" :download="meta.filename"><Icon name="download" :size="16" />{{ t('share.page.downloadFile') }}</a>
           </div>
         </div>
 
         <div class="sp-foot">
-          <span><Icon name="clock" :size="13" /> Expira em {{ fmtDate(meta.expiresAt) }}</span>
+          <span><Icon name="clock" :size="13" /> {{ t('share.page.expiresAt', { date: fmtDate(meta.expiresAt) }) }}</span>
         </div>
       </div>
     </div>
+    <div class="sp-powered"><PoweredBy /></div>
   </div>
 </template>
 
@@ -127,7 +134,9 @@ onMounted(load);
 .sp-brand { display: flex; align-items: center; gap: 12px; }
 .sp-brand-name { font-family: var(--display-font); font-weight: 800; font-size: 16px; letter-spacing: 1px; }
 .sp-brand-sub { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); letter-spacing: 1.5px; }
-.sp-body { position: relative; flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 40px 20px; }
+.sp-body { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 16px; padding: 40px 20px; }
+.sp-message { width: 100%; max-width: 900px; padding: 12px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--neon) 30%, var(--line-2)); background: color-mix(in srgb, var(--neon) 7%, var(--bg-1)); color: var(--text-2); font-size: 14px; line-height: 1.5; white-space: pre-line; }
+.sp-powered { position: relative; padding: 0 0 24px; }
 .sp-card { width: 100%; max-width: 900px; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; }
 .sp-file { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
 .sp-file-ic { width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--neon) 12%, transparent); color: var(--neon); }

@@ -10,6 +10,7 @@ import {
 } from './model';
 import { Axis, colAxis, rowAxis } from './geometry';
 import { inkFor } from './contrast';
+import { t } from '../i18n';
 import {
   cellsOf, colTouched, contains, isMulti, rangeOf, rowTouched, wholeCol, wholeRow,
   type Range,
@@ -712,7 +713,7 @@ defineExpose({ focusCell });
           v-for="c in visibleCols" :key="'h' + c"
           class="sg-ch" :class="{ 'is-cur': colSelected(c) }"
           :style="{ left: colLeft(c) + 'px', width: colAx.size(c) + 'px', height: HEAD_H + 'px' }"
-          title="Clique para selecionar a coluna"
+          :title="t('sheet.grid.selectColumn')"
           @mousedown="selectCol(c, $event)"
         >
           {{ colName(c) }}
@@ -720,7 +721,7 @@ defineExpose({ focusCell });
             class="sg-grip sg-grip-col"
             :class="{ 'is-live': drag?.axis === 'col' && drag.index === c }"
             :style="{ width: GRIP * 2 + 'px' }"
-            title="Arraste para mudar a largura · duplo clique ajusta ao conteúdo"
+            :title="t('sheet.grid.resizeColumn')"
             @mousedown.stop="startResize('col', c, $event)"
             @dblclick.stop="autofitCol(c)"
           />
@@ -733,7 +734,7 @@ defineExpose({ focusCell });
         class="sg-rh" :class="{ 'is-cur': rowSelected(r) }"
         :data-rowhead="r"
         :style="{ top: rowTop(r) + 'px', height: rowAx.size(r) + 'px', width: HEAD_W + 'px', transform: `translateX(${scrollLeft}px)` }"
-        title="Clique para selecionar a linha"
+        :title="t('sheet.grid.selectRow')"
         @mousedown="selectRow(r, $event)"
       >
         {{ r + 1 }}
@@ -741,7 +742,7 @@ defineExpose({ focusCell });
           class="sg-grip sg-grip-row"
           :class="{ 'is-live': drag?.axis === 'row' && drag.index === r }"
           :style="{ height: GRIP * 2 + 'px' }"
-          title="Arraste para mudar a altura · duplo clique ajusta ao conteúdo"
+          :title="t('sheet.grid.resizeRow')"
           @mousedown.stop="startResize('row', r, $event)"
           @dblclick.stop="autofitRow(r)"
         />
@@ -789,7 +790,7 @@ defineExpose({ focusCell });
 
             <button
               v-if="listAt(r, c) && !readonly"
-              class="sg-drop" title="Escolher da lista"
+              class="sg-drop" :title="t('sheet.grid.pickFromList')"
               @mousedown.stop @click.stop="toggleList(r, c)"
             >▾</button>
 

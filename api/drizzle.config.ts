@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Lucas Pagliarini
 import { defineConfig } from 'drizzle-kit';
 
 // Codebase-first: o schema em src/db/schema.ts é a fonte da verdade.

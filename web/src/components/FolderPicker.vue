@@ -7,6 +7,7 @@ import { ref, watch } from 'vue';
 import { api } from '../core/api';
 import Icon from './Icon.vue';
 import Modal from './Modal.vue';
+import { t } from '../i18n';
 
 const props = defineProps<{ bucketId: string; bucketName?: string }>();
 const emit = defineEmits<{ close: []; pick: [prefix: string] }>();
@@ -25,7 +26,7 @@ async function load() {
     const res = await api.list(props.bucketId, prefix());
     folders.value = (res.items ?? []).filter((it) => it.kind === 'folder').map((it) => it.name);
   } catch (e) {
-    error.value = 'Falha ao listar pastas.';
+    error.value = t('files.picker.listFailed');
     folders.value = [];
   } finally {
     loading.value = false;
@@ -45,37 +46,37 @@ function confirmManual() {
 </script>
 
 <template>
-  <Modal title="Escolher pasta" icon="database" @close="emit('close')">
+  <Modal :title="t('files.picker.title')" icon="database" @close="emit('close')">
     <p class="modal-text">Bucket <strong>{{ bucketName ?? bucketId }}</strong></p>
 
     <div class="fp-crumbs">
-      <button class="fp-crumb" @click="root">raiz</button>
+      <button class="fp-crumb" @click="root">{{ t('files.picker.root') }}</button>
       <template v-for="(seg, i) in path" :key="i">
         <span class="fp-sep">/</span>
         <button class="fp-crumb" @click="up(i + 1)">{{ seg }}</button>
       </template>
     </div>
 
-    <div v-if="loading" class="loading"><div class="spinner"></div>CARREGANDO…</div>
+    <div v-if="loading" class="loading"><div class="spinner"></div>{{ t('files.picker.loading') }}</div>
     <div v-else-if="error" class="modal-hint" style="color:var(--danger)">{{ error }}</div>
     <div v-else class="fp-list">
       <button v-for="f in folders" :key="f" class="fp-item" @click="enter(f)">
         <Icon name="database" :size="15" /> {{ f }}
       </button>
-      <p v-if="!folders.length" class="modal-hint">Sem subpastas aqui.</p>
+      <p v-if="!folders.length" class="modal-hint">{{ t('files.picker.noSubfolders') }}</p>
     </div>
 
     <div class="field" style="margin-top:12px">
-      <label class="field-label">Ou digite o prefixo (vazio = bucket inteiro)</label>
+      <label class="field-label">{{ t('files.picker.prefixLabel') }}</label>
       <div class="fp-prefix">
-        <input class="field-input" v-model="manual" placeholder="ex: financeiro/2026/" @keydown.enter="confirmManual" />
-        <button class="btn" @click="confirmManual" title="Usar prefixo digitado"><Icon name="check" :size="16" />Usar</button>
+        <input class="field-input" v-model="manual" :placeholder="t('files.picker.prefixPlaceholder')" @keydown.enter="confirmManual" />
+        <button class="btn" @click="confirmManual" :title="t('files.picker.useTyped')"><Icon name="check" :size="16" />{{ t('files.picker.use') }}</button>
       </div>
     </div>
 
     <template #foot>
-      <button class="btn" @click="emit('close')">Cancelar</button>
-      <button class="btn btn-primary" @click="confirmCurrent"><Icon name="check" :size="16" />Usar esta pasta</button>
+      <button class="btn" @click="emit('close')">{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" @click="confirmCurrent"><Icon name="check" :size="16" />{{ t('files.picker.useThis') }}</button>
     </template>
   </Modal>
 </template>

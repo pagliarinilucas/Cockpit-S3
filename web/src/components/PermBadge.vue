@@ -7,6 +7,7 @@ import { computed } from 'vue';
 import type { Perm } from '../core/models';
 import { PERM_META } from '../core/perm';
 import Icon from './Icon.vue';
+import { t } from '../i18n';
 
 const props = withDefaults(defineProps<{ perm: Perm | null; small?: boolean }>(), { small: false });
 const meta = computed(() => (props.perm ? PERM_META[props.perm] : null));
@@ -14,6 +15,6 @@ const meta = computed(() => (props.perm ? PERM_META[props.perm] : null));
 
 <template>
   <span v-if="meta" class="perm" :class="[meta.cls, { 'perm-sm': small }]">
-    <Icon :name="meta.icon" :size="small ? 11 : 13" />{{ meta.label }}
+    <Icon :name="meta.icon" :size="small ? 11 : 13" />{{ t(meta.labelKey) }}
   </span>
 </template>

@@ -9,6 +9,9 @@ import { api, setOnUnauthorized } from './core/api';
 import Icon from './components/Icon.vue';
 import Toasts from './components/Toasts.vue';
 import ThemePanel from './components/ThemePanel.vue';
+import DemoNotice from './components/DemoNotice.vue';
+import BrandMark from './components/BrandMark.vue';
+import { useBranding } from './core/branding';
 import Login from './views/Login.vue';
 import Buckets from './views/Buckets.vue';
 import Files from './views/Files.vue';
@@ -17,6 +20,8 @@ import Users from './views/Users.vue';
 import Cluster from './views/Cluster.vue';
 import Settings from './views/Settings.vue';
 import SharePage from './views/SharePage.vue';
+import LocaleSwitcher from './components/LocaleSwitcher.vue';
+import { t, type MessageKey } from './i18n';
 
 type View = 'buckets' | 'files' | 'activity' | 'users' | 'cluster' | 'settings';
 interface Reloadable { reload: () => void }
@@ -27,12 +32,12 @@ const shareMatch = window.location.pathname.match(/^\/s\/([^/]+)\/?$/);
 const shareToken = shareMatch ? decodeURIComponent(shareMatch[1]!) : null;
 
 // Buckets is for everyone; cluster/activity/users/settings are admin-only.
-const NAV_BUCKETS = { id: 'buckets' as View, label: 'Buckets', icon: 'database' };
-const NAV_ADMIN = [
-  { id: 'cluster' as View, label: 'Cluster', icon: 'gauge' },
-  { id: 'activity' as View, label: 'Atividade', icon: 'activity' },
-  { id: 'users' as View, label: 'Usuários', icon: 'shield' },
-  { id: 'settings' as View, label: 'Configurações', icon: 'cpu' },
+const NAV_BUCKETS: { id: View; labelKey: MessageKey; icon: string } = { id: 'buckets', labelKey: 'app.nav.buckets', icon: 'database' };
+const NAV_ADMIN: { id: View; labelKey: MessageKey; icon: string }[] = [
+  { id: 'cluster', labelKey: 'app.nav.cluster', icon: 'gauge' },
+  { id: 'activity', labelKey: 'app.nav.activity', icon: 'activity' },
+  { id: 'users', labelKey: 'app.nav.users', icon: 'shield' },
+  { id: 'settings', labelKey: 'app.nav.settings', icon: 'cpu' },
 ];
 
 const me = ref<Me | null>(null);
@@ -52,6 +57,7 @@ const usersRef = ref<Reloadable | null>(null);
 const settingsRef = ref<Reloadable | null>(null);
 const clusterRef = ref<Reloadable | null>(null);
 
+const { branding, productName } = useBranding();
 const isAdmin = computed(() => me.value?.role === 'admin');
 // A basic user only reaches the bucket list if they can see more than one bucket;
 // with a single bucket their home IS that bucket and there's no list to browse.
@@ -87,7 +93,16 @@ function locHash(): string {
     const segs = filePath.value.map(encodeURIComponent).join('/');
     return `#/b/${encodeURIComponent(activeBucket.value.id)}${segs ? '/' + segs : ''}`;
   }
-  return view.value === 'buckets' ? '#/' : `#/${view.value}`;
+  if (view.value === 'buckets') return '#/';
+  const subsection = window.location.hash.match(/^#\/[\w-]+(\/[\w-]+)$/);
+  const keepSubsection = subsection && window.location.hash.startsWith(`#/${view.value}/`);
+  return `#/${view.value}${keepSubsection ? subsection[1] : ''}`;
+}
+const ADMIN_VIEWS: View[] = ['activity', 'users', 'cluster', 'settings'];
+function adminViewFromLocation(st: Loc | null): View | null {
+  const fromState = st?.view && ADMIN_VIEWS.includes(st.view) ? st.view : null;
+  const fromHash = ADMIN_VIEWS.find((v) => window.location.hash === `#/${v}` || window.location.hash.startsWith(`#/${v}/`)) ?? null;
+  return fromState ?? fromHash;
 }
 function pushLoc() { history.pushState(snapshot(), '', locHash()); }
 function resetLoc() { history.replaceState(snapshot(), '', locHash()); }   // set the base entry
@@ -104,7 +119,8 @@ function rebuildStack(bucket: Bucket, segs: string[]) {
 }
 function onPop(e: PopStateEvent) {
   if (!me.value) return;            // ignore while logged out
-  const loc: Loc = (e.state && (e.state as Loc).view) ? (e.state as Loc) : { view: 'buckets', bucket: null, path: [] };
+  const hashView = isAdmin.value ? adminViewFromLocation(null) : null;
+  const loc: Loc = (e.state && (e.state as Loc).view) ? (e.state as Loc) : { view: hashView ?? 'buckets', bucket: null, path: [] };
   // A basic single-bucket user has no bucket list to go back to — re-anchor them
   // in their bucket so Back never exposes the buckets screen.
   if (loc.view === 'buckets' && !canBrowseBuckets.value && homeBucket.value) {
@@ -132,6 +148,8 @@ onMounted(async () => {
         rebuildStack(st.bucket, st.path ?? []);
         api.buckets().then(noteBuckets).catch(() => {});   // populate counts in the background
       } else {
+        const adminView = isAdmin.value ? adminViewFromLocation(st) : null;
+        if (adminView) view.value = adminView;
         resetLoc();
       }
     }
@@ -177,10 +195,10 @@ function gotoCrumb(i: number) { filePath.value = filePath.value.slice(0, i + 1);
 
 const searchable = computed(() => view.value === 'buckets' || view.value === 'activity');
 const searchPlaceholder = computed(() => {
-  if (view.value === 'files') return 'use a busca da pasta abaixo…';
-  if (view.value === 'users' || view.value === 'cluster' || view.value === 'settings') return 'busca indisponível aqui';
-  if (view.value === 'activity') return 'Buscar eventos…';
-  return 'Buscar buckets…';
+  if (view.value === 'files') return t('app.search.files');
+  if (view.value === 'users' || view.value === 'cluster' || view.value === 'settings') return t('app.search.unavailable');
+  if (view.value === 'activity') return t('app.search.activity');
+  return t('app.search.buckets');
 });
 
 function refresh() {
@@ -198,7 +216,7 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
   <SharePage v-if="shareToken" :token="shareToken" />
 
   <template v-else>
-  <div v-if="booting" class="loading" style="height:100vh;justify-content:center"><div class="spinner"></div>INICIANDO COCKPIT…</div>
+  <div v-if="booting" class="loading" style="height:100vh;justify-content:center"><div class="spinner"></div>{{ t('app.booting') }}</div>
 
   <template v-else-if="!me">
     <Login @logged-in="onLogin" />
@@ -209,9 +227,9 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
     <div class="app" :class="{ 'app-min': minimalSidebar }">
       <aside class="sidebar" :class="{ 'sidebar-min': minimalSidebar }">
         <div class="brand">
-          <div class="brand-mark"><Icon name="gauge" :size="22" /></div>
+          <BrandMark :size="22" />
           <div class="brand-text">
-            <div class="brand-name">COCKPIT</div>
+            <div class="brand-name">{{ branding.active ? productName : 'COCKPIT' }}</div>
             <div class="brand-sub">STORAGE · S3</div>
           </div>
         </div>
@@ -219,7 +237,7 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
         <nav v-if="nav.length" class="nav">
           <button v-for="n in nav" :key="n.id" class="navitem" :class="{ 'navitem-on': isOn(n.id) }" @click="goNav(n.id)">
             <Icon :name="n.icon" :size="18" />
-            <span>{{ n.label }}</span>
+            <span>{{ t(n.labelKey) }}</span>
             <span v-if="isOn(n.id)" class="navitem-glow"></span>
           </button>
         </nav>
@@ -228,8 +246,8 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
           <div v-if="!minimalSidebar" class="ignition">
             <span class="ign-light"></span>
             <div class="ign-text">
-              <div class="ign-status">CONECTADO</div>
-              <div class="ign-sub">cluster garage</div>
+              <div class="ign-status">{{ t('app.connected') }}</div>
+              <div class="ign-sub">{{ t('app.clusterGarage') }}</div>
             </div>
             <Icon name="power" :size="16" />
           </div>
@@ -237,19 +255,23 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
             <div class="user-av">{{ initials }}</div>
             <div class="user-info">
               <div class="user-name">{{ me.username }}</div>
-              <div class="user-role">{{ me.role || 'usuário' }}</div>
+              <div class="user-role">{{ me.role || t('app.defaultRole') }}</div>
             </div>
-            <button class="iconbtn user-logout" title="Sair" @click="logout"><Icon name="logout" :size="17" /></button>
+            <button class="iconbtn user-logout" :title="t('app.signOut')" :aria-label="t('app.signOut')" @click="logout"><Icon name="logout" :size="17" /></button>
           </div>
           <!-- AGPL §13: offer the corresponding source to every network user. -->
-          <a class="source-offer" href="https://github.com/pagliarinilucas/Cockpit-S3" target="_blank" rel="noopener"
-             title="Código-fonte (AGPL v3)">
-            <Icon name="database" :size="12" /> <span>Código-fonte · AGPL v3</span>
-          </a>
+          <div class="sidebar-meta">
+            <a class="source-offer" href="https://github.com/pagliarinilucas/Cockpit-S3" target="_blank" rel="noopener"
+               :title="t('app.sourceCodeTitle')">
+              <Icon name="database" :size="12" /> <span>{{ t('app.sourceCode') }}</span>
+            </a>
+            <LocaleSwitcher />
+          </div>
         </div>
       </aside>
 
       <div class="main">
+        <DemoNotice variant="banner" />
         <header class="topbar">
           <div v-if="searchable || view === 'files'" class="searchbox searchbox-global">
             <Icon name="search" :size="16" />
@@ -257,7 +279,7 @@ const initials = computed(() => (me.value?.username || '').slice(0, 2).toUpperCa
           </div>
           <div class="topbar-right">
             <div class="env-pill"><span class="env-dot"></span> garage</div>
-            <button class="iconbtn iconbtn-lg" title="Atualizar" @click="refresh"><Icon name="refresh" :size="17" /></button>
+            <button class="iconbtn iconbtn-lg" :title="t('app.refresh')" :aria-label="t('app.refresh')" @click="refresh"><Icon name="refresh" :size="17" /></button>
           </div>
         </header>
 
